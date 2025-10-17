@@ -5,11 +5,16 @@
 
 \begin{document}
 % ------------------------
-Recall the definition of $\eunoia$ terms given by
-\autoref{sec:eunoia}, and similarly the definition
-for $\lambdapi$ terms from \autoref{sec:lambdapi}.
+Recall the definition of Eunoia terms and commands
+given by \autoref{sec:eunoia}, and similarly those
+of $\lambdapi$ from \autoref{sec:lambdapi}.
 %
-We define a pair of \emph{translation} operators below.
+We define a \emph{translation} operator below,
+which may act on the terms, types, and commands
+of Eunoia.
+%
+First, we define an injection from Eunoia symbols
+to those of $\lambdapi$.
 %
 \begin{definition}
 For any $\eunoia$ symbol $s ∈ 𝒮_\eo$, define $\bar s$ thus:
@@ -74,55 +79,112 @@ $$
 %
 \end{definition}
 %
-Now, recall the set of $\eunoia$ commands,
+Now, recall the abstract interface for $\eunoia$ commands
+defined in \autoref{sec:eo-judge},
 and also those of $\lambdapi$.
 %
 \begin{definition}
-Let $\cmd{⋅}$ be the least operator such that:
-%
+Let $\cmd{⋅}$ be the least operator such that
+for any standard command $δ$,
+$\cmd δ$ is a set of $\lambdapi$ commands satisfying
+the following:
 $$
-\begin{array}[t]{l@{\ =\ }l}
-\cmd{\epar{\mtt{declare-const}\ s\ t\ \maybe{α}}}
-& \mtt{symbol}\ {\bar s} : {\ty{t}};
+\begin{array}[t]{c}
+δ ⊢ s(\vec ρ) : t
+{\quad{⟹}\quad}
+\begin{cases}
+\prn
+{\mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t}} ≔ \tm{t'}}
+∈ \cmd{δ} & \text{if $δ ⊢ s(\vec ρ) ≔ t'$,}
 \\
-%-----------
-\cmd{\epar{\mtt{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}}}
-& \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}}: {\ty{t}};\
-\\
-%-----------
-\cmd{\epar{\mtt{define}\ {s}\ \epar{\vec ρ} \ t\ \maybe{\mtt{:type}\ t'}}}
-& \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t'}}
-  ≔ \tm{t};
-\\
-%-----------
-\cmd{
-\epar{\mtt{program}\ {s} \ \epar{\vec ρ}\
-			    \mtt{:signature}\,\epar{\vec{t}}\,t'
-				\
-			    \epar{\vec{r}}
-			}
-}
-& \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{\earr{\vec t\ t'}}};
-
+\prn{\mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t}}}
+∈ \cmd{δ}
+& \text{otherwise.}
+\end{cases}
+\\[5mm]
+\delta = \epar{\mtt{include}\ μ}
+{\quad{⟹}\quad}
+\cmd{δ} = \{\prn{\mtt{require}\ \mtt{open}\ {μ}}\}
 \end{array}
 $$
-$$
-\begin{array}[t]{c@{\ }l}
-			    {⦂} &                                \\
-			    {∣} &  \\
-			    {∣} &    \\
-			    {∣} &                                                                           \\
-			    {∣} & {\color{MaterialGrey600}{\texttt{(}}}
-			    \mtt{declare-rule}\ s\ \epar{\vec ρ}\
-			    \\ & \quad \maybe{\mtt{:premises}\ \epar{\vec{t}_{\text{prem}}}}\
-			    \\ & \quad \maybe{\mtt{:args}\ \epar{\vec{t}_{\text{args}}}}\
-			    \\ & \quad \maybe{\mtt{:requires}\ \epar{\vec{r}}}\
-			    \\ & \quad \mtt{:conclusion}\ {t_{\text{conc}}}
-			    {\color{MaterialGrey600}{\texttt{)}}}                                           \\
-			    {∣} & \epar{\mtt{include}\ μ}
-		    \end{array}
-$$
-
+%
+The translation on proof commands $\cmd{\pi}$ is defined
+similarly, where assumptions and steps are mapped to symbol declarations
+in $\lambdapi$ that reflect their names, conclusions, and (if applicable)
+rules, premises, and arguments, using the judgements $\pi ⊢ s : \eapp{\mtt{Proof}}{φ}$
+and $\pi ⊢ s ≔ \eapp{s'}{\plur t m\ \plur p n}$.
 \end{definition}
+
+We have implemented this translation as an OCaml program called
+\texttt{eo2lp}, which uses the Menhir parser generator for parsing
+Eunoia signatures and proof scripts. The tool reads Eunoia files,
+elaborates them using the operator from \autoref{sec:eo-elab},
+applies the translation operators defined above, and outputs
+corresponding $\lambdapi$ code.
+
+
+\subsubsection{Testing and Benchmarks.}
+%
+Because Eunoia is a complex and evolving system, we created a fork
+of the CPC signature called CPC-MINI, which corresponds to the
+fragment of CPC needed for formalizing the constants and inference
+rules used in \cvc{5} proofs whose input problems are from the QF-UF
+fragment of SMT-LIB. We translated all of CPC-MINI into $\lambdapi$
+code, mirroring the directory tree of CPC-MINI.
+
+For proof scripts, we used a small benchmark library (called `rodin')
+of 30 unsatisfiable problems from the SMT-LIB benchmark suite,
+restricted to the QF-UF fragment. We ran \cvc{5} on these problems
+with the option \texttt{--proof-format=cpc} to dump their proofs in
+Eunoia format. We then ran our \texttt{eo2lp} tool on these proof
+scripts and obtained $\lambdapi$ files that typecheck successfully.
+
+% \section{Conclusion and Future Work}\label{sec:conclu}
+
+% \begin{definition}
+% Let $\cmd{⋅}$ be the least operator such that:
+% %
+% $$
+% \begin{array}[t]{l@{\ =\ }l}
+% \cmd{\epar{\mtt{declare-const}\ s\ t\ \maybe{α}}}
+% & \mtt{symbol}\ {\bar s} : {\ty{t}};
+% \\
+% %-----------
+% \cmd{\epar{\mtt{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}}}
+% & \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}}: {\ty{t}};\
+% \\
+% %-----------
+% \cmd{\epar{\mtt{define}\ {s}\ \epar{\vec ρ} \ t\ \maybe{\mtt{:type}\ t'}}}
+% & \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t'}}
+%   ≔ \tm{t};
+% \\
+% %-----------
+% \cmd{
+% \epar{\mtt{program}\ {s} \ \epar{\vec ρ}\
+% 			    \mtt{:signature}\,\epar{\vec{t}}\,t'
+% 				\
+% 			    \epar{\vec{r}}
+% 			}
+% }
+% & \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{\earr{\vec t\ t'}}};
+
+% \end{array}
+% $$
+% $$
+% \begin{array}[t]{c@{\ }l}
+% 			    {⦂} &                                \\
+% 			    {∣} &  \\
+% 			    {∣} &    \\
+% 			    {∣} &                                                                           \\
+% 			    {∣} & {\color{MaterialGrey600}{\texttt{(}}}
+% 			    \mtt{declare-rule}\ s\ \epar{\vec ρ}\
+% 			    \\ & \quad \maybe{\mtt{:premises}\ \epar{\vec{t}_{\text{prem}}}}\
+% 			    \\ & \quad \maybe{\mtt{:args}\ \epar{\vec{t}_{\text{args}}}}\
+% 			    \\ & \quad \maybe{\mtt{:requires}\ \epar{\vec{r}}}\
+% 			    \\ & \quad \mtt{:conclusion}\ {t_{\text{conc}}}
+% 			    {\color{MaterialGrey600}{\texttt{)}}}                                           \\
+% 			    {∣} & \epar{\mtt{include}\ μ}
+% 		    \end{array}
+% $$
 
 \end{document}
