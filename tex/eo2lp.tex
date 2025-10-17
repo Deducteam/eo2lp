@@ -16,21 +16,22 @@
 
 \begin{abstract}
 	\noindent
-	Eunoia is a logical framework used for
-	theories, inference rules, and derivations of SMT solvers with
-	proof production facilities.
+	Eunoia is a logical framework used formalizing the
+	proof production facilities of SMT solvers.
 	%
-	We present a tool \texttt{eo2lp}, for automatically translating Eunoia
-	specifications and proofs into code for \texttt{lambdapi} ---
-	an interactive theorem prover based on the $\lambda\Pi$-calculus.
+	We present an encoding of Eunoia signatures and theories
+  into the \emph{$λΠ$-calculus modulo rewriting} as
+  implemented by the $\lambdapi$ proof assistant.
 	%
-	Our approach is demonstrated by
+	Our encoding is demonstrated by the development
+	of a tool \texttt{eo2lp}, which we used for
 	(a) translating the portion of \texttt{cvc5}'s
-	\textit{co-operating proof calculus} (CPC) corresponding to the QF-UF
-	fragment of SMT-LIB; and
+	\textit{co-operating proof calculus} (CPC)
+	corresponding to the QF-UF fragment of SMT-LIB; and
 	%
-	(b) translating proofs produced by running \texttt{cvc5} on a set of
-	QF-UF problems from the SMT-LIB benchmark library.
+	(b) translating proofs produced by running \texttt{cvc5}
+	on a set of QF-UF problems from the SMT-LIB
+	benchmark library.
 \end{abstract}
 
 \section{Background}
@@ -47,6 +48,30 @@
 
 \section{Conclusion and Future Work}\label{sec:conclu}
 
+We have presented a translation from Eunoia specifications and proofs
+to the $\lambda\Pi$-calculus, as implemented in the $\lambdapi$ proof
+assistant. Our tool \texttt{eo2lp} automates this translation and has
+been demonstrated on a subset of the CPC signature and proofs from
+QF-UF benchmarks.
+
+It should be stressed that the presentation of Eunoia in this paper
+only represents the core features, and there is more work to do in
+order to (a) translate all of the CPC signature and therefore be able
+to translate arbitrary \cvc{5} proofs, and (b) robustly cover the
+entirety of Eunoia to be able to translate arbitrary Eunoia signatures
+and proof scripts.
+
+We should also aim to support larger proofs, as those from the rodin
+benchmark have fewer than 70 proof steps. Some \cvc{5} proofs can be
+massive, so computational and efficiency aspects of the translation
+must be investigated.
+
+For future work, we should also investigate using our translated
+signatures and proof scripts in the realm of proof interoperability.
+For example, to gain even more confidence in the results of \cvc{5},
+one could attempt to prove the consistency of CPC, either within
+$\lambdapi$ or by exporting to some other proof assistant like
+Isabelle/HOL or Rocq.
 
 \printbibliography
 
