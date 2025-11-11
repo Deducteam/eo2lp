@@ -20,15 +20,12 @@ type term =
   | Bang of term * (attr list)
 and attr = keyword * (term option)
 
-type typ =
-  | Type of term
-
 type param =
-  | Param of symbol * typ * (attr list)
+  | Param of symbol * term * (attr list)
 
 (* types for datatype declarations *)
 type sort_dec = symbol * int
-and sel_dec = symbol * typ
+and sel_dec = symbol * term
 and cons_dec = symbol * (sel_dec list)
 and dt_dec = cons_dec list
 
@@ -47,17 +44,28 @@ and reqs =
 and conclusion =
   | Conclusion of term
   | ConclusionExplicit of term
-and rl_dec =
-  assumption option *
-  premises option *
-  arguments *
-  reqs *
-  conclusion
+and rule_dec =
+  | RuleDec of
+      assumption option * premises option *
+      arguments option * reqs option * conclusion
 
 
-(* commands shared by smtlib2 and eunoia *)
-type common_command =
-  | DeclareConst     of symbol * typ * attr list
+(* commands exclusive to eunoia *)
+type eo_command =
+  | Assume            of symbol * term
+  | AssumePush        of symbol * term
+  | DeclareConsts     of lit_category * term
+  | DeclareParamConst of symbol * param list * term * attr list
+  | DeclareRule       of symbol * rule_dec * attr list
+  | Define            of symbol * param list * term * attr list
+  | Include           of string
+  | Program           of symbol * param list * (term list * term) * ((term * term) list)
+  | Reference         of string * symbol option
+  | Step              of symbol * term option * symbol * simple_premises option * arguments option
+  | StepPop           of symbol * term option * symbol * simple_premises option * arguments option
+  | Common            of common_command
+and common_command =
+  | DeclareConst     of symbol * term * attr list
   | DeclareDatatype  of symbol * dt_dec
   | DeclareDatatypes of (sort_dec list) * (dt_dec list)
   | Echo             of string
@@ -65,23 +73,10 @@ type common_command =
   | Reset
   | SetOption        of attr
 
-(* commands exclusive to eunoia *)
-type eo_command =
-  | Assume            of symbol * term
-  | AssumePush        of symbol * term
-  | DeclareConsts     of symbol * typ * (attr list)
-  | DeclareParamConst of symbol * param list * typ * attr list
-  | DeclareRule       of symbol * rl_dec
-  | Define            of symbol * param list * term * attr list
-  | Include           of string
-  | Program           of symbol * param list * (typ list * typ) * ((term * term) list)
-  | Reference         of string * symbol
-  | Step              of symbol * term option * symbol * simple_premises * arguments
-  | StepPop           of symbol * term option * symbol * simple_premises * arguments
-  | CommonEO          of common_command
+
 
 (* deprecated stuff. *)
-type smt2_command =
+(* type smt2_command =
   | Assert           of term
   | CheckSat
   | CheckSatAssuming of term list
@@ -92,4 +87,4 @@ type smt2_command =
   | DefineSort       of symbol * symbol list * typ
   | SetInfo          of attr
   | SetLogic         of symbol
-  | CommonSMT        of common_command
+  | CommonSMT        of common_command *)
