@@ -1,5 +1,6 @@
 %{
 open Ast
+open Option
 %}
 
 %token <string> SYMBOL STRING
@@ -55,13 +56,121 @@ open Ast
 %start <eo_command option> toplevel_eof
 
 %%
-toplevel_eof:
-  | EOF { None }
-  | toplevel { Some $1 }
+eo_command:
+  | LPAREN; ASSUME;
+      s = SYMBOL;
+      t = term;
+    RPAREN
+  { Assume (s,t) }
+  | LPAREN; ASSUME_PUSH;
+      s = SYMBOL;
+      t = term;
+    RPAREN
+  { AssumePush (s,t) }
+  | LPAREN; DECLARE_CONSTS;
+      l = lit_category;
+      t = term;
+    RPAREN
+  { DeclareConsts (l,t) }
+  | LPAREN; DECLARE_PARAM_CONST;
+      s = SYMBOL;
+      LPAREN; xs = list(param); RPAREN;
+      t = term;
+      as = list(attr);
+    RPAREN
+  { DeclareParamConst (s,xs,t,as) }
+  | LPAREN; DECLARE_RULE;
+      s = SYMBOL;
+      LPAREN; xs = list(param); RPAREN;
+      assm  = option(assumption);
+      prems = option(premises);
+      args  = option(arguments);
+      reqs  = option(reqs);
+      conc  = conclusion;
+      atts  = list(attr);
+    RPAREN
+  { DeclareRule (s,
+      RuleDec (
+        assm, prems,
+        (match args with
+        | Some ts -> ts
+        | None    -> []),
+        (match reqs with
+        | Some cs -> cs
+        | None    -> []),
+        conc
+      ),
+      atts
+    )
+  }
+  | LPAREN; DEFINE;
+      s = SYMBOL;
+      LPAREN; xs = list(param); RPAREN;
+      t = term;
+      as = list(attr);
+    RPAREN
+  { Define (s,xs,t,as) }
+  | LPAREN; INCLUDE;
+      str = string;
+    RPAREN
+  { Include str }
+  | LPAREN; PROGRAM;
+      s = SYMBOL;
+      LPAREN; xs = list(param); RPAREN;
+      SIGNATURE;
+        LPAREN; doms = nonempty_list(term); RPAREN;
+        ran = term;
+      LPAREN; cs = nonempty_list(case); RPAREN;
+    RPAREN
+  { Program (s, xs, (doms, ran), cs) }
+  | LPAREN; REFERENCE;
+      str = string;
+      s_opt = option(SYMBOL);
+    RPAREN
+  { Reference (str, s_opt) }
+  | LPAREN; STEP;
+      s1 = SYMBOL;
+      t_opt = option(term);
+      RULE; s2 = SYMBOL;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  { Step (s1, t_opt, s2, prem_opt, ) }
+  | LPAREN; STEP_POP;
+      SYMBOL;
+      option(term);
+      RULE; SYMBOL;
+      option(simple_premises);
+      option(arguments);
+    RPAREN
+  {}
+  | common_command
+  { Common $1 }
 
-toplevel:
-  | eo_command     { $1 }
-  | smt2_command   { $1 }
+common_command:
+  | LPAREN; DECLARE_CONST;
+      SYMBOL;
+      term;
+      list(attr);
+    RPAREN
+  {}
+  | LPAREN; DECLARE_DATATYPE;
+      SYMBOL;
+      datatype_dec;
+    RPAREN
+  {}
+  | LPAREN; DECLARE_DATATYPES;
+      SYMBOL;
+      LPAREN; list(sort_dec); RPAREN;
+      LPAREN; list(datatype_dec); RPAREN;
+    RPAREN
+  {}
+  | LPAREN; ECHO;
+      option(string);
+    RPAREN;
+  {}
+  | LPAREN; RESET; RPAREN
+  | LPAREN; SET_OPTION; attr; RPAREN
 
 literal:
   | NUMERAL  { Numeral $1  }
@@ -69,13 +178,13 @@ literal:
   | RATIONAL { Rational $1 }
   | STRING   { String $1   }
 
-lit_category:
-  | NUM { NUM }
-  | DEC { DEC }
-  | RAT { RAT }
-  | BIN { BIN }
-  | HEX { HEX }
-  | STR { STR }
+keyword:
+  | COLON; SYMBOL
+  { Colon $2 }
+
+attr:
+  | KEYWORD; option(term)
+  { ($2, $3) }
 
 term:
   | literal  { Literal $1  }
@@ -103,111 +212,61 @@ var:
       SYMBOL; term;
     RPAREN
   { ($2, $3) }
-keyword:
-  | COLON; SYMBOL { Colon $2 }
-attr:
-  | KEYWORD; option(term) { ($2, $3) }
+
+param:
+  | LPAREN; SYMBOL; term; list(attr); RPAREN
+  { Param ($2, Type $3, $4) }
+
 case:
-  | LPAREN; term; term; RPAREN { ($2, $3) }
+  | LPAREN; term; term; RPAREN
+  { ($2, $3) }
 
-(*
-BROKEN FROM HERE.
+sel_dec:
+  | LPAREN; SYMBOL; term; RPAREN
+  {}
+cons_dec:
+  | LPAREN; SYMBOL; list(sel_dec); RPAREN
+  {}
+datatype_dec:
+  | LPAREN; nonempty_list(cons_dec); RPAREN
+  {}
 
-base_command:
-  | LPAREN; ASSERT; term; RPAREN
-    { Assert ($3) }
-  | LPAREN; DECLARE_CONST; SYMBOL; term; list(attr); RPAREN
-    { DeclareConst ($3, $4, $5) }
-  | LPAREN; DEFINE_CONST; SYMBOL; term; RPAREN
-    { DefineConst ($3, $4) }
-  | LPAREN; DECLARE_DATATYPE; SYMBOL; datatype_decl; RPAREN;
-    { DeclareDatatype ($3, $4) }
-  | LPAREN; DECLARE_DATATYPES; LPAREN; list(sort_decl); RPAREN; LPAREN; list(datatype_decl); RPAREN; RPAREN;
-    { DeclareDatatypes ($4, $7) }
-  | LPAREN; DECLARE_FUN; SYMBOL; LPAREN; list(term); RPAREN; term; list(attr); RPAREN
-    { DeclareFun ($3, $5, $7, $8) }
-  | LPAREN; DEFINE_FUN; function_def; RPAREN
-    { DefineFun ($3) }
-  | LPAREN; DEFINE_FUN_REC; function_def; RPAREN
-    { DefineFunRec ($3) }
-  | LPAREN; DEFINE_FUNS_REC;
-      LPAREN; nonempty_list(funs_decl); RPAREN;
-      LPAREN; nonempty_list(term); RPAREN;
-    RPAREN
-    { DefineFunsRec ($4, $7) } (*insert length check here?*)
-  | LPAREN; DECLARE_TYPE; SYMBOL; LPAREN; list(term); RPAREN; RPAREN
-    { DeclareType ($3, $5) }
-  | LPAREN; DEFINE_TYPE; SYMBOL; LPAREN; list(term); RPAREN; term; RPAREN
-    { DefineType ($3, $5, $7) }
-  | LPAREN; DECLARE_SORT; sort_decl; RPAREN
-    { DeclareSort ($3) }
-  | LPAREN; DEFINE_SORT; SYMBOL; LPAREN; list(SYMBOL); RPAREN; term; RPAREN
-    { DefineSort ($3, $5, $7) }
-function_def:
-  | SYMBOL; LPAREN; list(eo_var); RPAREN; term; term; { ($1, $3, $5, $6) }
-funs_decl:
-  | LPAREN; SYMBOL; LPAREN; list(eo_var); RPAREN; term; RPAREN;
-    { ($2, $4, $6) }
-datatype_decl:
-  | LPAREN; nonempty_list(cons_decl); RPAREN { $2 }
-cons_decl:
-  | LPAREN; SYMBOL; list(var_decl); RPAREN { ($2, $3) }
-var_decl:
-  | LPAREN; SYMBOL; term; RPAREN { ($2, $3) }
-sort_decl:
-  | LPAREN; SYMBOL; NUMERAL; RPAREN { ($2, $3) }
+lit_category:
+  | NUM { NUM }
+  | DEC { DEC }
+  | RAT { RAT }
+  | BIN { BIN }
+  | HEX { HEX }
+  | STR { STR }
 
-eunoia_command:
-  | LPAREN; DEFINE; SYMBOL; LPAREN; list(eo_var); RPAREN; term; RPAREN
-    { Define ($3, $5, $7) }
-  | LPAREN; DECLARE_CONSTS; lit_category; term; RPAREN
-    { DeclareConsts ($3, $4) }
-  | LPAREN; DECLARE_RULE; SYMBOL;
-      LPAREN; list(eo_var); RPAREN; rule_attr; RPAREN
-    { DeclareRule ($3, $5, $7) }
-// (declare-parameterized-const <symbol> (<typed-param>*) <type> <attr>*)
-  | LPAREN; DECLARE_PARAMETERIZED_CONST; SYMBOL;
-      LPAREN; list(eo_var); RPAREN; term; list(attr); RPAREN
-    { DeclareParamConst ($3, $5, $7, $8)}
-// (declare-oracle-fun <symbol> (<type>*) <type> <symbol>)
-  | LPAREN; DECLARE_ORACLE_FUN; SYMBOL;
-      LPAREN; list(term); RPAREN; term; SYMBOL; RPAREN
-    { DeclareOracleFun ($3, $5, $7, $8) }
-  | LPAREN; INCLUDE; STRING; RPAREN
-    { Include ($3) }
-// (program <symbol> (<typed-param>*) (<type>*) <type> ((<term> <term>)+))
-  | LPAREN; PROGRAM; SYMBOL; LPAREN; list(eo_var); RPAREN;
-      LPAREN; list(term); RPAREN; term;
-      LPAREN; nonempty_list(term_pair); RPAREN; RPAREN
-    { Program ($3, None, $5, $8, $10, $12) }
-  | LPAREN; PROGRAM_SCHEMA; COLON; SYMBOL; SYMBOL; LPAREN; list(eo_var); RPAREN;
-      LPAREN; list(term); RPAREN; term;
-      LPAREN; nonempty_list(term_pair); RPAREN; RPAREN
-    { Program ($5, Some $4, $7, $10, $12, $14)}
-  | LPAREN; REFERENCE; STRING; option(SYMBOL); RPAREN
-    { Reference ($3, $4) }
+toplevel_eof:
+  | EOF { None }
+  | toplevel { Some $1 }
 
-rule_attr:
-  | option(assumption); option(premises); option(arguments); option(reqs); conclusion; list(attr)
-    { {assumes = $1; prems = $2; arguments = $3; requires = $4; conclusion = $5; attrs = $6} }
+toplevel:
+  | eo_command     { $1 }
+  | smt2_command   { $1 }
+
+
 assumption:
-  | ASSUMPTION; term { $2 }
+  | ASSUMTPION; term
+  { Assumption $2 }
+simple_premises:
+  | PREMISES; LPAREN; list(term); RPAREN;
+  { Premises $2 }
 premises:
-  | PREMISES; LPAREN; list(term); RPAREN { Premises $3 }
-  | PREMISE_LIST; term; term { PremiseList ($2, $3) }
+  | simple_premises
+  { Simple $1 }
+  | PREMISE_LIST; term; term
+  { PremiseList ($2,$3) }
 arguments:
-  | ARGS; LPAREN; list(term); RPAREN { $3 }
+  | ARGS; LPAREN; list(term); RPAREN;
+  { Args $3 }
 reqs:
-  | REQUIRES; LPAREN; list(term_pair); RPAREN { $3 }
+  | REQUIRES; LPAREN; list(case); RPAREN
+  { Requires $3 }
 conclusion:
-  | CONCLUSION; term { $2 }
-
-proof_command:
-  | LPAREN; ASSUME; SYMBOL; term; RPAREN
-    { Assume ($3, $4) }
-  | LPAREN; ASSUME_PUSH; SYMBOL; term; RPAREN
-    { AssumePush ($3, $4) }
-  | LPAREN; STEP; SYMBOL; option(term); RULE; SYMBOL; option(premises); option(arguments); RPAREN
-    { Step ($3, $4, $6, $7, $8) }
-  | LPAREN; STEP_POP; SYMBOL; option(term); RULE; SYMBOL; option(premises); option(arguments); RPAREN
-    { StepPop ($3, $4, $6, $7, $8) } *)
+  | CONCLUSION; term
+  { Conclusion $2 }
+  | CONCLUSION_EXPLICIT; term
+  { ConclusionExplicit $2 }
