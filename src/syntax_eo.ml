@@ -1,7 +1,8 @@
-type symbol = string
+type symbol =
+  | Symbol of string
 
 type keyword =
-  | Colon of symbol
+  | Colon of string
 
 type lit_category =
   NUM | DEC | RAT | BIN | HEX | STR
@@ -18,16 +19,21 @@ type term =
   | Let of ((symbol * term) list) * term
   | Apply of symbol * (term list)
   | Bang of term * (attr list)
-and attr = keyword * (term option)
+and attr =
+  | Attr of keyword * (term option)
 
 type param =
   | Param of symbol * term * (attr list)
 
 (* types for datatype declarations *)
-type sort_dec = symbol * int
-and sel_dec = symbol * term
-and cons_dec = symbol * (sel_dec list)
-and dt_dec = cons_dec list
+type sort_dec =
+  | SortDec of symbol * int
+and sel_dec =
+  | SelDec of symbol * term
+and cons_dec =
+  | ConsDec of symbol * (sel_dec list)
+and dt_dec =
+  | DatatypeDec of cons_dec list
 
 (* types for inference rule declarations *)
 type assumption =
@@ -56,8 +62,8 @@ type eo_command =
   | AssumePush        of symbol * term
   | DeclareConsts     of lit_category * term
   | DeclareParamConst of symbol * param list * term * attr list
-  | DeclareRule       of symbol * rule_dec * attr list
-  | Define            of symbol * param list * term * attr list
+  | DeclareRule       of symbol * param list * rule_dec * attr list
+  | Define            of symbol * param list * term * (term option)
   | Include           of string
   | Program           of symbol * param list * (term list * term) * ((term * term) list)
   | Reference         of string * symbol option
@@ -68,7 +74,7 @@ and common_command =
   | DeclareConst     of symbol * term * attr list
   | DeclareDatatype  of symbol * dt_dec
   | DeclareDatatypes of (sort_dec list) * (dt_dec list)
-  | Echo             of string
+  | Echo             of string option
   | Exit
   | Reset
   | SetOption        of attr

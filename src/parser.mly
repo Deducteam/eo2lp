@@ -1,15 +1,17 @@
 %{
-open Ast
-open Option
+open Syntax_eo
 %}
 
-%token <string> SYMBOL STRING
+%token <string> SYMBOL
+%token <string> STRING
 %token <int> NUMERAL
 %token <float> DECIMAL
 %token <int * int> RATIONAL
 
 %token LPAREN RPAREN COLON BANG EOF
 %token STR NUM DEC RAT BIN HEX
+
+%token EO_DEFINE
 
 %token
   DECLARE_CONST
@@ -31,39 +33,36 @@ open Option
   STEP STEP_POP
 
 %token
-  ASSERT
-  CHECK_SAT CHECK_SAT_ASSUMING
-  DECLARE_FUN
-  DECLARE_SORT
-  DEFINE_CONST
-  DEFINE_FUN
-  DEFINE_SORT
-  SET_INFO
-  SET_LOGIC
-
-%token
   ASSUMPTION
   PREMISES
   PREMISE_LIST
   ARGS
-  ARG_LIST
   REQUIRES
   CONCLUSION
   CONCLUSION_EXPLICIT
   SIGNATURE
   TYPE
+  RULE
 
 %start <eo_command option> toplevel_eof
 
 %%
+toplevel_eof:
+  | EOF { None }
+  | eo_command { Some $1 }
+
+symbol:
+  | s = SYMBOL
+  { Symbol s }
+
 eo_command:
   | LPAREN; ASSUME;
-      s = SYMBOL;
+      s = symbol ;
       t = term;
     RPAREN
   { Assume (s,t) }
   | LPAREN; ASSUME_PUSH;
-      s = SYMBOL;
+      s = symbol ;
       t = term;
     RPAREN
   { AssumePush (s,t) }
@@ -73,14 +72,14 @@ eo_command:
     RPAREN
   { DeclareConsts (l,t) }
   | LPAREN; DECLARE_PARAM_CONST;
-      s = SYMBOL;
+      s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       t = term;
-      as = list(attr);
+      atts = list(attr);
     RPAREN
-  { DeclareParamConst (s,xs,t,as) }
+  { DeclareParamConst (s, xs, t, atts) }
   | LPAREN; DECLARE_RULE;
-      s = SYMBOL;
+      s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       assm  = option(assumption);
       prems = option(premises);
@@ -89,33 +88,24 @@ eo_command:
       conc  = conclusion;
       atts  = list(attr);
     RPAREN
-  { DeclareRule (s,
-      RuleDec (
-        assm, prems,
-        (match args with
-        | Some ts -> ts
-        | None    -> []),
-        (match reqs with
-        | Some cs -> cs
-        | None    -> []),
-        conc
-      ),
+  { DeclareRule (s, xs,
+      RuleDec (assm, prems, args, reqs, conc),
       atts
     )
   }
   | LPAREN; DEFINE;
-      s = SYMBOL;
+      s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       t = term;
-      as = list(attr);
+      ty_opt = option(ty_attr);
     RPAREN
-  { Define (s,xs,t,as) }
+  { Define (s,xs,t,ty_opt) }
   | LPAREN; INCLUDE;
-      str = string;
+      str = STRING;
     RPAREN
   { Include str }
   | LPAREN; PROGRAM;
-      s = SYMBOL;
+      s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       SIGNATURE;
         LPAREN; doms = nonempty_list(term); RPAREN;
@@ -124,112 +114,141 @@ eo_command:
     RPAREN
   { Program (s, xs, (doms, ran), cs) }
   | LPAREN; REFERENCE;
-      str = string;
-      s_opt = option(SYMBOL);
+      str = STRING ;
+      s_opt = option(symbol );
     RPAREN
   { Reference (str, s_opt) }
   | LPAREN; STEP;
-      s1 = SYMBOL;
+      s1 = symbol ;
       t_opt = option(term);
-      RULE; s2 = SYMBOL;
+      RULE; s2 = symbol ;
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { Step (s1, t_opt, s2, prem_opt, ) }
+  { Step (s1, t_opt, s2, prem_opt, args_opt) }
   | LPAREN; STEP_POP;
-      SYMBOL;
-      option(term);
-      RULE; SYMBOL;
-      option(simple_premises);
-      option(arguments);
+      s1 = symbol ;
+      t_opt = option(term);
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
     RPAREN
-  {}
-  | common_command
-  { Common $1 }
+  { StepPop (s1, t_opt, s2, prem_opt, args_opt) }
+  | c = common_command
+  { Common c }
 
 common_command:
   | LPAREN; DECLARE_CONST;
-      SYMBOL;
-      term;
-      list(attr);
+      s = symbol ;
+      t = term;
+      atts = list(attr);
     RPAREN
-  {}
+  { DeclareConst (s,t,atts) }
   | LPAREN; DECLARE_DATATYPE;
-      SYMBOL;
-      datatype_dec;
+      s = symbol ;
+      dt = datatype_dec;
     RPAREN
-  {}
+  { DeclareDatatype (s, dt) }
   | LPAREN; DECLARE_DATATYPES;
-      SYMBOL;
-      LPAREN; list(sort_dec); RPAREN;
-      LPAREN; list(datatype_dec); RPAREN;
+      LPAREN; sts = list(sort_dec); RPAREN;
+      LPAREN; dts = list(datatype_dec); RPAREN;
     RPAREN
-  {}
+  { DeclareDatatypes (sts, dts) }
   | LPAREN; ECHO;
-      option(string);
+      str_opt = option(STRING);
     RPAREN;
-  {}
+  { Echo (str_opt) }
+  | LPAREN; EXIT; RPAREN
+  { Exit }
   | LPAREN; RESET; RPAREN
-  | LPAREN; SET_OPTION; attr; RPAREN
+  { Reset }
+  | LPAREN; SET_OPTION; a = attr; RPAREN
+  { SetOption (a) }
 
 literal:
-  | NUMERAL  { Numeral $1  }
-  | DECIMAL  { Decimal $1  }
-  | RATIONAL { Rational $1 }
-  | STRING   { String $1   }
+  | NUMERAL          { Numeral $1  }
+  | DECIMAL          { Decimal $1  }
+  | p = RATIONAL     { Rational (fst p, snd p) }
+  | s = STRING       { String s   }
 
 keyword:
-  | COLON; SYMBOL
-  { Colon $2 }
+  | COLON; s = STRING
+  { Colon s }
 
 attr:
-  | KEYWORD; option(term)
-  { ($2, $3) }
+  | kw = keyword; t_opt = option(term)
+  { Attr (kw, t_opt) }
+
+ty_attr:
+  | TYPE; t = term
+  { t }
 
 term:
-  | literal  { Literal $1  }
-  | SYMBOL   { Symbol $1 }
+  | l = literal
+  { Literal l  }
+  | s = symbol
+  { Sym s }
   | LPAREN;
-      SYMBOL;
-      nonempty_list(term);
+      s = symbol ;
+      ts = nonempty_list(term);
     RPAREN
-  { Apply ($2, $3) }
+  { Apply (s, ts) }
   | LPAREN;
       EO_DEFINE;
-      LPAREN; nonempty_list(var); RPAREN;
-      term;
+      LPAREN; xs = nonempty_list(var); RPAREN;
+      t = term;
     RPAREN
-  { Let ($4, $6) }
+  { Let (xs, t) }
   | LPAREN;
       BANG;
-      term;
-      nonempty_list(attr);
+      t = term;
+      atts = nonempty_list(attr);
     RPAREN
-  { Bang ($3, $4) }
+  { Bang (t, atts) }
 
 var:
   | LPAREN;
-      SYMBOL; term;
+      s = symbol; t = term;
     RPAREN
-  { ($2, $3) }
+  { (s, t) }
 
 param:
-  | LPAREN; SYMBOL; term; list(attr); RPAREN
-  { Param ($2, Type $3, $4) }
+  | LPAREN;
+      s = symbol ;
+      t = term;
+      atts = list(attr);
+    RPAREN
+  { Param (s, t, atts) }
 
 case:
-  | LPAREN; term; term; RPAREN
-  { ($2, $3) }
+  | LPAREN;
+      t1 = term; t2 = term;
+    RPAREN
+  { (t1, t2) }
 
+sort_dec:
+  | LPAREN;
+      s = symbol ;
+      n = NUMERAL;
+    RPAREN
+  { SortDec (s, n) }
 sel_dec:
-  | LPAREN; SYMBOL; term; RPAREN
-  {}
+  | LPAREN;
+      s = symbol ;
+      t = term;
+    RPAREN
+  { SelDec (s, t) }
 cons_dec:
-  | LPAREN; SYMBOL; list(sel_dec); RPAREN
-  {}
+  | LPAREN;
+      s = symbol ;
+      xs = list(sel_dec);
+    RPAREN
+  { ConsDec (s, xs) }
 datatype_dec:
-  | LPAREN; nonempty_list(cons_dec); RPAREN
-  {}
+  | LPAREN;
+      xs = nonempty_list(cons_dec);
+    RPAREN
+  { DatatypeDec xs }
 
 lit_category:
   | NUM { NUM }
@@ -239,34 +258,25 @@ lit_category:
   | HEX { HEX }
   | STR { STR }
 
-toplevel_eof:
-  | EOF { None }
-  | toplevel { Some $1 }
-
-toplevel:
-  | eo_command     { $1 }
-  | smt2_command   { $1 }
-
-
 assumption:
-  | ASSUMTPION; term
-  { Assumption $2 }
+  | ASSUMPTION; t = term
+  { Assumption t }
 simple_premises:
-  | PREMISES; LPAREN; list(term); RPAREN;
-  { Premises $2 }
+  | PREMISES; LPAREN; ts = list(term); RPAREN;
+  { Premises ts }
 premises:
-  | simple_premises
-  { Simple $1 }
-  | PREMISE_LIST; term; term
-  { PremiseList ($2,$3) }
+  | ts = simple_premises
+  { Simple ts }
+  | PREMISE_LIST; t1 = term; t2 = term
+  { PremiseList (t1,t2) }
 arguments:
-  | ARGS; LPAREN; list(term); RPAREN;
-  { Args $3 }
+  | ARGS; LPAREN; ts = list(term); RPAREN;
+  { Args ts }
 reqs:
-  | REQUIRES; LPAREN; list(case); RPAREN
-  { Requires $3 }
+  | REQUIRES; LPAREN; cs = list(case); RPAREN
+  { Requires cs }
 conclusion:
-  | CONCLUSION; term
-  { Conclusion $2 }
-  | CONCLUSION_EXPLICIT; term
-  { ConclusionExplicit $2 }
+  | CONCLUSION; t = term
+  { Conclusion t }
+  | CONCLUSION_EXPLICIT; t = term
+  { ConclusionExplicit t }
