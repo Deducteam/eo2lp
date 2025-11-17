@@ -11,8 +11,6 @@ open Syntax_eo
 %token LPAREN RPAREN COLON BANG EOF
 %token STR NUM DEC RAT BIN HEX
 
-%token EO_DEFINE
-
 %token
   DECLARE_CONST
   DECLARE_DATATYPE
@@ -53,6 +51,10 @@ toplevel_eof:
 
 symbol:
   | s = SYMBOL { Symbol s }
+
+cases:
+  | LPAREN; cs = nonempty_list(case); RPAREN
+  { cs }
 
 eo_command:
   | LPAREN; ASSUME;
@@ -109,12 +111,16 @@ eo_command:
       SIGNATURE;
         LPAREN; doms = nonempty_list(term); RPAREN;
         ran = term;
-      LPAREN; cs = nonempty_list(case); RPAREN;
+      cs_opt = option(cases);
     RPAREN
-  { Program (s, xs, (doms, ran), cs) }
+  { let cs = match cs_opt with
+      | Some cs -> cs
+      | None -> [] in
+    Program (s, xs, (doms, ran), cs)
+  }
   | LPAREN; REFERENCE;
       str = STRING ;
-      s_opt = option(symbol );
+      s_opt = option(symbol);
     RPAREN
   { Reference (str, s_opt) }
   | LPAREN; STEP;
@@ -193,11 +199,11 @@ term:
     RPAREN
   { Apply (s, ts) }
   | LPAREN;
-      EO_DEFINE;
+      b = symbol;
       LPAREN; xs = nonempty_list(var); RPAREN;
       t = term;
     RPAREN
-  { Let (xs, t) }
+  { Bind (b, xs, t) }
   | LPAREN;
       BANG;
       t = term;
