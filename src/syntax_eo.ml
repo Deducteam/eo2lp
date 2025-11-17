@@ -39,11 +39,19 @@ let literal_str =
 type term =
   | Sym of symbol
   | Literal of literal
-  | Let of ((symbol * term) list) * term
+  | Bind of symbol * ((symbol * term) list) * term
   | Apply of symbol * (term list)
   | Bang of term * (attr list)
 and attr =
   | Attr of keyword * (term option)
+
+let list_str (f : 'a -> string) =
+  fun xs -> (String.concat " " (List.map f xs))
+
+let list_suffix_str (f : 'a -> string) =
+  function
+  | [] -> ""
+  | ys -> " " ^ (list_str f ys)
 
 let rec
   var_str = fun (s,t) ->
@@ -57,15 +65,13 @@ and
     | Some t -> Printf.sprintf ":%s %s" kw_str (term_str t)
     | None   -> Printf.sprintf ":%s" kw_str
 and
-  attr_list_str = fun xs ->
-    (String.concat " " (List.map attr_str xs))
-and
   term_str = function
   | Sym s       -> symbol_str s
   | Literal l   -> literal_str l
-  | Let (xs, t) ->
+  | Bind (b, xs, t) ->
       let xs' = List.map var_str xs in
-      Printf.sprintf "(eo::let %s in %s)"
+      Printf.sprintf "(%s %s in %s)"
+        (symbol_str b)
         (String.concat ", " xs')
         (term_str t)
   | Apply (s, ts) ->
@@ -75,30 +81,24 @@ and
   | Bang (t, xs) ->
       Printf.sprintf "(! %s %s)"
         (term_str t)
-        (attr_list_str xs)
+        (list_str attr_str xs)
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
 let term_pair_str (t,t') =
-  Printf.sprintf "(%s %s)"
+  Printf.sprintf "\n  (%s %s)"
     (term_str t)
     (term_str t')
-
-let term_pair_list_str tps =
-  String.concat " " (List.map term_pair_str tps)
 
 type param =
   | Param of symbol * term * (attr list)
 
 let param_str = function
   | (Param (s,t,xs)) ->
-    Printf.sprintf "(%s %s %s)"
+    Printf.sprintf "(%s %s%s)"
       (symbol_str s)
       (term_str t)
-      (String.concat " " (List.map attr_str xs))
-
-let param_list_str = fun xs ->
-  String.concat " " (List.map param_str xs)
+      (list_suffix_str attr_str xs)
 
 (* types for datatype declarations *)
 type sort_dec =
@@ -164,7 +164,7 @@ and arguments_str = function
 and reqs_str = function
   | Requires tps ->
       Printf.sprintf ":requires (%s)"
-        (term_pair_list_str tps)
+        (list_str term_pair_str tps)
 and conclusion_str = function
   | Conclusion t ->
       Printf.sprintf ":conclusion %s" (term_str t)
@@ -173,7 +173,7 @@ and conclusion_str = function
 
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
     match x_opt with
-    | Some x -> Printf.sprintf "%s\n" (f x)
+    | Some x -> Printf.sprintf "  %s\n" (f x)
     | None -> ""
 
 let opt_str (f : 'a -> string) =
@@ -182,11 +182,6 @@ let opt_str (f : 'a -> string) =
 let opt_suffix_str (f : 'a -> string) =
   Option.fold ~none:"" ~some:(fun x -> " " ^ (f x))
 
-let attr_suffix_str ys =
-  match ys with
-  | [] -> ""
-  | _ -> " " ^ (attr_list_str ys)
-
 let rule_dec_str = function
   | RuleDec (assm_opt, prems_opt, args_opt, reqs_opt, conc)
     -> Printf.sprintf "%s%s%s%s%s"
@@ -194,7 +189,7 @@ let rule_dec_str = function
         (opt_newline premises_str prems_opt)
         (opt_newline arguments_str args_opt)
         (opt_newline reqs_str reqs_opt)
-        (conclusion_str conc)
+        (opt_newline conclusion_str (Some conc))
 
 
 type common_command =
@@ -211,7 +206,7 @@ let common_command_str = function
       Printf.sprintf "(declare-const %s %s %s)"
         (symbol_str s)
         (term_str t)
-        (attr_suffix_str xs)
+        (list_suffix_str attr_str xs)
   | DeclareDatatype (s,dt) ->
       Printf.sprintf "(declare-datatype %s %s)"
         (symbol_str s)
@@ -236,7 +231,9 @@ type eo_command =
   | DeclareRule       of symbol * param list * rule_dec * attr list
   | Define            of symbol * param list * term * (term option)
   | Include           of string
-  | Program           of symbol * param list * (term list * term) * ((term * term) list)
+  | Program           of symbol * param list
+                         * (term list * term)
+                         * ((term * term) list)
   | Reference         of string * symbol option
   | Step              of symbol * term option * symbol * simple_premises option * arguments option
   | StepPop           of symbol * term option * symbol * simple_premises option * arguments option
@@ -258,33 +255,33 @@ let eo_command_str = function
         (term_str t)
   | DeclareParamConst (s,xs,t,ys) ->
       Printf.sprintf
-        "(declare-parameterized-const %s %s %s%s)"
+        "(declare-parameterized-const %s (%s) %s%s)"
         (symbol_str s)
-        (param_list_str xs)
+        (list_str param_str xs)
         (term_str t)
-        (attr_suffix_str ys)
+        (list_suffix_str attr_str ys)
   | DeclareRule (s,xs,rdec,ys) ->
-      Printf.sprintf "(declare-rule %s %s %s%s)"
+      Printf.sprintf "(declare-rule %s (%s)\n%s%s)"
         (symbol_str s)
-        (param_list_str xs)
+        (list_str param_str xs)
         (rule_dec_str rdec)
-        (attr_suffix_str ys)
+        (list_suffix_str attr_str ys)
   | Define (s,xs,t,t_opt) ->
-      Printf.sprintf "(define %s %s %s%s)"
+      Printf.sprintf "(define %s (%s)\n %s%s\n)"
         (symbol_str s)
-        (param_list_str xs)
+        (list_str param_str xs)
         (term_str t)
         (opt_suffix_str term_str t_opt)
   | Include s ->
       Printf.sprintf "(include '%s')" s
   | Program (s,xs,(ts,t),tps) ->
       Printf.sprintf
-        "(program %s (%s)\n  :signature (%s) %s\n  (%s)\n)"
+        "(program %s (%s)\n  :signature (%s) %s\n (%s\n )\n)"
         (symbol_str s)
-        (param_list_str xs)
+        (list_str param_str xs)
         (term_list_str ts)
         (term_str t)
-        (term_pair_list_str tps)
+        (list_str term_pair_str tps)
   | Reference (str, s_opt) ->
       Printf.sprintf "(reference %s %s)"
         str (opt_str symbol_str s_opt)

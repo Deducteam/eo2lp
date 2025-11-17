@@ -44,7 +44,7 @@ let parse_eo_file (fp : string) : eo_command list =
 
 let (cpc_theories, cpc_rules, cpc_progs) =
   let eos dir =
-    List.map
+    List.concat_map
     (fun fp ->
       Printf.printf "Parsing: %s\n" fp;
       parse_eo_file fp
@@ -52,3 +52,9 @@ let (cpc_theories, cpc_rules, cpc_progs) =
     (find_eo_files (Filename.concat cpc_root dir))
   in
     (eos "theories", eos "rules", eos "programs")
+
+let cpc = List.concat [cpc_theories; cpc_progs; cpc_rules]
+let print_eo_sig cs =
+  List.map
+    (fun cmd -> Printf.printf "%s\n" (eo_command_str cmd))
+    cs

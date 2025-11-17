@@ -22,7 +22,6 @@ rule token = parse
   | ')'             { RPAREN }
   | ':'             { COLON }
   | "!"             { BANG }
-  | "eo::define"    { EO_DEFINE }
   (* common commands *)
   | "declare-const"      { DECLARE_CONST }
   | "declare-datatype"   { DECLARE_DATATYPE }
