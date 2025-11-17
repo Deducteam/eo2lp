@@ -48,12 +48,11 @@ open Syntax_eo
 
 %%
 toplevel_eof:
-  | EOF { None }
+  | EOF        { None }
   | eo_command { Some $1 }
 
 symbol:
-  | s = SYMBOL
-  { Symbol s }
+  | s = SYMBOL { Symbol s }
 
 eo_command:
   | LPAREN; ASSUME;
@@ -172,7 +171,7 @@ literal:
   | s = STRING       { String s   }
 
 keyword:
-  | COLON; s = STRING
+  | COLON; s = SYMBOL
   { Colon s }
 
 attr:
@@ -214,11 +213,11 @@ var:
 
 param:
   | LPAREN;
-      s = symbol ;
+      s = symbol;
       t = term;
-      atts = list(attr);
+      xs = list(attr);
     RPAREN
-  { Param (s, t, atts) }
+  { Param (s, t, xs) }
 
 case:
   | LPAREN;

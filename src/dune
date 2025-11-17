@@ -13,7 +13,7 @@
  (modules
    main parser lexer
    ast ast_cc inference prelude
-   syntax_eo
+   syntax_eo interface_eo
    translation encoding
   )
  (flags :standard -w -8)
