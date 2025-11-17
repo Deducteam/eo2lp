@@ -44,7 +44,6 @@ rule token = parse
   | "assume-push"    { ASSUME_PUSH }
   | "step"           { STEP }
   | "step-pop"       { STEP_POP }
-  | ":rule"          { RULE }
   (* rule declaration attributes *)
   | ":conclusion"    { CONCLUSION }
   | ":assumption"    { ASSUMPTION }
@@ -52,6 +51,8 @@ rule token = parse
   | ":premises"      { PREMISES }
   | ":args"          { ARGS }
   | ":requires"      { REQUIRES }
+  | ":rule"          { RULE }
+  | ":signature "    { SIGNATURE }
   (* syntactic categories *)
   | "<string>"       { STR }
   | "<numeral>"      { NUM }

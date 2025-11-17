@@ -4,15 +4,10 @@
     (assume-push <symbol> <term>) |
     (declare-consts <lit-category> <type>) |
     (declare-parameterized-const <symbol> (<typed-param>*) <type> <attr>*) |
-    (declare-oracle-fun <symbol> (<type>*) <type> <symbol>) |
-    (declare-rule <symbol> <keyword> <sexpr>*) |
     (declare-rule <symbol> (<typed-param>*) <assumption>? <premises>? <arguments>? <reqs>? :conclusion <term> <attr>*) |
-    (declare-type <symbol> (<type>*)) |
-    (define <symbol> (<typed-param>*) <term>) |
-    (define-type <symbol> (<type>*) <type>) |
+    (define <symbol> (<typed-param>*) <term> <attr>*) |
     (include <string>) |
-    (program <symbol> <keyword> <sexpr>*) |
-    (program <symbol> (<typed-param>*) (<type>*) <type> ((<term> <term>)+)) |
+    (program <symbol> (<typed-param>*) :signature (<type>+) <type> ((<term> <term>)+)) |
     (reference <string> <symbol>?) |
     (step <symbol> <term>? :rule <symbol> <simple-premises>? <arguments>?) |
     (step-pop <symbol> <term>? :rule <symbol> <simple-premises>? <arguments>?) |
@@ -45,7 +40,7 @@
 ;;;
 <keyword>       ::= :<symbol>
 <attr>          ::= <keyword> <term>?
-<term>          ::= <symbol> | (<symbol> <term>+) | (! <term> <attr>+) | (eo::match (<typed-param>*) <term> ((<term> <term>)*))
+<term>          ::= <symbol> | (<symbol> <term>+) | (! <term> <attr>+)
 <type>          ::= <term>
 <typed-param>   ::= (<symbol> <type> <attr>*)
 <sort-dec>      ::= (<symbol> <numeral>)
@@ -60,3 +55,4 @@
 <simple-premises> ::= :premises (<term>*)
 <arguments>       ::= :args (<term>*)
 <reqs>            ::= :requires ((<term> <term>)*)
+<conclusion>      ::= :conclusion <term> | :conclusion-explicit <term>
