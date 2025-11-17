@@ -13,6 +13,9 @@ Dedukti
 cvc5
 ethos
 
+cspell.json
+tex/luatex.*
+src/*.old.*
 *.bbl*
 *.log*
 *.out*
