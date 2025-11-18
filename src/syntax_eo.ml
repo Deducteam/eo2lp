@@ -28,6 +28,7 @@ type literal =
   | Rational of int * int
   | String of string
 
+
 let literal_str =
   function
   | Numeral n -> string_of_int n
@@ -85,13 +86,11 @@ and
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
-let term_pair_str (t,t') =
-  Printf.sprintf "\n  (%s %s)"
-    (term_str t)
-    (term_str t')
+
 
 type param =
   | Param of symbol * term * (attr list)
+type params = param list
 
 let param_str = function
   | (Param (s,t,xs)) ->
@@ -99,6 +98,15 @@ let param_str = function
       (symbol_str s)
       (term_str t)
       (list_suffix_str attr_str xs)
+
+type cases = (term * term) list
+
+let term_pair_str (t,t') =
+  Printf.sprintf "\n  (%s %s)"
+    (term_str t)
+    (term_str t')
+
+let cases_str = list_str term_pair_str
 
 (* types for datatype declarations *)
 type sort_dec =
@@ -137,7 +145,7 @@ and premises =
 and arguments =
   | Args of term list
 and reqs =
-  | Requires of (term * term) list
+  | Requires of cases
 and conclusion =
   | Conclusion of term
   | ConclusionExplicit of term
@@ -162,9 +170,9 @@ let premises_str = function
 and arguments_str = function
   | Args ts -> Printf.sprintf ":args %s" (term_list_str ts)
 and reqs_str = function
-  | Requires tps ->
+  | Requires cs ->
       Printf.sprintf ":requires (%s)"
-        (list_str term_pair_str tps)
+        (cases_str cs)
 and conclusion_str = function
   | Conclusion t ->
       Printf.sprintf ":conclusion %s" (term_str t)
@@ -227,13 +235,13 @@ type eo_command =
   | Assume            of symbol * term
   | AssumePush        of symbol * term
   | DeclareConsts     of lit_category * term
-  | DeclareParamConst of symbol * param list * term * attr list
-  | DeclareRule       of symbol * param list * rule_dec * attr list
-  | Define            of symbol * param list * term * (term option)
+  | DeclareParamConst of symbol * params * term * attr list
+  | DeclareRule       of symbol * params * rule_dec * attr list
+  | Define            of symbol * params * term * (term option)
   | Include           of string
-  | Program           of symbol * param list
+  | Program           of symbol * params
                          * (term list * term)
-                         * ((term * term) list)
+                         * cases
   | Reference         of string * symbol option
   | Step              of symbol * term option * symbol * simple_premises option * arguments option
   | StepPop           of symbol * term option * symbol * simple_premises option * arguments option
@@ -274,14 +282,14 @@ let eo_command_str = function
         (opt_suffix_str term_str t_opt)
   | Include s ->
       Printf.sprintf "(include '%s')" s
-  | Program (s,xs,(ts,t),tps) ->
+  | Program (s,xs,(ts,t),cs) ->
       Printf.sprintf
         "(program %s (%s)\n  :signature (%s) %s\n (%s\n )\n)"
         (symbol_str s)
         (list_str param_str xs)
         (term_list_str ts)
         (term_str t)
-        (list_str term_pair_str tps)
+        (cases_str cs)
   | Reference (str, s_opt) ->
       Printf.sprintf "(reference %s %s)"
         str (opt_str symbol_str s_opt)
@@ -310,7 +318,7 @@ let eo_command_str = function
   | DeclareFun       of symbol * typ list * typ * attr list
   | DeclareSort      of symbol * int
   | DefineConst      of symbol * term
-  | DefineFun        of symbol * param list * typ * term
+  | DefineFun        of symbol * params * typ * term
   | DefineSort       of symbol * symbol list * typ
   | SetInfo          of attr
   | SetLogic         of symbol
