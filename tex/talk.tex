@@ -1,4 +1,4 @@
-\documentclass[lualatex, compress, 12pt, handout]{beamer}
+\documentclass[lualatex, compress, 12pt-------------------------------------------------------------------------------------------------------------]{beamer}
 \usetheme{Arguelles}
 
 % \usepackage{stix}
@@ -10,6 +10,7 @@
 % \usepackage{fdsymbol}
 \usepackage{stmaryrd}
 \usepackage{mathtools}
+\usepackage{amsmath}
 \usepackage{amssymb}
 
 \usepackage{emoji}
@@ -61,7 +62,8 @@
 		      \alert{Eunoia} is an emerging \emph{logical framework} aimed at
 		      formalizing the proof systems used by SMT solvers.
 		      \begin{itemize}
-			      \item[\emoji{flag-united-states}]<+-> development led by Andrew Reynolds, at University of Iowa.
+			      \item[\emoji{flag-united-states}]<+->
+			            development led by Andrew Reynolds, at University of Iowa.
 			      \item[\emoji{ghost}]<+-> the `spiritual successor' of the \alert{Alethe} proof format.
 			      \item[\emoji{scroll}]<+-> covers theory signatures \& proof scripts.
 			      \item[\emoji{check-mark}]<+-> paired with the \alert{Ethos} checker.
@@ -319,19 +321,6 @@ unsat
 	\end{itemize}
 \end{frame}
 
-
-% Eunoia no longer has type definitions/declarations.
-\begin{frame}[fragile]
-	Eunoia has \alert{type declarations}.
-	$$\paren{\mtt{declare-type}\ s\ \paren{\plur e n}}$$
-	\\[2mm]
-	\begin{uncoverenv}<+->
-		\exxample The \mtt{Array} symbol declared a (binary) type constructor.
-		\begin{lstlisting}
-(declare-type Array (Type Type))\end{lstlisting}
-	\end{uncoverenv}
-\end{frame}
-
 \begin{frame}[fragile]
 	Eunoia has \alert{constant declarations} of the form:
 	$$\paren{\mtt{declare-const}\ s\ e\ \maybe{α}}$$
@@ -355,6 +344,8 @@ unsat
 	\end{uncoverenv}
 \end{frame}
 
+
+
 % TODO. precisely state elaboration algorithm, including :list.
 \begin{frame}[fragile]
 	\begin{uncoverenv}<+->
@@ -368,7 +359,7 @@ unsat
 	\begin{uncoverenv}<+->
 		The following $n$-ary application of \mtt{and} is elaborated thus:\\
 		$$\text{\smt{(and p q r)}}
-			⟹ \text{\smt{(and p (and q (and r true)))}}$$
+			\Longrightarrow \text{\smt{(and p (and q (and r true)))}}$$
 		% tikz diagram of
 		%   `(and p q r)`
 		% elaborating to
@@ -376,9 +367,27 @@ unsat
 	\end{uncoverenv}
 \end{frame}
 
+% Eunoia no longer has type definitions/declarations.
+\begin{frame}[fragile]
+	\alert{Types} and \alert{type constructors} are just constants:
+	\\[2mm]
+	\begin{uncoverenv}<+->
+		\exxample Some basic types from \texttt{cpc/theories/Arith.eo}.
+		\begin{lstlisting}
+(declare-type Int (Type))
+(declare-type Real (Type))\end{lstlisting}
+	\end{uncoverenv}
+
+	\begin{uncoverenv}<+->
+		\exxample Types may depend on terms:
+		\begin{lstlisting}
+(declare-type BitVec (-> Int Type))\end{lstlisting}
+	\end{uncoverenv}
+\end{frame}
+
 % TODO. worry about :implicit variables.
 \begin{frame}[fragile]
-	We can also declare \alert{parameterized constants}:
+	Eunoia also adds \alert{parameterized constants}:
 	$$ \paren{\mtt{declare-parameterized-const}
 		\ s
 		\  \paren{\plur ρ n}
@@ -386,10 +395,10 @@ unsat
 		\ \maybe{α}
 		} $$
 	\begin{uncoverenv}<+->
-		where $ρ$ is a \alert{(typed) parameter}. i.e.,
+		where $ρ$ is a \alert{(typed) parameter}, $ν$ is a \alert{variable attribute}, i.e.;
 		$$
 			\begin{array}{l@{\ }c@{\ }l}
-				ρ ∈ \mbf{param}  & ⩴ & \paren{s\ t\ \maybe{ν}}       \\
+				ρ ∈ \mbf{param}  & ⩴ & \paren{s\ e\ \maybe{ν}}       \\
 				ν ∈ \mbf{attr_v} & ⩴ & \mtt{:implicit} ∣ \mtt{:list}
 			\end{array}
 		$$
@@ -418,7 +427,12 @@ unsat
 	\end{uncoverenv}
 	\begin{uncoverenv}<+->%
 		The following $n$-ary application of \mtt{=} is elaborated thus:
-		$$ \text{\smt{(= x y z)}} ⟹ \text{\smt{(and (= x y) (= y z))}}$$
+		$$ \begin{array}[t]{c@{\quad⟹\quad}l}
+				\text{\smt{(= x y z)}}
+				       & \text{\smt{(and (= x y) (= y z))}}
+				\\
+				\cdots & \text{\smt{(and (= x y) (and (= y z) true))}}
+			\end{array}$$
 	\end{uncoverenv}
 \end{frame}
 
@@ -441,10 +455,13 @@ unsat
 		}$$
 	\\[2mm]
 	\begin{uncoverenv}<+->%
-		\exxample Some definition from \texttt{cpc/rules/Booleans.eo}.
+		\exxample Definition from \texttt{cpc/rules/Booleans.eo}.
 		\begin{lstlisting}
 (define $remove_maybe_self ((l Bool) (C Bool))
-  (eo::ite (eo::eq l C) false (eo::list_erase or C l))
+  (eo::ite (eo::eq l C)
+    false
+    (eo::list_erase or C l)
+  )
 )\end{lstlisting}
 	\end{uncoverenv}
 \end{frame}
@@ -610,7 +627,7 @@ unsat
 		      \\[5mm]
 		\item<+-> \alert{Symbols} are declared thus:
 		      $$\mtt{symbol}\ s\ \any{ρ} : t;$$
-		      where $ρ$ ranges over LambdaPi \alert{parameters}:
+		      where LambdaPi \alert{parameters} are either explicit or implicit:
 		      $$ρ ∈ \mbf{param_{lp}} ⩴ (x : t) ∣ [x : t]$$
 	\end{itemize}
 \end{frame}
@@ -627,8 +644,10 @@ unsat
 		      \\[5mm]
 		\item<+->
 		      \alert{Rewrite rules} are declared as follows:
-		      $$\mtt{rule}\ r\ \any{\mtt{with}\ r'};$$
-		      Where $r$ ranges over $\mbf{rw} ⩴ (t ↪ t')$.
+		      $$\mtt{rule}\ t ↪ t';$$
+
+		\item<+-> \alert{Typechecking} wrt. a set of
+		      symbols and rewrite rules.
 	\end{itemize}
 \end{frame}
 
@@ -681,17 +700,22 @@ unsat
 
 \begin{frame}
 	\textbf{Goal:}
-	Given a Eunoia signature $Σ$,
-	generate the corresponding LambdaPi signature $T(Σ)$.
-
+	Provide a translation $T$ such that:
 	\begin{itemize}
-		\item<+-> Process each command in $Σ$,
-		      updating an environment $Θ$ as we go:
-		      $$T_{Θ}(c\,{;}\,Σ) = c\,{;}\,T_{Θ'}(Σ)$$
-
-		\item<+-> Our translation tool \texttt{eo2lp} is written in OCaml.
-		\item<+-> The following is a high-level overview.
+		\item[\emoji{green-heart}] for any Eunoia signature $Σ$,
+		\item[\emoji{purple-heart}] generate a corresponding LambdaPi signature $T(Σ)$.
 	\end{itemize}
+
+	\begin{uncoverenv}<+->
+		\textbf{Tool}: written in OCaml~\emoji{camel}, \texttt{eo2lp}.
+		\begin{itemize}
+			\item<+-> Process sequentially,
+			      update environment $γ$ as we go:
+			      $$T_{γ}(c\,{;}\,Σ) = c'\,{;}\,T_{γ'}(Σ)$$
+
+			\item<+-> The following is a high-level overview.
+		\end{itemize}
+	\end{uncoverenv}
 \end{frame}
 
 % \begin{frame}
@@ -722,7 +746,7 @@ unsat
 				      \paren{
 					      \bapp{and}{q}{
 						      \paren{
-							      \bapp{and}{r}{\mtt{false}}
+							      \bapp{and}{r}{\mtt{true}}
 						      }
 					      }
 				      }
@@ -801,32 +825,32 @@ unsat
 	\end{uncoverenv}
 \end{frame}
 
-\begin{frame}[fragile]
-	\begin{uncoverenv}<+->%
-		Now, we can easily translate type declarations:
-		$$
-			\begin{array}{c}
-				\tra{\paren{\mtt{declare-type}\ t\ \paren{\plur e n}}}
-				\\[2mm]
-				⇓
-				\\[2mm]
-				\mtt{symbol}\ {\iden t} : \ty{\paren{\mtt{->}\ {\plur e n}\ \mtt{Type}}};
-				\\[2mm]
-				⇓
-				\\[2mm]
-				\mtt{symbol}\ {\iden t} : \ty{e_1} → \ldots → \ty{e_n} → \mtt{Set};
-			\end{array}
-		$$
-	\end{uncoverenv}
-	\\
-	\begin{uncoverenv}<+->%
-		\exxample
-		\begin{lstlisting}
-(declare-type Array (Type Type))\end{lstlisting}
-		\begin{lstlisting}
-symbol {|Array|} : Set → Set;\end{lstlisting}
-	\end{uncoverenv}
-\end{frame}
+% \begin{frame}[fragile]
+% 	\begin{uncoverenv}<+->%
+% 		Now, we can easily translate type declarations:
+% 		$$
+% 			\begin{array}{c}
+% 				\tra{\paren{\mtt{declare-type}\ t\ \paren{\plur e n}}}
+% 				\\[2mm]
+% 				⇓
+% 				\\[2mm]
+% 				\mtt{symbol}\ {\iden t} : \ty{\paren{\mtt{->}\ {\plur e n}\ \mtt{Type}}};
+% 				\\[2mm]
+% 				⇓
+% 				\\[2mm]
+% 				\mtt{symbol}\ {\iden t} : \ty{e_1} → \ldots → \ty{e_n} → \mtt{Set};
+% 			\end{array}
+% 		$$
+% 	\end{uncoverenv}
+% 	\\
+% 	\begin{uncoverenv}<+->%
+% 		\exxample
+% 		\begin{lstlisting}
+% (declare-type Array (Type Type))\end{lstlisting}
+% 		\begin{lstlisting}
+% symbol {|Array|} : Set → Set;\end{lstlisting}
+% 	\end{uncoverenv}
+% \end{frame}
 
 
 \begin{frame}
@@ -988,7 +1012,7 @@ with {|$from_clause|} $F1 |-> $F1;\end{lstlisting}
 	%
 	Rule declarations are translated.\\[2mm]
 	\begin{uncoverenv}<+->%
-		\exxample Translation of \texttt{\$from\_clause}.
+		\exxample Translation of \texttt{\$cnf\_implies\_pos}.
 		\begin{lstlisting}
 sequential symbol
   cnf_implies_pos_aux : (El Bool → El Bool);
@@ -1007,7 +1031,7 @@ constant symbol cnf_implies_pos : Π (x0 : El Bool),
 	%
 	Proof scripts are translated:\\[2mm]
 	\begin{uncoverenv}<+->%
-		\exxample Translation of \texttt{\$from\_clause}.
+		\exxample
 		\begin{lstlisting}[basicstyle=\ttfamily\tiny]
 constant symbol Z : Set;
 constant symbol input : El Bool;
@@ -1015,19 +1039,28 @@ constant symbol reg : El Bool;
 constant symbol nf : El Z;
 constant symbol flash : El Z;
 constant symbol circuit : El Bool;
-symbol {|@t1|} : El Bool ≔ not input;
-symbol {|@t2|} : El Bool ≔ not reg;
-symbol {|@t3|} : El Bool ≔ and input (and {|@t2|} true);
+symbol {|@t1|} : El Bool := not input;
+symbol {|@t2|} : El Bool := not reg;
+symbol {|@t3|} : El Bool := and input (and {|@t2|} true);
 constant symbol {|@p1|} : El (Proof circuit);
 constant symbol {|@p2|} : El (Proof (= nf flash));
 constant symbol {|@p3|} : El (Proof (not (or {|@t3|} (or {|@t1|} (or reg false)))));
-symbol {|@p4|} : El (Proof (not {|@t3|})) ≔ not_or_elim [or {|@t3|} (or {|@t1|} (or reg false))] {|@p3|} {|eo::0|};
-symbol {|@p5|} : El (Proof {|@t2|}) ≔ not_or_elim [or {|@t3|} (or {|@t1|} (or reg false))] {|@p3|} ({|eo::succ|} ({|eo::succ|} {|eo::0|}));
-symbol {|@p6|} : El (Proof (not {|@t1|})) ≔ not_or_elim [or {|@t3|} (or {|@t1|} (or reg false))] {|@p3|} ({|eo::succ|} {|eo::0|});
-symbol {|@p7|} : El (Proof input) ≔ not_not_elim [input] {|@p6|};
-symbol {|@p8_aux|} : El (Proof (and input (and {|@t2|} true))) ≔ and_cons {|@p7|} (and_cons {|@p5|} trueI);
-symbol {|@p8|} : El (Proof {|@t3|}) ≔ and_intro [and input (and {|@t2|} true)] {|@p8_aux|};
-symbol {|@p9|} : El (Proof false) ≔ contra [{|@t3|}] {|@p8|} {|@p4|};\end{lstlisting}
+symbol {|@p4|} : El (Proof (not {|@t3|})) :=
+  not_or_elim [or {|@t3|} (or {|@t1|} (or reg false))] {|@p3|} {|eo::0|};
+symbol {|@p5|} : El (Proof {|@t2|}) :=
+  not_or_elim [or {|@t3|} (or {|@t1|} (or reg false))] {|@p3|}
+    ({|eo::succ|} ({|eo::succ|} {|eo::0|}));
+symbol {|@p6|} : El (Proof (not {|@t1|})) :=
+  not_or_elim [or {|@t3|} (or {|@t1|} (or reg false))] {|@p3|}
+  ({|eo::succ|} {|eo::0|});
+symbol {|@p7|} : El (Proof input) :=
+  not_not_elim [input] {|@p6|};
+symbol {|@p8_aux|} : El (Proof (and input (and {|@t2|} true))) :=
+  and_cons {|@p7|} (and_cons {|@p5|} trueI);
+symbol {|@p8|} : El (Proof {|@t3|}) :=
+  and_intro [and input (and {|@t2|} true)] {|@p8_aux|};
+symbol {|@p9|} : El (Proof false) :=
+  contra [{|@t3|}] {|@p8|} {|@p4|};\end{lstlisting}
 	\end{uncoverenv}
 \end{frame}
 
@@ -1043,31 +1076,23 @@ symbol {|@p9|} : El (Proof false) ≔ contra [{|@t3|}] {|@p8|} {|@p4|};\end{lstl
 
 \begin{frame}
 	%
-	Carve out the portion of CPC supporting \alert{QFUF}.
-	\begin{itemize}
-		\item<+-> \alert{Rodin} SMT-LIB benchmark, 30 unsat problems.
-		\item<+-> Run \texttt{cvc5} with \texttt{--proof-format=cpc}, dump proofs.
-		\item<+-> Check which CPC rules were used, calculate dependencies.
-		\item<+-> Make some minor modifications, call this fork \alert{CPC-mini}.
-	\end{itemize}
-\end{frame}
-
-\begin{frame}
-	Translate CPC-mini to LambdaPi using \texttt{eo2lp}.
-	% \begin{itemize}
-	% 	\item<+-> total translation time: ${<}\ 10\text{ms}$.
-	% 	\item<+-> $N$ inference rules, $M$ programs.
-	% 	\item<+-> total typechecking time: ${<}\ 5\text{ms}$.
-	% \end{itemize}
-\end{frame}
-
-\begin{frame}
-	Translate all of our Rodin proofs.
-	% \begin{itemize}
-	% 	\item<+-> max translation time: ${<}\ 10\text{ms}$.
-	% 	\item<+-> max number proof steps: $70$
-	% 	\item<+-> max checking time: ${<}\ 5\text{ms}$.
-	% \end{itemize}
+	\begin{uncoverenv}<+->
+		Carve out the portion of CPC supporting \alert{QFUF}.
+		\begin{itemize}
+			\item<+-> Make some minor modifications, call this fork \alert{CPC-mini}.
+			      % \item<+-> Check which CPC rules were used, calculate dependencies.
+			\item<+-> Translate CPC-mini to LambdaPi using \texttt{eo2lp}.
+		\end{itemize}
+	\end{uncoverenv}
+	%
+	\begin{uncoverenv}<+->
+		Translate proofs!
+		\begin{itemize}
+			\item<+-> \alert{Rodin} SMT-LIB benchmark, 30 unsat problems.
+			\item<+-> Run \texttt{cvc5} with \texttt{--proof-format=cpc}, dump proofs.
+			\item[\emoji{check-mark-button}]<+-> Translate to LambdaPi using \texttt{eo2lp}, check.
+		\end{itemize}
+	\end{uncoverenv}
 \end{frame}
 
 \begin{frame}
