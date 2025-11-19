@@ -1,5 +1,6 @@
 open Lexing
 open Syntax_eo
+open Interface_eo
 
 (* find eo files in dir *)
 let find_eo_files (dir : string) : string list =
@@ -11,8 +12,6 @@ let find_eo_files (dir : string) : string list =
         acc
     )
     [] (Sys.readdir dir)
-
-let cpc_root = "../cvc5/proofs/eo/cpc"
 
 let parse_eo_command (lx : lexbuf) : eo_command option =
   try
@@ -29,6 +28,7 @@ let parse_eo_command (lx : lexbuf) : eo_command option =
 
 let parse_eo_file (fp : string) : eo_command list =
   let ch = open_in fp in
+  Printf.printf "Parsing: %s\n" fp;
   let lx = Lexing.from_channel ch in
   let cmds = ref [] in
   try
@@ -42,19 +42,33 @@ let parse_eo_file (fp : string) : eo_command list =
   | Exit -> close_in ch; List.rev !cmds
   | exn -> close_in ch; raise exn
 
-let (cpc_theories, cpc_rules, cpc_progs) =
-  let eos dir =
-    List.concat_map
-    (fun fp ->
-      Printf.printf "Parsing: %s\n" fp;
-      parse_eo_file fp
-    )
-    (find_eo_files (Filename.concat cpc_root dir))
-  in
-    (eos "theories", eos "rules", eos "programs")
+let proc_eo_file (fp : string) : jlist =
+  List.concat_map
+    (fun cmd ->
+      Printf.printf "Processing:\n%s\n" (eo_command_str cmd);
+      let js = proc_eo_command cmd in
+      Printf.printf "Judgements:\n%s\n\n" (jlist_str js);
+      js)
+    (parse_eo_file fp)
 
-let cpc = List.concat [cpc_theories; cpc_progs; cpc_rules]
-let print_eo_sig cs =
-  List.map
-    (fun cmd -> Printf.printf "%s\n" (eo_command_str cmd))
-    cs
+let cpc_root  = "../cvc5/proofs/eo/cpc"
+let cpc_mini  =
+  List.map (fun fp -> Filename.concat cpc_root fp)
+    [
+      "programs/Utils.eo";
+      "theories/Builtin.eo";
+      "rules/Builtin.eo";
+    ]
+
+(* let cpc_paths : string list =
+  (* List.concat_map
+    (fun dir -> find_eo_files
+      (Filename.concat cpc_root dir)
+    )
+    ["."; "theories"; "programs"; "rules"] *) *)
+
+let cpc_commands : eo_command list =
+  List.concat_map parse_eo_file cpc_mini
+
+let cpc_judgements : judgement list =
+  List.concat_map proc_eo_file cpc_mini
