@@ -45,6 +45,7 @@ type term =
   | Bang of term * (attr list)
 and attr =
   | Attr of keyword * (term option)
+and atts = attr list
 
 let list_str (f : 'a -> string) =
   fun xs -> (String.concat " " (List.map f xs))
@@ -102,7 +103,7 @@ let param_str = function
 type cases = (term * term) list
 
 let term_pair_str (t,t') =
-  Printf.sprintf "\n  (%s %s)"
+  Printf.sprintf "(%s %s)"
     (term_str t)
     (term_str t')
 
