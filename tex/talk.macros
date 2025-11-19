@@ -8,13 +8,16 @@
 			get-proof, get-unsat-assumptions, get-unsat-core, get-value,
 			pop, push, reset, reset-assertions, set-info, set-logic, set-option,
 			declare-const, define-const,
+			declare-parameterized-const, define,
 			declare-fun, define-fun, define-fun-rec,
 			declare-sort, define-sort,
 			declare-type, define-type,
 			declare-rule, program,
-			assume, step, par, unknown
+			assume, step,
+			assume-push, step-pop,
+			par, unknown,
 		},
-	alsoletter={-,+,-,*,/,=,>,<,>=,<=,=>,\~},
+	alsoletter={-,+,-,*,/,>,<,>=,<=,=>,\~},
 	extendedchars=true,
 	sensitive=true,
 	morecomment=[l]{;},  % Line comments start with ;
