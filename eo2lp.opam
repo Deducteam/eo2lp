@@ -4,7 +4,6 @@ authors: ["Ciaran Dunne"]
 depends: [
   "ocaml"
   "dune" {>= "3.16"}
-  "ocamlgraph"
   "odoc" {with-doc}
 ]
 build: [

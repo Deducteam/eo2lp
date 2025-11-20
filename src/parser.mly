@@ -3,10 +3,13 @@ open Syntax_eo
 %}
 
 %token <string> SYMBOL
-%token <string> STRING
+
 %token <int> NUMERAL
 %token <float> DECIMAL
 %token <int * int> RATIONAL
+%token <string> BINARY
+%token <string> HEXADECIMAL
+%token <string> STRING
 
 %token LPAREN RPAREN COLON BANG EOF
 %token STR NUM DEC RAT BIN HEX
@@ -51,6 +54,14 @@ toplevel_eof:
 
 symbol:
   | s = SYMBOL { Symbol s }
+
+literal:
+  | x = NUMERAL      { Numeral x  }
+  | x = DECIMAL      { Decimal x  }
+  | p = RATIONAL     { Rational (fst p, snd p) }
+  | s = STRING       { String s }
+  | b = BINARY       { Binary b }
+  | h = HEXADECIMAL  { Hexadecimal h }
 
 cases:
   | LPAREN; cs = nonempty_list(case); RPAREN
@@ -170,11 +181,6 @@ common_command:
   | LPAREN; SET_OPTION; a = attr; RPAREN
   { SetOption (a) }
 
-literal:
-  | NUMERAL          { Numeral $1  }
-  | DECIMAL          { Decimal $1  }
-  | p = RATIONAL     { Rational (fst p, snd p) }
-  | s = STRING       { String s   }
 
 keyword:
   | COLON; s = SYMBOL

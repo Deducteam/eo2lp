@@ -26,6 +26,8 @@ type literal =
   | Numeral of int
   | Decimal of float
   | Rational of int * int
+  | Binary of string
+  | Hexadecimal of string
   | String of string
 
 

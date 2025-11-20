@@ -7,5 +7,5 @@
 
 (package
  (name eo2lp)
- (depends ocaml dune ocamlgraph)
+ (depends ocaml dune)
 )

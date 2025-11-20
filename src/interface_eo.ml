@@ -15,6 +15,7 @@ type judgement =
   | DefnJ of symbol * param list * defn
   | AttrJ of symbol * param list * attr
 
+
 let params_str (ps : params) : string =
   (if ps = [] then "⋅" else (list_str param_str ps))
 
@@ -40,16 +41,11 @@ let judgement_str (j : judgement) =
       (params_str ps)
       (attr_str att)
 
-module SMap = Map.Make(String)
-type 'a smap = 'a SMap.t
-
 type jlist = judgement list
 
 let jlist_str js =
   let js_str = String.concat "\n  " (List.map judgement_str js) in
   Printf.sprintf "[\n  %s\n]" js_str
-
-type eo_sig = jlist smap
 
 let mk_atts_jlist : symbol -> params -> atts -> jlist =
   fun s xs ys ->
@@ -224,3 +220,12 @@ let proc_eo_command (cmd : eo_command) : jlist =
     List.append tj [DefnJ (s, [], Term def)]
   | StepPop (_,_,_,_,_) -> []
   | Common c -> proc_common_command c
+
+
+module Symbol = struct
+  type t = symbol
+  let compare = compare
+end
+
+module SMap = Map.Make(Symbol)
+type 'a smap = 'a SMap.t
