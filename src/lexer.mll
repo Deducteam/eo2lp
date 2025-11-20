@@ -6,12 +6,18 @@ let simple_symbol =
   ['a'-'z' 'A'-'Z' '+' '-' '/' '*' '^' '=' '%' '?' '!' '.' '$' '_' '&' '<' '>' '@' '#']
   ['a'-'z' 'A'-'Z' '0'-'9' '+' '-' '/' '*' '^' '=' '%' '?' '!' '.' '$' '_' '&' '<' '>' '@' ':']*
 let symbol = simple_symbol | '|' [^ '|' '\\']* '|'
-let numeral = ['0'-'9']+
-let decimal = numeral '.' numeral
-let rational = numeral '/' numeral
-let binary = "#b" ['0'-'1']+
-let hexadecimal = "#x" ['0'-'9' 'a'-'f' 'A'-'F']+
+
+let digit = ['0'-'9']
+let hexdigit = ['0'-'9' 'a'-'f' 'A'-'F']
+let binary_digit = ['0' '1']
+
 let string = '"' ([^'"'])* '"'
+let numeral = '-'? digit+
+let decimal = '-'? digit+ '.' digit+
+let rational = '-'? digit+ '/' digit+
+let binary = "#b" binary_digit+
+let hexadecimal = "#x" hexdigit+
+
 
 rule token = parse
   | ';' [^'\n']* '\n' { Lexing.new_line lexbuf; token lexbuf }  (* Ignore comments *)
@@ -60,15 +66,13 @@ rule token = parse
   | "<binary>"       { BIN }
   | "<hexadecimal>"  { HEX }
   (* syntactic literals *)
-  | symbol as s              { SYMBOL s }
-  | '"' (([^'"'])* as s) '"' { STRING s }
+  | string as s      { STRING s }
   | numeral as x     { NUMERAL (int_of_string x) }
   | decimal as x     { DECIMAL (float_of_string x) }
   | rational as x    { RATIONAL
         (let [y;z] = String.split_on_char '/' x in
             (int_of_string y, int_of_string z)) }
-  (*
   | binary as x      { BINARY x }
   | hexadecimal as x { HEXADECIMAL x }
-  *)
+  | symbol as s      { SYMBOL s }
   | _ { token lexbuf }
