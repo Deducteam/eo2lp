@@ -133,6 +133,7 @@
     ((eo::mul (eo::succ x) y) (eo::add y (eo::mul x y)))
     ((eo::mul (eo::pred x) y) (eo::add (eo::neg y) (eo::mul x y)))
   )
+  :builtin
 )
 
 (program eo::is_neg_acc
@@ -175,12 +176,12 @@
     )
 )
 
-(program-schema :right-assoc-nil eo::is_list
-    ((T1 Type) (T2 Type) (x T1) (xs T2 :list) (cons (-> T1 T2 T2)) (nil T2))
+(program eo::is_list
+    ((T1 Type) (T2 Type) (x T1) (xs T2 :list) (f (-> T1 T2 T2)))
     ((-> T1 T2 T2) T2) Bool
     (
-        ((eo::is_list cons nil) true)
-        ((eo::is_list cons (cons x xs)) (eo::is_list cons xs))
+        ((eo::is_list f (f x xs)) (eo::is_list cons xs))
+        ((eo::is_list f x) (eo::is_eq x (eo::nil f)))
     )
 )
 
