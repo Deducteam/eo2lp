@@ -13,6 +13,7 @@ let keyword_str =
 type lit_category =
   NUM | DEC | RAT | BIN | HEX | STR
 
+(* TODO. introduce types for literal categories. *)
 let lit_category_str =
   function
   | NUM -> "<numeral>"
@@ -37,7 +38,6 @@ let literal_str =
   | Decimal d -> string_of_float d
   | Rational (n, d) -> string_of_int n ^ "/" ^ string_of_int d
   | String s -> "\"" ^ s ^ "\""
-
 
 type term =
   | Sym of symbol
