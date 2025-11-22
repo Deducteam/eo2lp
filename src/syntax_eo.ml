@@ -1,17 +1,108 @@
 type symbol =
   | Symbol of string
 
-let symbol_str =
-  function (Symbol s) -> s
-
 type keyword =
   | Colon of string
 
-let keyword_str =
-  function (Colon s) -> s
-
 type lit_category =
   NUM | DEC | RAT | BIN | HEX | STR
+
+type literal =
+  | Numeral of int
+  | Decimal of float
+  | Rational of int * int
+  | Binary of string
+  | Hexadecimal of string
+  | String of string
+
+type term =
+  | Sym of symbol
+  | Literal of literal
+  | Bind of symbol * ((symbol * term) list) * term
+  | Apply of symbol * (term list)
+  | Bang of term * (attr list)
+and attr =
+  | Attr of keyword * (term option)
+and atts = attr list
+
+type param =
+  | Param of symbol * term * (attr list)
+type params = param list
+
+type cases = (term * term) list
+
+(* types for datatype declarations *)
+type sort_dec =
+  | SortDec of symbol * int
+and sel_dec =
+  | SelDec of symbol * term
+and cons_dec =
+  | ConsDec of symbol * (sel_dec list)
+and dt_dec =
+  | DatatypeDec of cons_dec list
+
+(* types for inference rule declarations *)
+type assumption =
+  | Assumption of term
+and simple_premises =
+  | Premises of term list
+and premises =
+  | Simple of simple_premises
+  | PremiseList of term * term
+and arguments =
+  | Args of term list
+and reqs =
+  | Requires of cases
+and conclusion =
+  | Conclusion of term
+  | ConclusionExplicit of term
+and rule_dec =
+  | RuleDec of
+      assumption option * premises option *
+      arguments option * reqs option * conclusion
+
+type common_command =
+  | DeclareConst     of symbol * term * attr list
+  | DeclareDatatype  of symbol * dt_dec
+  | DeclareDatatypes of (sort_dec list) * (dt_dec list)
+  | Echo             of string option
+  | Exit
+  | Reset
+  | SetOption        of attr
+
+(* commands exclusive to eunoia *)
+type eo_command =
+  | Assume            of symbol * term
+  | AssumePush        of symbol * term
+  | DeclareConsts     of lit_category * term
+  | DeclareParamConst of symbol * params * term * attr list
+  | DeclareRule       of symbol * params * rule_dec * attr list
+  | Define            of symbol * params * term * (term option)
+  | Include           of string
+  | Program           of symbol * params
+                         * (term list * term)
+                         * cases
+  | Reference         of string * symbol option
+  | Step              of symbol * term option * symbol * simple_premises option * arguments option
+  | StepPop           of symbol * term option * symbol * simple_premises option * arguments option
+  | Common            of common_command
+
+let opt_newline (f : 'a -> string) (x_opt : 'a option) =
+    match x_opt with
+    | Some x -> Printf.sprintf "  %s\n" (f x)
+    | None -> ""
+
+let opt_str (f : 'a -> string) =
+  Option.fold ~none:"" ~some:f
+
+let opt_suffix_str (f : 'a -> string) =
+  Option.fold ~none:"" ~some:(fun x -> " " ^ (f x))
+
+let symbol_str =
+  function (Symbol s) -> s
+
+let keyword_str =
+  function (Colon s) -> s
 
 (* TODO. introduce types for literal categories. *)
 let lit_category_str =
@@ -23,31 +114,12 @@ let lit_category_str =
   | HEX -> "<hexadecimal>"
   | STR -> "<string>"
 
-type literal =
-  | Numeral of int
-  | Decimal of float
-  | Rational of int * int
-  | Binary of string
-  | Hexadecimal of string
-  | String of string
-
-
 let literal_str =
   function
   | Numeral n -> string_of_int n
   | Decimal d -> string_of_float d
   | Rational (n, d) -> string_of_int n ^ "/" ^ string_of_int d
   | String s -> "\"" ^ s ^ "\""
-
-type term =
-  | Sym of symbol
-  | Literal of literal
-  | Bind of symbol * ((symbol * term) list) * term
-  | Apply of symbol * (term list)
-  | Bang of term * (attr list)
-and attr =
-  | Attr of keyword * (term option)
-and atts = attr list
 
 let list_str (f : 'a -> string) =
   fun xs -> (String.concat " " (List.map f xs))
@@ -89,12 +161,6 @@ and
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
-
-
-type param =
-  | Param of symbol * term * (attr list)
-type params = param list
-
 let param_str = function
   | (Param (s,t,xs)) ->
     Printf.sprintf "(%s %s%s)"
@@ -102,24 +168,13 @@ let param_str = function
       (term_str t)
       (list_suffix_str attr_str xs)
 
-type cases = (term * term) list
-
 let term_pair_str (t,t') =
   Printf.sprintf "(%s %s)"
     (term_str t)
     (term_str t')
 
-let cases_str = list_str term_pair_str
-
-(* types for datatype declarations *)
-type sort_dec =
-  | SortDec of symbol * int
-and sel_dec =
-  | SelDec of symbol * term
-and cons_dec =
-  | ConsDec of symbol * (sel_dec list)
-and dt_dec =
-  | DatatypeDec of cons_dec list
+let cases_str : cases -> string =
+  list_str term_pair_str
 
 let sort_dec_str = function
   | SortDec (s,n) ->
@@ -136,26 +191,6 @@ let dt_dec_str = function
   | DatatypeDec xs ->
       Printf.sprintf "(%s)"
         (String.concat " " (List.map cons_dec_str xs))
-
-(* types for inference rule declarations *)
-type assumption =
-  | Assumption of term
-and simple_premises =
-  | Premises of term list
-and premises =
-  | Simple of simple_premises
-  | PremiseList of term * term
-and arguments =
-  | Args of term list
-and reqs =
-  | Requires of cases
-and conclusion =
-  | Conclusion of term
-  | ConclusionExplicit of term
-and rule_dec =
-  | RuleDec of
-      assumption option * premises option *
-      arguments option * reqs option * conclusion
 
 let assumption_str = function
   | Assumption t ->
@@ -182,17 +217,6 @@ and conclusion_str = function
   | ConclusionExplicit t ->
       Printf.sprintf ":conclusion-explicit %s" (term_str t)
 
-let opt_newline (f : 'a -> string) (x_opt : 'a option) =
-    match x_opt with
-    | Some x -> Printf.sprintf "  %s\n" (f x)
-    | None -> ""
-
-let opt_str (f : 'a -> string) =
-  Option.fold ~none:"" ~some:f
-
-let opt_suffix_str (f : 'a -> string) =
-  Option.fold ~none:"" ~some:(fun x -> " " ^ (f x))
-
 let rule_dec_str = function
   | RuleDec (assm_opt, prems_opt, args_opt, reqs_opt, conc)
     -> Printf.sprintf "%s%s%s%s%s"
@@ -201,16 +225,6 @@ let rule_dec_str = function
         (opt_newline arguments_str args_opt)
         (opt_newline reqs_str reqs_opt)
         (opt_newline conclusion_str (Some conc))
-
-
-type common_command =
-  | DeclareConst     of symbol * term * attr list
-  | DeclareDatatype  of symbol * dt_dec
-  | DeclareDatatypes of (sort_dec list) * (dt_dec list)
-  | Echo             of string option
-  | Exit
-  | Reset
-  | SetOption        of attr
 
 let common_command_str = function
   | DeclareConst (s,t,xs) ->
@@ -232,24 +246,6 @@ let common_command_str = function
   | Reset -> "(reset)"
   | SetOption x ->
       Printf.sprintf "(set-option %s)" (attr_str x)
-
-(* commands exclusive to eunoia *)
-type eo_command =
-  | Assume            of symbol * term
-  | AssumePush        of symbol * term
-  | DeclareConsts     of lit_category * term
-  | DeclareParamConst of symbol * params * term * attr list
-  | DeclareRule       of symbol * params * rule_dec * attr list
-  | Define            of symbol * params * term * (term option)
-  | Include           of string
-  | Program           of symbol * params
-                         * (term list * term)
-                         * cases
-  | Reference         of string * symbol option
-  | Step              of symbol * term option * symbol * simple_premises option * arguments option
-  | StepPop           of symbol * term option * symbol * simple_premises option * arguments option
-  | Common            of common_command
-
 
 let eo_command_str = function
   | Assume (s,t) ->

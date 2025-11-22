@@ -1,11 +1,11 @@
 open Syntax_eo
 open Interface_eo
 
-let param_sym : param -> symbol =
+(* let param_sym : param -> symbol =
   function Param (s,_,_) -> s
 
 let param_atts : param -> attr list =
-  function Param (_,_,atts) -> atts
+  function Param (_,_,atts) -> atts *)
 
 let list_attr : attr     = Attr (Colon "list", None)
 let implicit_attr : attr = Attr (Colon "implicit", None)
@@ -46,11 +46,12 @@ let app_binop (f : term) : term * term -> term =
 let app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> app (t_acc,t)) f ts
 
-let eo_list_concat_sym : symbol = (Symbol "eo::list_concat")
+let eo_list_concat_sym : symbol =
+  Symbol "eo::list_concat"
 
 let eo_list_concat : term -> (term * term) -> term =
   fun f (t1,t2) ->
-    app_list (Sym eo_list_concat_sym) [f;t1;t2]
+    Apply (eo_list_concat_sym, [f;t1;t2])
 
 let glue (ps : params) (f : term) : term -> term -> term =
   fun t1 t2 ->
@@ -62,6 +63,9 @@ let glue (ps : params) (f : term) : term -> term -> term =
 let split_last (xs : 'a list) : ('a list * 'a) =
   let ys = List.rev xs in
   (List.rev (List.tl ys), List.hd ys)
+
+let is_builtin (Symbol str : symbol) : bool =
+  String.starts_with ~prefix:"eo::" str
 
 let rec elab (js : jlist) (ps : params) : term -> term =
   function
@@ -82,7 +86,11 @@ let rec elab (js : jlist) (ps : params) : term -> term =
     | Some (Attr (Colon "left-assoc", None)) ->
       (* let (xs, x) = split_last ts' in *)
       List.fold_left g' (List.hd ts') (List.tl ts')
-    | None -> app_list (Sym f) ts'
+    | None ->
+      if is_builtin f then
+        Apply (f, ts')
+      else
+        app_list (Sym f) ts'
 
 let (test_ps, test_ts) : params * term list =
   let orr = Symbol "or" in
@@ -112,6 +120,8 @@ let (test_ps, test_ts) : params * term list =
 
 let test_or_elab : jlist -> string list =
   fun js ->
-    (List.map (fun t -> term_str (elab js test_ps t)) test_ts)
+  List.map
+    (fun t -> term_str (elab js test_ps t))
+    test_ts
 (*
       eo::list : (a -> a -> a) -> a list -> a  *)
