@@ -53,7 +53,7 @@ toplevel_eof:
   | eo_command { Some $1 }
 
 symbol:
-  | s = SYMBOL { Symbol s }
+  | s = SYMBOL { s }
 
 literal:
   | x = NUMERAL      { Numeral x  }
@@ -184,7 +184,7 @@ common_command:
 
 keyword:
   | COLON; s = SYMBOL
-  { Colon s }
+  { s }
 
 attr:
   | kw = keyword; t_opt = option(term)
@@ -198,7 +198,7 @@ term:
   | l = literal
   { Literal l  }
   | s = symbol
-  { Sym s }
+  { Symbol s }
   | LPAREN;
       s = symbol ;
       ts = nonempty_list(term);

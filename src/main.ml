@@ -1,4 +1,5 @@
 open Lexing
+
 open Syntax_eo
 open Interface_eo
 
@@ -45,9 +46,9 @@ let parse_eo_file (fp : string) : eo_command list =
 let proc_eo_file (fp : string) : jlist =
   List.concat_map
     (fun cmd ->
-      Printf.printf "Processing:\n%s\n" (eo_command_str cmd);
+      (* Printf.printf "Processing:\n%s\n" (eo_command_str cmd); *)
       let js = proc_eo_command cmd in
-      Printf.printf "Judgements:\n%s\n\n" (jlist_str js);
+      Printf.printf "\n%s\n" (jlist_str js);
       js)
     (parse_eo_file fp)
 
@@ -56,8 +57,8 @@ let cpc_mini  =
   List.map (fun fp -> Filename.concat cpc_root fp)
     [
       "programs/Utils.eo";
-      "theories/Builtin.eo";
-      "rules/Builtin.eo";
+      (* "theories/Builtin.eo";
+      "rules/Builtin.eo"; *)
     ]
 
 (* let cpc_paths : string list =

@@ -1,53 +1,23 @@
 open Syntax_eo
 
-type defn =
-  | Term of term
-  | Cases of cases
-
-let defn_str (d : defn) =
-  match d with
-  | Term t   -> term_str t
-  | Cases cs -> Printf.sprintf "CASES[%s]" (cases_str cs)
-
 type judgement =
   | LitJ  of lit_category * term
-  | TypeJ of symbol * param list * term
-  | DefnJ of symbol * param list * defn
-  | AttrJ of symbol * param list * attr
+  | TypeJ of string * param list * term
+  | DefnJ of string * param list * defn
+  | AttrJ of string * param list * attr
+and defn =
+  | Term of term
+  | Cases of cases
+and jlist =
+  judgement list
+(* TODO.
+  consider eliminating `LitJ`, and make `declare-consts`
+  introduce some appropriate coercion. then we can remove
+  strings from judgement contructors, and then a *signature*
+  can be a map from strings to sets of judgements.
+*)
 
-
-let params_str (ps : params) : string =
-  (if ps = [] then "⋅" else (list_str param_str ps))
-
-let judgement_str (j : judgement) =
-  match j with
-  | LitJ (lc, t) ->
-    Printf.sprintf "(%s : %s)"
-      (lit_category_str lc)
-      (term_str t)
-  | TypeJ (s, ps, t) ->
-    Printf.sprintf "(%s[%s] : %s)"
-      (symbol_str s)
-      (params_str ps)
-      (term_str t)
-  | DefnJ (s, ps, d) ->
-    Printf.sprintf "(%s[%s] ≔ %s)"
-      (symbol_str s)
-      (params_str ps)
-      (defn_str d)
-  | AttrJ (s, ps, att) ->
-    Printf.sprintf "(%s[%s] ⋈ %s)"
-      (symbol_str s)
-      (params_str ps)
-      (attr_str att)
-
-type jlist = judgement list
-
-let jlist_str js =
-  let js_str = String.concat "\n  " (List.map judgement_str js) in
-  Printf.sprintf "[\n  %s\n]" js_str
-
-let mk_atts_jlist : symbol -> params -> atts -> jlist =
+let mk_atts_jlist : string -> params -> atts -> jlist =
   fun s xs ys ->
     (List.map (fun y -> AttrJ (s, xs, y)) ys)
 
@@ -62,26 +32,22 @@ let proc_common_command : common_command -> jlist =
   | Reset                      -> []
   | SetOption        (_a)       -> []
 
-let arrow_sym       : symbol = (Symbol "->")
-let proof_sym       : symbol = (Symbol "Proof")
-let eo_requires_sym : symbol = (Symbol "eo::requires")
-let bool_sym        : symbol = (Symbol "Bool")
 
 let mk_proof_tm (t : term) : term =
-  Apply (proof_sym, [t])
+  Apply ("Proof", [t])
 
 (* TODO. actually implement *)
 let ty_of (t : term) : term =
-  Sym (Symbol ("TY[" ^  term_str t ^ "]"))
+  Symbol ("TY[" ^  term_str t ^ "]")
 
 let mk_arrow_ty (ts : term list) (t : term) : term =
-  Apply (arrow_sym, List.append ts [t])
+  Apply ("->", List.append ts [t])
 
-let mk_aux_sym (Symbol str : symbol) : symbol =
-  Symbol (str ^ "_aux")
+let mk_aux_str (str : string) : string =
+  (str ^ "_aux")
 
 let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
-  Apply (eo_requires_sym, [t1;t2;t3])
+  Apply ("eo::requires", [t1;t2;t3])
 
 let mk_reqs_list_tm (cs : cases) (t : term) : term =
   List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
@@ -95,21 +61,21 @@ let mk_conc_tm (cs : cases) : conclusion -> term =
       mk_reqs_list_tm cs t
 
 let mk_aux_jlist
-  (s : symbol) (ps : params)
+  (s : string) (ps : params)
   (arg_tms : term list) (arg_tys : term list)
   (conc_tm : term) : jlist
 =
-  let s'     = mk_aux_sym s in
-  let aux_ty = mk_arrow_ty arg_tys (Sym bool_sym) in
+  let s'     = mk_aux_str s in
+  let aux_ty = mk_arrow_ty arg_tys (Symbol "Bool") in
   let aux_cs = [(Apply (s',arg_tms), conc_tm)] in
   [
     TypeJ (s', ps, aux_ty);
     DefnJ (s', ps, Cases aux_cs)
   ]
 
-let mk_arg_vars (arg_tys : term list) =
+let mk_arg_vars (arg_tys : term list) : (string * term) list =
   let arg_sym =
-    (fun i t -> (Symbol ("α" ^ string_of_int i), t))
+    (fun i t -> (("α" ^ string_of_int i), t))
   in
     List.mapi arg_sym arg_tys
 
@@ -161,9 +127,9 @@ let proc_eo_command (cmd : eo_command) : jlist =
         mk_proof_tm conc_tm
       else
         let arg_var_tms =
-          List.map (fun (s, _) -> Sym s) arg_vars
+          List.map (fun (s, _) -> Symbol s) arg_vars
         in
-          mk_proof_tm (Apply (mk_aux_sym s, arg_var_tms))
+          mk_proof_tm (Apply (mk_aux_str s, arg_var_tms))
     in
 
     let main_ty =
@@ -221,11 +187,34 @@ let proc_eo_command (cmd : eo_command) : jlist =
   | StepPop (_,_,_,_,_) -> []
   | Common c -> proc_common_command c
 
+(* ---- pretty printing ----- *)
+let defn_str (d : defn) =
+  match d with
+  | Term t   -> term_str t
+  | Cases cs -> Printf.sprintf "CASES[%s]" (cases_str cs)
 
-module Symbol = struct
-  type t = symbol
-  let compare = compare
-end
+let params_str (ps : params) : string =
+  (if ps = [] then "⋅" else (list_str param_str ps))
 
-module SMap = Map.Make(Symbol)
-type 'a smap = 'a SMap.t
+let judgement_str (j : judgement) =
+  match j with
+  | LitJ (lc, t) ->
+    Printf.sprintf "(%s : %s)"
+      (lit_category_str lc)
+      (term_str t)
+  | TypeJ (s, ps, t) ->
+    Printf.sprintf "(%s[%s] : %s)"
+      s (params_str ps)
+      (term_str t)
+  | DefnJ (s, ps, d) ->
+    Printf.sprintf "(%s[%s] ≔ %s)"
+      s (params_str ps)
+      (defn_str d)
+  | AttrJ (s, ps, att) ->
+    Printf.sprintf "(%s[%s] ⋈ %s)"
+      s (params_str ps)
+      (attr_str att)
+
+let jlist_str js =
+  let js_str = String.concat "\n  " (List.map judgement_str js) in
+  Printf.sprintf "[\n  %s\n]" js_str
