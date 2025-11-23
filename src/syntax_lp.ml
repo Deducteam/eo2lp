@@ -4,7 +4,6 @@ type binder =
 
 type term =
   | Var of string
-  | Const of string
   | App of term * term
   | Bind of binder * param list * term
   | Let of (string * term) * term
@@ -12,20 +11,27 @@ and param =
   | Implicit of string * term
   | Explicit of string * term
 
+type pattern =
+  | PVar of string
+  | PApp of string * pattern list
+
+type case =
+  | Case of (string * pattern list * pattern)
+
 type modifier =
   | Constant
   | Sequential
 
-type lp_command =
+type command =
   | Symbol of
       modifier option * string *
       param list * term * term option
   | Rule of
-      (term * term) list
+      case list
   | Require of
       string list
 
-
+(* ---- pretty printing -------- *)
 let binder_str : binder -> string =
   function
   | Lambda -> "λ"
@@ -34,7 +40,6 @@ let binder_str : binder -> string =
 let rec term_str : term -> string =
   function
   | Var str -> str
-  | Const str -> str
   | App (t1,t2) ->
     Printf.sprintf "(%s %s)"
       (term_str t1)
@@ -55,15 +60,26 @@ and param_str : param -> string =
 and param_list_str (xs : param list) : string =
   String.concat " " (List.map param_str xs)
 
+let rec pattern_str : pattern -> string =
+  function
+  | PVar str       -> "%" ^ str
+  | PApp (str, ps) ->
+    let ps_str =
+      String.concat " " (List.map pattern_str ps)
+    in
+      str ^ " " ^ ps_str
+
+let case_str : case -> string =
+  function
+  | Case (str, ps, p) ->
+    Printf.sprintf "%s ↪ %s"
+      (pattern_str (PApp (str, ps)))
+      (pattern_str p)
+
 let modifier_str =
   function
-  | Constant -> "constant"
+  | Constant   -> "constant"
   | Sequential -> "sequential"
-
-let case_str ((t1,t2) : term * term) : string =
-  Printf.sprintf "%s ↪ %s"
-    (term_str t1)
-    (term_str t2)
 
 let lp_command_str =
   function

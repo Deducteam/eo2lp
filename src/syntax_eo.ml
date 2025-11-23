@@ -1,9 +1,3 @@
-type symbol =
-  | Symbol of string
-
-type keyword =
-  | Colon of string
-
 type lit_category =
   NUM | DEC | RAT | BIN | HEX | STR
 
@@ -16,28 +10,28 @@ type literal =
   | String of string
 
 type term =
-  | Sym of symbol
+  | Symbol of string
   | Literal of literal
-  | Bind of symbol * ((symbol * term) list) * term
-  | Apply of symbol * (term list)
+  | Bind of string * ((string * term) list) * term
+  | Apply of string * (term list)
   | Bang of term * (attr list)
 and attr =
-  | Attr of keyword * (term option)
+  | Attr of string * (term option)
 and atts = attr list
 
 type param =
-  | Param of symbol * term * (attr list)
+  | Param of string * term * (attr list)
 type params = param list
 
 type cases = (term * term) list
 
 (* types for datatype declarations *)
 type sort_dec =
-  | SortDec of symbol * int
+  | SortDec of string * int
 and sel_dec =
-  | SelDec of symbol * term
+  | SelDec of string * term
 and cons_dec =
-  | ConsDec of symbol * (sel_dec list)
+  | ConsDec of string * (sel_dec list)
 and dt_dec =
   | DatatypeDec of cons_dec list
 
@@ -62,8 +56,8 @@ and rule_dec =
       arguments option * reqs option * conclusion
 
 type common_command =
-  | DeclareConst     of symbol * term * attr list
-  | DeclareDatatype  of symbol * dt_dec
+  | DeclareConst     of string * term * attr list
+  | DeclareDatatype  of string * dt_dec
   | DeclareDatatypes of (sort_dec list) * (dt_dec list)
   | Echo             of string option
   | Exit
@@ -72,21 +66,23 @@ type common_command =
 
 (* commands exclusive to eunoia *)
 type eo_command =
-  | Assume            of symbol * term
-  | AssumePush        of symbol * term
+  | Assume            of string * term
+  | AssumePush        of string * term
   | DeclareConsts     of lit_category * term
-  | DeclareParamConst of symbol * params * term * attr list
-  | DeclareRule       of symbol * params * rule_dec * attr list
-  | Define            of symbol * params * term * (term option)
+  | DeclareParamConst of string * params * term * attr list
+  | DeclareRule       of string * params * rule_dec * attr list
+  | Define            of string * params * term * (term option)
   | Include           of string
-  | Program           of symbol * params
+  | Program           of string * params
                          * (term list * term)
                          * cases
-  | Reference         of string * symbol option
-  | Step              of symbol * term option * symbol * simple_premises option * arguments option
-  | StepPop           of symbol * term option * symbol * simple_premises option * arguments option
+  | Reference         of string * string option
+  | Step              of string * term option * string * simple_premises option * arguments option
+  | StepPop           of string * term option * string * simple_premises option * arguments option
   | Common            of common_command
 
+
+(* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
     match x_opt with
     | Some x -> Printf.sprintf "  %s\n" (f x)
@@ -97,12 +93,6 @@ let opt_str (f : 'a -> string) =
 
 let opt_suffix_str (f : 'a -> string) =
   Option.fold ~none:"" ~some:(fun x -> " " ^ (f x))
-
-let symbol_str =
-  function (Symbol s) -> s
-
-let keyword_str =
-  function (Colon s) -> s
 
 (* TODO. introduce types for literal categories. *)
 let lit_category_str =
@@ -130,30 +120,26 @@ let list_suffix_str (f : 'a -> string) =
   | ys -> " " ^ (list_str f ys)
 
 let rec
-  var_str = fun (s,t) ->
+  var_str = fun (str,t) ->
     Printf.sprintf "%s ≔ %s"
-      (symbol_str s)
-      (term_str t)
+      str (term_str t)
 and
-  attr_str = function (Attr (kw,t_opt)) ->
-    let kw_str = keyword_str kw in
+  attr_str = function (Attr (kw_str,t_opt)) ->
     match t_opt with
     | Some t -> Printf.sprintf ":%s %s" kw_str (term_str t)
     | None   -> Printf.sprintf ":%s" kw_str
 and
   term_str = function
-  | Sym s       -> symbol_str s
+  | Symbol str  -> str
   | Literal l   -> literal_str l
-  | Bind (b, xs, t) ->
+  | Bind (str, xs, t) ->
       let xs' = List.map var_str xs in
       Printf.sprintf "(%s %s in %s)"
-        (symbol_str b)
-        (String.concat ", " xs')
+        str (String.concat ", " xs')
         (term_str t)
   | Apply (s, ts) ->
       Printf.sprintf "(%s %s)"
-        (symbol_str s)
-        (String.concat " " (List.map term_str ts))
+        s (String.concat " " (List.map term_str ts))
   | Bang (t, xs) ->
       Printf.sprintf "(! %s %s)"
         (term_str t)
@@ -164,8 +150,7 @@ and term_list_str = fun ts ->
 let param_str = function
   | (Param (s,t,xs)) ->
     Printf.sprintf "(%s %s%s)"
-      (symbol_str s)
-      (term_str t)
+      s (term_str t)
       (list_suffix_str attr_str xs)
 
 let term_pair_str (t,t') =
@@ -178,14 +163,14 @@ let cases_str : cases -> string =
 
 let sort_dec_str = function
   | SortDec (s,n) ->
-      Printf.sprintf "(%s %d)" (symbol_str s) n
+      Printf.sprintf "(%s %d)" s n
 and sel_dec_str = function
   | SelDec (s,t) ->
-      Printf.sprintf "(%s %s)" (symbol_str s) (term_str t)
+      Printf.sprintf "(%s %s)" s (term_str t)
 let cons_dec_str = function
   | ConsDec (s, xs) ->
       Printf.sprintf "(%s %s)"
-        (symbol_str s)
+        s
         (String.concat " " (List.map sel_dec_str xs))
 let dt_dec_str = function
   | DatatypeDec xs ->
@@ -229,13 +214,11 @@ let rule_dec_str = function
 let common_command_str = function
   | DeclareConst (s,t,xs) ->
       Printf.sprintf "(declare-const %s %s %s)"
-        (symbol_str s)
-        (term_str t)
+        s (term_str t)
         (list_suffix_str attr_str xs)
   | DeclareDatatype (s,dt) ->
       Printf.sprintf "(declare-datatype %s %s)"
-        (symbol_str s)
-        (dt_dec_str dt)
+        s (dt_dec_str dt)
   | DeclareDatatypes (xs,ys) ->
       Printf.sprintf "(declare-datatypes (%s) (%s))"
         (String.concat "" (List.map sort_dec_str xs))
@@ -250,12 +233,10 @@ let common_command_str = function
 let eo_command_str = function
   | Assume (s,t) ->
       Printf.sprintf "(assume %s %s)"
-        (symbol_str s)
-        (term_str t)
+        s (term_str t)
   | AssumePush (s,t) ->
       Printf.sprintf "(assume-push %s %s)"
-        (symbol_str s)
-        (term_str t)
+        s (term_str t)
   | DeclareConsts (lc,t) ->
       Printf.sprintf "(declare-consts %s %s)"
         (lit_category_str lc)
@@ -263,20 +244,17 @@ let eo_command_str = function
   | DeclareParamConst (s,xs,t,ys) ->
       Printf.sprintf
         "(declare-parameterized-const %s (%s) %s%s)"
-        (symbol_str s)
-        (list_str param_str xs)
+        s (list_str param_str xs)
         (term_str t)
         (list_suffix_str attr_str ys)
   | DeclareRule (s,xs,rdec,ys) ->
       Printf.sprintf "(declare-rule %s (%s)\n%s%s)"
-        (symbol_str s)
-        (list_str param_str xs)
+        s (list_str param_str xs)
         (rule_dec_str rdec)
         (list_suffix_str attr_str ys)
   | Define (s,xs,t,t_opt) ->
       Printf.sprintf "(define %s (%s)\n %s%s\n)"
-        (symbol_str s)
-        (list_str param_str xs)
+        s (list_str param_str xs)
         (term_str t)
         (opt_suffix_str term_str t_opt)
   | Include s ->
@@ -284,26 +262,21 @@ let eo_command_str = function
   | Program (s,xs,(ts,t),cs) ->
       Printf.sprintf
         "(program %s (%s)\n  :signature (%s) %s\n (%s\n )\n)"
-        (symbol_str s)
-        (list_str param_str xs)
+        s (list_str param_str xs)
         (term_list_str ts)
         (term_str t)
         (cases_str cs)
   | Reference (str, s_opt) ->
       Printf.sprintf "(reference %s %s)"
-        str (opt_str symbol_str s_opt)
+        str (opt_str (fun x -> x) s_opt)
   | Step (s,t_opt,s',sp_opt,args_opt) ->
       Printf.sprintf "(step %s %s %s%s%s)"
-        (symbol_str s)
-        (opt_str term_str t_opt)
-        (symbol_str s')
+        s (opt_str term_str t_opt) s'
         (opt_suffix_str simple_premises_str sp_opt)
         (opt_suffix_str arguments_str args_opt)
   | StepPop (s,t_opt,s',sp_opt,args_opt) ->
       Printf.sprintf "(step-pop %s %s %s%s%s)"
-        (symbol_str s)
-        (opt_str term_str t_opt)
-        (symbol_str s')
+        s (opt_str term_str t_opt) s'
         (opt_suffix_str simple_premises_str sp_opt)
         (opt_suffix_str arguments_str args_opt)
   | Common c ->
@@ -314,11 +287,11 @@ let eo_command_str = function
   | Assert           of term
   | CheckSat
   | CheckSatAssuming of term list
-  | DeclareFun       of symbol * typ list * typ * attr list
-  | DeclareSort      of symbol * int
-  | DefineConst      of symbol * term
-  | DefineFun        of symbol * params * typ * term
-  | DefineSort       of symbol * symbol list * typ
+  | DeclareFun       of string * typ list * typ * attr list
+  | DeclareSort      of string * int
+  | DefineConst      of string * term
+  | DefineFun        of string * params * typ * term
+  | DefineSort       of string * string list * typ
   | SetInfo          of attr
-  | SetLogic         of symbol
+  | SetLogic         of string
   | CommonSMT        of common_command *)
