@@ -67,6 +67,9 @@ let split_last (xs : 'a list) : ('a list * 'a) =
 let is_builtin (Symbol str : symbol) : bool =
   String.starts_with ~prefix:"eo::" str
 
+let is_program (Symbol str : symbol) : bool =
+  String.starts_with ~prefix:"$" str
+
 let rec elab (js : jlist) (ps : params) : term -> term =
   function
   | Sym f -> Sym f
@@ -87,7 +90,7 @@ let rec elab (js : jlist) (ps : params) : term -> term =
       (* let (xs, x) = split_last ts' in *)
       List.fold_left g' (List.hd ts') (List.tl ts')
     | None ->
-      if is_builtin f then
+      if is_builtin f && is_program f then
         Apply (f, ts')
       else
         app_list (Sym f) ts'
