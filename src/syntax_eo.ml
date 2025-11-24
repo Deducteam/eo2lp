@@ -65,7 +65,7 @@ type common_command =
   | SetOption        of attr
 
 (* commands exclusive to eunoia *)
-type eo_command =
+type command =
   | Assume            of string * term
   | AssumePush        of string * term
   | DeclareConsts     of lit_category * term
@@ -80,6 +80,29 @@ type eo_command =
   | Step              of string * term option * string * simple_premises option * arguments option
   | StepPop           of string * term option * string * simple_premises option * arguments option
   | Common            of common_command
+
+(* ---- stuff -------- *)
+let var_has_attr
+  (ps : params) (s : string) (att : attr) : bool
+=
+  let f (Param (s',_,xs)) = (s = s' && List.mem att xs) in
+  List.exists f ps
+
+
+let app ((t1,t2) : term * term) : term =
+  Apply ("_", [t1;t2])
+
+let app_binop (f : term) : term * term -> term =
+  fun (t1,t2) -> app (app (f,t1), t2)
+
+let app_list (f : term) (ts : term list) : term =
+  List.fold_left (fun t_acc t -> app (t_acc,t)) f ts
+
+let is_builtin (str : string) : bool =
+  String.starts_with ~prefix:"eo::" str
+
+let is_program (str : string) : bool =
+  String.starts_with ~prefix:"$" str
 
 
 (* ---- pretty printing -------- *)
@@ -230,7 +253,7 @@ let common_command_str = function
   | SetOption x ->
       Printf.sprintf "(set-option %s)" (attr_str x)
 
-let eo_command_str = function
+let command_str = function
   | Assume (s,t) ->
       Printf.sprintf "(assume %s %s)"
         s (term_str t)

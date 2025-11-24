@@ -1,15 +1,26 @@
 open Syntax_eo
 
+(*
+  so we don't really need attribute judgements for
+  translation, we only need them for elaboration.
+
+  so, processing attributes should just update some map.
+*)
 type judgement =
-  | LitJ  of lit_category * term
   | TypeJ of string * param list * term
   | DefnJ of string * param list * defn
   | AttrJ of string * param list * attr
+  | LitJ  of lit_category * term
 and defn =
   | Term of term
   | Cases of cases
 and jlist =
   judgement list
+
+module SMap = Map.Make(String)
+
+
+
 (* TODO.
   consider eliminating `LitJ`, and make `declare-consts`
   introduce some appropriate coercion. then we can remove
@@ -17,20 +28,31 @@ and jlist =
   can be a map from strings to sets of judgements.
 *)
 
+(* TODO. how should we account for attributed constants wrt.
+  a list of parameters???
+  e.g., right-assoc-nil where the op has type variables.  *)
+let const_get_attr
+  (js : jlist) (s : string) : attr option
+=
+  List.find_map
+  (fun j ->
+    match j with
+    | AttrJ (s', _, att) when s = s' -> Some att
+    | _ -> None
+  ) js
+
+let const_has_attr
+  (js : jlist) (s : string) (att : attr) : bool
+=
+  List.exists (fun j ->
+    match j with
+    | AttrJ (s, _, att') -> att = att'
+    | _ -> false
+  ) js
+
 let mk_atts_jlist : string -> params -> atts -> jlist =
   fun s xs ys ->
     (List.map (fun y -> AttrJ (s, xs, y)) ys)
-
-let proc_common_command : common_command -> jlist =
-  function
-  | DeclareConst (s,t,xs)  ->
-    (TypeJ (s,[],t)) :: (mk_atts_jlist s [] xs)
-  | DeclareDatatype  (_s,_dt)    -> []
-  | DeclareDatatypes (_sts,_dts) -> []
-  | Echo             (_str_opt) -> []
-  | Exit                       -> []
-  | Reset                      -> []
-  | SetOption        (_a)       -> []
 
 
 let mk_proof_tm (t : term) : term =
@@ -79,7 +101,7 @@ let mk_arg_vars (arg_tys : term list) : (string * term) list =
   in
     List.mapi arg_sym arg_tys
 
-let proc_eo_command (cmd : eo_command) : jlist =
+let proc_command (cmd : command) : jlist =
   match cmd with
   | Assume (s,t)          -> [TypeJ (s, [], t)]
   | AssumePush (_,_)      -> []

@@ -45,12 +45,15 @@ open Syntax_eo
   TYPE
   RULE
 
-%start <eo_command option> toplevel_eof
+%start <command option> toplevel_eof
+%start <term> term
+%start <param list> params
+
 
 %%
 toplevel_eof:
   | EOF        { None }
-  | eo_command { Some $1 }
+  | command { Some $1 }
 
 symbol:
   | s = SYMBOL { s }
@@ -67,7 +70,7 @@ cases:
   | LPAREN; cs = nonempty_list(case); RPAREN
   { cs }
 
-eo_command:
+command:
   | LPAREN; ASSUME;
       s = symbol ;
       t = term;
@@ -230,6 +233,12 @@ param:
       xs = list(attr);
     RPAREN
   { Param (s, t, xs) }
+
+params:
+  | LPAREN;
+    ps = list(param)
+    RPAREN
+  { ps }
 
 case:
   | LPAREN;
