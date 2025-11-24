@@ -37,18 +37,50 @@ let binder_str : binder -> string =
   | Lambda -> "λ"
   | Pi     -> "Π"
 
+let is_var : term -> bool =
+  function
+  | Var _ -> true
+  | _ -> false
+
+let is_pi : term -> bool =
+  function
+  | Bind (Pi, _, _) -> true
+  | _ -> false
+
 let rec term_str : term -> string =
   function
   | Var str -> str
-  | App (t1,t2) ->
-    Printf.sprintf "(%s %s)"
+  | App (App (Var "▫", t1), Var x) ->
+    Printf.sprintf "%s ▫ %s"
+      (term_str t1)
+      (term_str (Var x))
+  | App (App (Var "▫", t1), t2) ->
+    Printf.sprintf "%s ▫ (%s)"
       (term_str t1)
       (term_str t2)
+  | App (t1,Var x) ->
+    Printf.sprintf "%s %s"
+      (term_str t1)
+      (term_str (Var x))
+  | App (t1,t2) ->
+    Printf.sprintf "%s (%s)"
+      (term_str t1)
+      (term_str t2)
+  | Bind (Pi,[Explicit ("_",t)],t')->
+    if is_pi t then
+      Printf.sprintf "(%s) → %s"
+        (term_str t)
+        (term_str t')
+    else
+      Printf.sprintf "%s → %s"
+        (term_str t)
+        (term_str t')
   | Bind (b,xs,t)->
     Printf.sprintf "%s %s, %s"
       (binder_str b)
       (param_list_str xs)
       (term_str t)
+
 and param_str : param -> string =
   function
   | Implicit (s,t) ->
@@ -57,6 +89,7 @@ and param_str : param -> string =
   | Explicit (s,t) ->
     Printf.sprintf "(%s : %s)"
       s (term_str t)
+
 and param_list_str (xs : param list) : string =
   String.concat " " (List.map param_str xs)
 

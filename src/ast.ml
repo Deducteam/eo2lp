@@ -95,7 +95,7 @@ type control_command =
 
 [@@deriving show]
 
-type eo_command =
+type command =
   | Base of base_command
   | Ctrl of control_command
   | EO of eunoia_command
@@ -130,7 +130,7 @@ let get_eo_name = function
     | StepPop (name, _, _, _, _) -> Some name)
   | Ctrl _ -> None
 
-type eo_sig = eo_command list
+type eo_sig = command list
 type eo_file = string * eo_sig
 type eo_library = eo_file list
 
