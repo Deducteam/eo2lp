@@ -138,12 +138,12 @@
 \newcommand{\eoPrfCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
 		π & \begin{array}[t]{c@{\ }l}
-		    {⦂} & \epar{\mtt{assume}\ s\ φ}       \\
+			    {⦂} & \epar{\mtt{assume}\ s\ φ} \\
 			    % {∣} & \prn{\mtt{assume-push}\ s\ e}      \\
-			   {∣} & \epar{\mtt{step}\ s\ φ\
+			    {∣} & \epar{\mtt{step}\ s\ φ\
 			    \some{\mtt{:rule}\ s'}\
 			    \maybe{\mtt{:premises}\ {\vec ψ}}\
-			    \maybe{\mtt{:args}\ {\vec t}}}\\
+			    \maybe{\mtt{:args}\ {\vec t}}}  \\
 			    % {∣} & \prn{\mtt{step-pop}\ s\ \maybe{e}\
 			    % \prn{\mtt{:rule}\ {s_r}}\
 			    % \maybe{\mtt{:premises}\ {\vec φ}}\
@@ -317,7 +317,7 @@
 \newcommand{\lpConcreteSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r}
 		m & {⦂}
-		  & \mtt{constant} ∣ \mtt{sequential} ∣ \mtt{injective}
+		  & \mtt{constant} ∣ \mtt{sequential}
 		  & \mcomment{(modifiers)}
 		\\[1mm]
 		c & {⦂}
