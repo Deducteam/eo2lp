@@ -1,8 +1,7 @@
 (* importing Eunoia stuff. *)
 module EO = struct
   include Syntax_eo
-  include Interface_eo
-  include Elaborate_eo
+  include Elaborate
 end
 
 (* importing LambdaPi stuff. *)
