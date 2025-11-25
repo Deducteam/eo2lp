@@ -305,6 +305,84 @@ let command_str = function
   | Common c ->
       common_command_str c
 
+let mk_proof_tm (t : term) : term =
+  Apply ("Proof", [t])
+
+(* TODO. actually implement *)
+let ty_of (t : term) : term =
+  Symbol ("TY[" ^  term_str t ^ "]")
+
+let mk_arrow_ty (ts : term list) (t : term) : term =
+  Apply ("->", List.append ts [t])
+
+let mk_aux_str (str : string) : string =
+  (str ^ "_aux")
+
+let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
+  Apply ("eo::requires", [t1;t2;t3])
+
+let mk_reqs_list_tm (cs : cases) (t : term) : term =
+  List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
+
+let mk_conc_tm (cs : cases) : conclusion -> term =
+  function
+  | Conclusion t ->
+      mk_reqs_list_tm cs t
+  | ConclusionExplicit t ->
+      Printf.printf "WARNING! --- :conclusion-explicit\n";
+      mk_reqs_list_tm cs t
+
+(* let mk_aux_jlist
+  (s : string) (ps : params)
+  (arg_tms : term list) (arg_tys : term list)
+  (conc_tm : term) : jlist
+=
+  let s'     = mk_aux_str s in
+  let aux_ty = mk_arrow_ty arg_tys (Symbol "Bool") in
+  let aux_cs = [(Apply (s',arg_tms), conc_tm)] in
+  [
+    TypeJ (s', ps, aux_ty);
+    DefnJ (s', ps, Cases aux_cs)
+  ] *)
+
+let mk_arg_vars (arg_tys : term list) : (string * term) list =
+  let arg_sym =
+    (fun i t -> (("α" ^ string_of_int i), t))
+  in
+    List.mapi arg_sym arg_tys
+(* (* ---- pretty printing ----- *)
+let defn_str (d : defn) =
+  match d with
+  | Term t   -> term_str t
+  | Cases cs -> Printf.sprintf "CASES[%s]" (cases_str cs)
+
+let params_str (ps : params) : string =
+  (if ps = [] then "⋅" else (list_str param_str ps))
+
+let judgement_str (j : judgement) =
+  match j with
+  | LitJ (lc, t) ->
+    Printf.sprintf "(%s : %s)"
+      (lit_category_str lc)
+      (term_str t)
+  | TypeJ (s, ps, t) ->
+    Printf.sprintf "(%s[%s] : %s)"
+      s (params_str ps)
+      (term_str t)
+  | DefnJ (s, ps, d) ->
+    Printf.sprintf "(%s[%s] ≔ %s)"
+      s (params_str ps)
+      (defn_str d)
+  | AttrJ (s, ps, att) ->
+    Printf.sprintf "(%s[%s] ⋈ %s)"
+      s (params_str ps)
+      (attr_str att)
+
+let jlist_str js =
+  let js_str = String.concat "\n  " (List.map judgement_str js) in
+  Printf.sprintf "[\n  %s\n]" js_str
+ *)
+
 (* deprecated stuff. *)
 (* type smt2_command =
   | Assert           of term

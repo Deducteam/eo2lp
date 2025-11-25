@@ -12,9 +12,9 @@
  (public_name eo2lp)
  (modules
    main parser lexer
-   syntax_eo parse_eo
-   interface_eo elaborate_eo
-   syntax_lp translate
+   parse_eo syntax_eo context_eo
+   syntax_lp
+   elaborate translate
    testing
   )
  (flags :standard -w -8 -w -27)
