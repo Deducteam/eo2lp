@@ -3,6 +3,7 @@ type binder =
   | Pi
 
 type term =
+  | PVar of string
   | Var of string
   | App of term * term
   | Bind of binder * param list * term
@@ -11,12 +12,13 @@ and param =
   | Implicit of string * term
   | Explicit of string * term
 
-type pattern =
+(* type pattern =
   | PVar of string
   | PApp of string * pattern list
 
 type case =
-  | Case of (string * pattern list * pattern)
+  | Case of (string * pattern list * pattern) *)
+type cases = (term * term) list
 
 type modifier =
   | Constant
@@ -25,9 +27,9 @@ type modifier =
 type command =
   | Symbol of
       modifier option * string *
-      param list * term * term option
+      param list * term option * term option
   | Rule of
-      case list
+      cases
   | Require of
       string list
 
@@ -40,6 +42,7 @@ let binder_str : binder -> string =
 let is_var : term -> bool =
   function
   | Var _ -> true
+  | PVar _ -> true
   | _ -> false
 
 let is_pi : term -> bool =
@@ -47,21 +50,30 @@ let is_pi : term -> bool =
   | Bind (Pi, _, _) -> true
   | _ -> false
 
+let in_params (s : string) (ps : param list) : bool =
+  List.exists
+    (function
+      | (Explicit (s',_) | Implicit (s', _))
+        when s = s' -> true
+      | _ -> false
+    ) ps
+
 let rec term_str : term -> string =
   function
   | Var str -> str
-  | App (App (Var "▫", t1), Var x) ->
+  | PVar str -> "$" ^ str
+  | App (App (Var "▫", t1), t2) when is_var t2 ->
     Printf.sprintf "%s ▫ %s"
       (term_str t1)
-      (term_str (Var x))
+      (term_str t2)
   | App (App (Var "▫", t1), t2) ->
     Printf.sprintf "%s ▫ (%s)"
       (term_str t1)
       (term_str t2)
-  | App (t1,Var x) ->
+  | App (t1,t2) when is_var t2 ->
     Printf.sprintf "%s %s"
       (term_str t1)
-      (term_str (Var x))
+      (term_str t2)
   | App (t1,t2) ->
     Printf.sprintf "%s (%s)"
       (term_str t1)
@@ -80,6 +92,9 @@ let rec term_str : term -> string =
       (binder_str b)
       (param_list_str xs)
       (term_str t)
+  | Let ((s,t),t') ->
+    Printf.sprintf "let %s ≔ %s in %s"
+      s (term_str t) (term_str t')
 
 and param_str : param -> string =
   function
@@ -93,21 +108,21 @@ and param_str : param -> string =
 and param_list_str (xs : param list) : string =
   String.concat " " (List.map param_str xs)
 
-let rec pattern_str : pattern -> string =
+(* let rec pattern_str : pattern -> string =
   function
   | PVar str       -> "%" ^ str
   | PApp (str, ps) ->
     let ps_str =
       String.concat " " (List.map pattern_str ps)
     in
-      str ^ " " ^ ps_str
+      str ^ " " ^ ps_str *)
 
-let case_str : case -> string =
+let case_str : (term * term) -> string =
   function
-  | Case (str, ps, p) ->
+  | (lhs,rhs) ->
     Printf.sprintf "%s ↪ %s"
-      (pattern_str (PApp (str, ps)))
-      (pattern_str p)
+      (term_str lhs)
+      (term_str rhs)
 
 let modifier_str =
   function
@@ -117,21 +132,25 @@ let modifier_str =
 let lp_command_str =
   function
   (*  printing <m>? symbol <s> <p>* : t <:= t'>? *)
-  | Symbol (m_opt, str, xs, t, def_opt) ->
+  | Symbol (m_opt, str, xs, ty_opt, def_opt) ->
     let m_str = match m_opt with
       | None -> ""
       | Some m -> modifier_str m ^ " "
     in
     let xs_str = match xs with
       | [] -> ""
-      | xs -> " " ^ param_list_str xs ^ " "
+      | xs -> param_list_str xs ^ " "
+    in
+    let ty_str = match ty_opt with
+      | None -> ""
+      | Some ty -> ": " ^ (term_str ty)
     in
     let def_str = match def_opt with
       | None -> ""
-      | Some def -> " ≔ " ^ (term_str def)
+      | Some def -> "≔ " ^ (term_str def)
     in
-    Printf.sprintf "%ssymbol %s%s : %s%s;"
-      m_str str xs_str (term_str t) def_str
+    Printf.sprintf "%ssymbol %s %s%s%s;"
+      m_str str xs_str ty_str def_str
   (* printing `rule <r> <with r>*`  *)
   | Rule cs ->
     let cs_str =
@@ -141,5 +160,5 @@ let lp_command_str =
       Printf.sprintf "rule %s;" cs_str
   (* printing `require open <path>+`  *)
   | Require ps ->
-    let ps_str = String.concat "\n  " ps in
+    let ps_str = String.concat " " ps in
     Printf.sprintf "require open %s;" ps_str

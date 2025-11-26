@@ -1,23 +1,39 @@
-open Syntax_eo
-open Parse_eo
 open Main
-
 
 (* open Elaborate *)
 let cpc_root  = "../cvc5/proofs/eo/cpc"
 let cpc_mini  =
-  List.map (fun fp -> Filename.concat cpc_root fp)
-    [
-      "programs/Utils.eo";
-      "theories/Builtin.eo";
-      (* "rules/Builtin.eo"; *)
-    ]
+  let con fp = Filename.concat cpc_root fp in
+  let fps = ["programs/Utils.eo"; "theories/Builtin.eo"] in
+  List.map con fps
 
-let cpc_commands : command list =
-  List.concat_map parse_eo_file cpc_mini
+(* let cpc_commands : command list =
+  List.concat_map parse_eo_file cpc_mini *)
+
+let write_line ch str =
+  if str = "" then
+    ()
+  else
+    output_string ch str;
+    output_char ch '\n'
+
+let write_lps ch lps =
+  let f lp = write_line ch (LP.lp_command_str lp)
+  in List.iter f lps; output_char ch '\n'
 
 let proc_cpc : unit =
-  List.iter proc_eo_file cpc_mini
+  let
+    lps = List.concat_map proc_eo_file cpc_mini and
+    ch = open_out "lp/out.lp" and
+    reqs = [
+      LP.Require ["Logic.U.Set"; "Logic.U.Arrow"];
+      LP.Require ["eo2lp.Core"]
+    ]
+  in
+    write_lps ch reqs;
+    List.iter (write_lps ch) lps;
+    close_out ch;
+
 
 (* let test_elab_tms : eterm list =
   let ps = parse_eo_params
