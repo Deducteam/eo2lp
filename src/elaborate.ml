@@ -15,7 +15,7 @@ type eterm =
 and eparam =
   | Explicit of string * eterm
   | Implicit of string * eterm
-
+and ecases = (eterm * eterm) list
 
 let app_list (t : eterm) (ts : eterm list) : eterm =
   List.fold_left (fun t_acc t' -> App (t_acc, t')) t ts
@@ -24,16 +24,16 @@ let mk_eo_var ((s,t) : string * term) : term =
   Apply ("eo::var", [Literal (String s); t])
 
 (* auxillary function used in elaboration of f-lists. *)
-let glue (ctx : context) (f : eterm)
+let glue (ps : params) (f : eterm)
   (t1 : eterm) (t2 : eterm) : eterm
 =
   match t1 with
-  | Symbol s when is_list ctx s ->
+  | Symbol s when is_list ps s ->
     Meta ("eo::list_concat",[f;t1;t2])
   | _ -> App (App (f,t1), t2)
 
 (* elaboration *)
-let rec elab (sgn : signature) (ctx : context)
+let rec elab (sgn : signature) (ps : params)
   : term -> eterm
 =
   function
@@ -43,60 +43,63 @@ let rec elab (sgn : signature) (ctx : context)
   | Literal l -> Literal l
   (* ------------------------ *)
   | Bind ("eo::define", xs, t) ->
-    let xs' = elab_vars sgn ctx xs in
-    Let (xs', elab sgn ctx t)
+    let xs' = elab_vars sgn ps xs in
+    Let (xs', elab sgn ps t)
   (* ------------------------ *)
   | Bind (s, xs, t) ->
-    elab_binder sgn ctx (s,xs,t)
+    elab_binder sgn ps (s,xs,t)
   (* ------------------------ *)
   | Apply (s, ts) ->
-    let g  = glue ctx (Symbol s) in
+    let g  = glue ps (Symbol s) in
     let g' = fun x y -> g y x in
-    let ts' = List.map (elab sgn ctx) ts in
+    let ts' = List.map (elab sgn ps) ts in
     match M.find_opt s sgn.atts with
     | Some (_, Attr ("right-assoc-nil", Some t_nil)) ->
-      List.fold_right g ts' (elab sgn ctx t_nil)
+      List.fold_right g ts' (elab sgn ps t_nil)
     | Some (_, Attr ("left-assoc-nil", Some t_nil)) ->
-      List.fold_left g' (elab sgn ctx t_nil) ts'
+      List.fold_left g' (elab sgn ps t_nil) ts'
     | Some (_, Attr ("right-assoc", None)) ->
       let (xs, x) = split_last ts' in
       List.fold_right g xs x
     | Some (_, Attr ("left-assoc", None)) ->
       List.fold_left g' (List.hd ts') (List.tl ts')
     | _ ->
-      if is_builtin s || is_program s || s = "->" then
+      if is_macro sgn s || is_builtin s || is_program s || s = "->" then
         Meta (s, ts')
       else
         app_list (Symbol s) ts'
 and
-  elab_vars = fun sgn ctx xs ->
-    List.map (fun (s,t) -> (s, elab sgn ctx t)) xs
+  elab_vars = fun sgn ps xs ->
+    List.map (fun (s,t) -> (s, elab sgn ps t)) xs
 and
-  elab_binder = fun sgn ctx (s,xs,t) ->
+  elab_binder = fun sgn ps (s,xs,t) ->
     match M.find_opt s sgn.atts with
     | Some (_, Attr ("binder", Some (Symbol cons))) ->
       let vs = List.map mk_eo_var xs in
-      let vs_tm = elab sgn ctx (Apply (cons, vs)) in
+      let vs_tm = elab sgn ps (Apply (cons, vs)) in
       App (
         App (Symbol s, vs_tm),
-        elab sgn ctx t
+        elab sgn ps t
       )
     | _ -> failwith (Printf.sprintf
       "Symbol %s not a valid :binder." s)
 and
-  elab_param = fun sgn ctx ->
-    let implicit_attr =
-      Attr ("is_implicit", None)
-    in function
+  elab_param = fun sgn ->
+    function
     | Param (s,t,xs) ->
-      let t' = elab sgn ctx t in
-      if List.mem implicit_attr xs then
+      let t' = elab sgn [] t in
+      if List.mem (Attr ("implicit", None)) xs then
         Implicit (s, t')
       else
         Explicit (s, t')
 
+let elab_params (sgn : signature) =
+  List.map (elab_param sgn)
 
-
+let elab_cases (sgn : signature) (ps : params) (cs : cases) : ecases =
+  let e = elab sgn ps in
+  let f = (fun (t,t') -> (e t, e t')) in
+  List.map f cs
 
 (* --------- pretty printing ---------- *)
 let rec eterm_str : eterm -> string =
