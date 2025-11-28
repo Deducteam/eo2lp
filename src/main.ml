@@ -37,26 +37,40 @@ let gen_const (sgn : signature)
     (
       translate_symbol s,
       translate_params (elab_params sgn ps),
-      translate_ty (elab sgn ps ty)
+      translate_ty (elab_ty sgn ps ty)
     )
   in
     Symbol (Some Constant, s', ps', Some ty', None)
 
+(* ?TODO? split into gen_prog_sym and gen_prog_rule. *)
 let gen_prog (sgn : signature)
     (s : string) (ps : EO.params) (ty : EO.term)
     (cs : EO.cases) : LP.command list
 =
-  let (s', ps', ty', cs') =
+  let (eps, ety) =
+    (
+      elab_params sgn ps,
+      elab_ty sgn ps ty
+    )
+  in
+
+  let vs = free_params eps ety in
+  let vs' = List.map (fun (s,t) -> Implicit (s,t)) vs in
+  Printf.printf "ty params for %s with type %s are [%s].\n"
+    s (eterm_str ety) (String.concat " " (List.map fst vs));
+
+  let (s', ty_ps, ty', rl_ps, cs') =
     (
       translate_symbol s,
-      translate_params (elab_params sgn ps),
-      translate_ty (elab sgn ps ty),
+      translate_params vs',
+      translate_ty ety,
+      translate_params eps,
       translate_cases (elab_cases sgn ps cs)
     )
   in
     List.append
-      [LP.Symbol (Some Sequential, s', [], Some ty', None)]
-      (if cs' = [] then [] else [LP.Rule (bind_pvars_cases ps' cs')])
+      [LP.Symbol (Some Sequential, s', ty_ps, Some ty', None)]
+      (if cs' = [] then [] else [LP.Rule (bind_pvars_cases rl_ps cs')])
 
 let gen_defn (sgn : signature)
     (s : string) (ps : EO.params)
@@ -67,11 +81,11 @@ let gen_defn (sgn : signature)
     (
       translate_symbol s,
       translate_params (elab_params sgn ps),
-      translate_tm (elab sgn ps def)
+      translate_tm (elab_tm sgn ps def)
     )
   in
   let ty_opt' = match ty_opt with
-    | Some ty -> Some (translate_ty (elab sgn ps ty))
+    | Some ty -> Some (translate_ty (elab_ty sgn ps ty))
     | None -> None
   in
     Symbol (None, s', ps', ty_opt', Some def')
@@ -112,7 +126,7 @@ let gen_rdec (sgn : signature)
       let (s',ty') =
         (
           translate_symbol s_aux,
-          translate_ty (elab sgn ps aux_ty)
+          translate_ty (elab_ty sgn ps aux_ty)
         )
       in
 
@@ -147,7 +161,7 @@ let gen_rdec (sgn : signature)
       | None -> conc_ty
     in
 
-    let ty' = translate_ty (elab sgn ps ty) in
+    let ty' = translate_ty (elab_ty sgn ps ty) in
     let ty_cmd =
       LP.Symbol (None, s', ps', Some ty', None)
     in
@@ -169,7 +183,7 @@ let mk_step_defn (s : string)
     | Some (Args ts) -> ts
     | None           -> []
   in
-  EO.Apply (s, List.append arg_ts prem_ts)
+    EO.Apply (s, List.append arg_ts prem_ts)
 
 
 
@@ -199,8 +213,9 @@ let proc_command : EO.command -> LP.command list =
   | DeclareConsts (lc,t)  -> []
   (* ---------------- *)
   | DeclareParamConst (s,ps,t,xs) ->
-      if xs != [] then
-        _sig.atts <- M.add s ([], List.hd xs) _sig.atts;
+    (* register params for translation *)
+    if xs != [] then
+        _sig.atts <- M.add s (ps, List.hd xs) _sig.atts;
       [ gen_const _sig s ps t ]
   (* ---------------- *)
   | DeclareRule (s,ps,
@@ -217,7 +232,7 @@ let proc_command : EO.command -> LP.command list =
   | Define (s, ps, t_def, ty_opt) ->
     (* register definition in signature *)
     _sig.defs <- M.add s (ps, t_def) _sig.defs;
-    [gen_defn _sig s ps t_def ty_opt]
+    [ gen_defn _sig s ps t_def ty_opt ]
   (* ---------------- *)
   | Include s -> []
   (* ---------------- *)
@@ -226,14 +241,16 @@ let proc_command : EO.command -> LP.command list =
     in gen_prog _sig s ps ty cs
   (* ---------------- *)
   | Reference (_, _) -> []
+  (* ---------------- *)
   | Step (s, conc_opt, s', prems_opt, args_opt) ->
     let t_def = mk_step_defn s' prems_opt args_opt in
     let ty_opt = Option.map EO.mk_proof_tm conc_opt in
 
     _sig.defs <- M.add s' ([], t_def) _sig.defs;
     [ gen_defn _sig s [] t_def ty_opt ]
-
+  (* ---------------- *)
   | StepPop (_,_,_,_,_) -> []
+  (* ---------------- *)
   | Common c -> proc_common_command c
 
 
