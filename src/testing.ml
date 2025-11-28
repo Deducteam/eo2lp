@@ -19,7 +19,7 @@ let write_line ch str =
 
 let write_lps ch lps =
   let f lp = write_line ch (LP.lp_command_str lp)
-  in List.iter f lps; output_char ch '\n'
+  in List.iter f lps
 
 let proc_cpc : unit =
   let

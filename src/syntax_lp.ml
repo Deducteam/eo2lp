@@ -62,6 +62,14 @@ let rec term_str : term -> string =
   function
   | Var str -> str
   | PVar str -> "$" ^ str
+  | App (App (Var "⤳", t1), t2) when is_var t2 ->
+    Printf.sprintf "%s ⤳ %s"
+      (term_str t1)
+      (term_str t2)
+  | App (App (Var "⤳", t1), t2) ->
+    Printf.sprintf "%s ⤳ (%s)"
+      (term_str t1)
+      (term_str t2)
   | App (App (Var "▫", t1), t2) when is_var t2 ->
     Printf.sprintf "%s ▫ %s"
       (term_str t1)

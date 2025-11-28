@@ -41,15 +41,26 @@ let mk_arrow_typ_list (ts : LP.term list) : LP.term =
     (fun t_acc t -> mk_arrow_typ (t_acc, t))
     init last
 
+let mk_set_arrow_typ ((t,t') : LP.term * LP.term) : LP.term =
+  App (App (Var "⤳", t), t')
+
+let mk_set_arrow_typ_list (ts : LP.term list) : LP.term =
+  let (init, last) = EO.split_last ts in
+  List.fold_right
+    (fun t_acc t -> mk_set_arrow_typ (t_acc, t))
+    init last
 
 let rec translate_tm : EO.eterm ->  LP.term =
   function
+  (* ------------ *)
   | Symbol s ->
       if s = "->" then
         (Var "⤳")
       else
         Var (translate_symbol s)
+  (* ------------ *)
   | Literal l -> Var (EO.literal_str l)
+  (* ------------ *)
   | Let (xs, t') -> (
       match xs with
       | [] -> translate_tm t'
@@ -59,11 +70,20 @@ let rec translate_tm : EO.eterm ->  LP.term =
           translate_tm (Let (ys, t'))
         )
     )
+  (* ------------ *)
   | App (t1,t2) ->
     App (
       App (Var "▫", translate_tm t1),
       translate_tm t2
     )
+  (* ------------ *)
+  | TyApp (s, ts) ->
+    let ts' = List.map translate_tm ts in
+    if s = "->" then
+      mk_set_arrow_typ_list ts'
+    else
+      app_list (Var (translate_symbol s)) ts'
+  (* ------------ *)
   | Meta (s, ts) ->
     let s' = translate_symbol s in
     let ts' = List.map translate_tm ts in
@@ -71,14 +91,17 @@ let rec translate_tm : EO.eterm ->  LP.term =
 
 let rec translate_ty : EO.eterm -> LP.term =
   function
+  (* ------------ *)
   | Symbol s ->
     if s = "Type" then
       (Var "Set")
     else
       App (Var "El", Var (translate_symbol s))
-  | Meta ("->", ts) ->
+  (* ------------ *)
+  | TyApp ("->", ts) ->
     let ts' = List.map translate_ty ts in
     mk_arrow_typ_list ts'
+  (* ------------ *)
   | _ as t ->
     App (Var "El", translate_tm t)
 
@@ -87,7 +110,7 @@ let translate_param : EO.eparam -> LP.param =
   | Explicit (s,t) ->
       Explicit (translate_symbol s, translate_ty t)
   | Implicit (s,t) ->
-    Implicit (translate_symbol s, translate_ty t)
+      Implicit (translate_symbol s, translate_ty t)
 
 let rec bind_pvars (xs : LP.param list) : LP.term -> LP.term =
   function
