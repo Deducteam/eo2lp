@@ -1,6 +1,7 @@
 open Elaborate
 open Translate
 open Context_eo
+open List
 
 module EO = struct
   include Syntax_eo
@@ -10,13 +11,21 @@ module LP = struct
   include Syntax_lp
 end
 
+
+let builtin_tys =
+  let tm = Parse_eo.parse_eo_term in
+  [
+    ("eo::List", tm "Type");
+    ("eo::List::cons", tm "(-> T eo::List eo::List)")
+  ]
 (* open Elaborate *)
 let _sig : signature =
   {
-    atts = M.of_list [];
-    typs = M.of_list [];
-    defs = M.of_list [];
-    (* prgs = M.of_list []; *)
+    prm = M.empty;
+    typ = M.of_list builtin_tys;
+    def = M.empty;
+    att = M.empty;
+    lit = [];
   }
 
 (* find eo files in dir *)
@@ -31,31 +40,31 @@ let find_eo_files (dir : string) : string list =
     [] (Sys.readdir dir)
 
 let gen_const (sgn : signature)
-    (s : string) (ps : EO.params) (ty : EO.term)
+    (s : string) (ps : EO.param list) (ty : EO.term)
   : LP.command =
   let (s', ps', ty') =
     (
       translate_symbol s,
-      translate_params (elab_params sgn ps),
-      translate_ty (elab_ty sgn ps ty)
+      translate_params (map (elab_param sgn) ps),
+      translate_ty (elab_tm (sgn,ps) ty)
     )
   in
     Symbol (Some Constant, s', ps', Some ty', None)
 
 (* ?TODO? split into gen_prog_sym and gen_prog_rule. *)
 let gen_prog (sgn : signature)
-    (s : string) (ps : EO.params) (ty : EO.term)
+    (s : string) (ps : EO.param list) (ty : EO.term)
     (cs : EO.cases) : LP.command list
 =
   let (eps, ety) =
     (
-      elab_params sgn ps,
-      elab_ty sgn ps ty
+      map (elab_param sgn) ps,
+      elab_tm (sgn,ps) ty
     )
   in
 
   let vs = free_params eps ety in
-  let vs' = List.map (fun (s,t) -> Implicit (s,t)) vs in
+  let vs' = List.map (fun (s,t) -> (s,t, Implicit)) vs in
   Printf.printf "ty params for %s with type %s are [%s].\n"
     s (eterm_str ety) (String.concat " " (List.map fst vs));
 
@@ -65,7 +74,7 @@ let gen_prog (sgn : signature)
       translate_params vs',
       translate_ty ety,
       translate_params eps,
-      translate_cases (elab_cases sgn ps cs)
+      translate_cases (elab_cases (sgn,ps) cs)
     )
   in
     List.append
@@ -73,19 +82,19 @@ let gen_prog (sgn : signature)
       (if cs' = [] then [] else [LP.Rule (bind_pvars_cases rl_ps cs')])
 
 let gen_defn (sgn : signature)
-    (s : string) (ps : EO.params)
+    (s : string) (ps : EO.param list)
     (def : EO.term) (ty_opt : EO.term option)
   : LP.command
 =
   let (s', ps', def') =
     (
       translate_symbol s,
-      translate_params (elab_params sgn ps),
-      translate_tm (elab_tm sgn ps def)
+      translate_params (map (elab_param sgn) ps),
+      translate_tm (elab_tm (sgn,ps) def)
     )
   in
   let ty_opt' = match ty_opt with
-    | Some ty -> Some (translate_ty (elab_ty sgn ps ty))
+    | Some ty -> Some (translate_ty (elab_tm (sgn,ps) ty))
     | None -> None
   in
     Symbol (None, s', ps', ty_opt', Some def')
@@ -96,7 +105,7 @@ let mk_aux_vars (tys : EO.term list) =
     tys
 
 let gen_rdec (sgn : signature)
-    (s : string) (ps : EO.params)
+    (s : string) (ps : EO.param list)
       (prems_opt : EO.premises option)
       (args_opt : EO.arguments option)
       (reqs_opt : EO.reqs option)
@@ -106,7 +115,7 @@ let gen_rdec (sgn : signature)
   let (s', ps') =
     (
       translate_symbol s,
-      translate_params (elab_params sgn ps)
+      translate_params (map (elab_param sgn) ps)
     )
   in
   (* if there are requirements, wrap the conclusion. *)
@@ -126,12 +135,12 @@ let gen_rdec (sgn : signature)
       let (s',ty') =
         (
           translate_symbol s_aux,
-          translate_ty (elab_ty sgn ps aux_ty)
+          translate_ty (elab_tm (sgn,ps) aux_ty)
         )
       in
 
       let cs  = [(EO.Apply (s_aux, ts), conc_tm)] in
-      let cs' = translate_cases (elab_cases sgn ps cs) in
+      let cs' = translate_cases (elab_cases (sgn,ps) cs) in
 
       let aux_cmds =
         (
@@ -142,18 +151,18 @@ let gen_rdec (sgn : signature)
 
       let vs = mk_aux_vars arg_tys in
       let ws = List.map (fun (s,_) -> EO.Symbol s) vs in
-      let conc = EO.mk_proof_tm (EO.Apply (s_aux, ws)) in
+      let conc = EO.proof_of (EO.Apply (s_aux, ws)) in
 
       (Some aux_cmds, vs, conc)
 
-    | None -> (None, [], EO.mk_proof_tm conc_tm)
+    | None -> (None, [], EO.proof_of conc_tm)
     in
 
     (* build type of symbol for declared rule. *)
     let ty =
       match prems_opt with
       | Some (Simple (Premises ts)) ->
-          let ts' = List.map EO.mk_proof_tm ts in
+          let ts' = List.map EO.proof_of ts in
           EO.mk_arrow_ty ts' conc_ty
       | Some (PremiseList (_,_)) ->
           Printf.printf "WARNING! --- :premise-list\n";
@@ -161,7 +170,7 @@ let gen_rdec (sgn : signature)
       | None -> conc_ty
     in
 
-    let ty' = translate_ty (elab_ty sgn ps ty) in
+    let ty' = translate_ty (elab_tm (sgn,ps) ty) in
     let ty_cmd =
       LP.Symbol (None, s', ps', Some ty', None)
     in
@@ -185,15 +194,18 @@ let mk_step_defn (s : string)
   in
     EO.Apply (s, List.append arg_ts prem_ts)
 
-
+(* find the first constant attribute in `xs` *)
+let proc_atts (s : string) (xs : EO.attr list) : unit =
+  match List.find_opt EO.is_const_attr xs with
+    | Some x -> _sig.att <- M.add s x _sig.att
+    | None -> ()
 
 let proc_common_command : EO.common_command -> LP.command list =
   function
   | DeclareConst (s,t,xs)  ->
-    (* FIXME. if `xs : attr list` is non-empty, add the first attribute.*)
-    if xs != [] then
-      _sig.atts <- M.add s ([], List.hd xs) _sig.atts;
-    [ gen_const _sig s [] t ]
+      _sig.prm <- M.add s [] _sig.prm;
+      _sig.typ <- M.add s t  _sig.typ;
+      proc_atts s xs; [ gen_const _sig s [] t ]
   | DeclareDatatype  (_s,_dt)    -> []
   | DeclareDatatypes (_sts,_dts) -> []
   | Echo             (_str_opt)  -> []
@@ -204,21 +216,22 @@ let proc_common_command : EO.common_command -> LP.command list =
 let proc_command : EO.command -> LP.command list =
   function
   (* ---------------- *)
-  | Assume (s,t)          ->
-      let t_prf = EO.mk_proof_tm t in
-      [ gen_const _sig s [] t_prf ]
+  | Assume (s,t) ->
+      _sig.prm <- M.add s [] _sig.prm;
+      _sig.typ <- M.add s t  _sig.typ;
+      [ gen_const _sig s [] (EO.proof_of t) ]
   (* ---------------- *)
   | AssumePush (_,_)      -> []
   (* ---------------- *)
   | DeclareConsts (lc,t)  -> []
   (* ---------------- *)
   | DeclareParamConst (s,ps,t,xs) ->
-    (* register params for translation *)
-    if xs != [] then
-        _sig.atts <- M.add s (ps, List.hd xs) _sig.atts;
-      [ gen_const _sig s ps t ]
+    _sig.prm <- M.add s ps _sig.prm;
+    _sig.typ <- M.add s t _sig.typ;
+    proc_atts s xs; [ gen_const _sig s ps t ]
   (* ---------------- *)
   | DeclareRule (s,ps,
+    (* TODO. refactor `RuleDec` parsing and refactor `gen_rdec` *)
       RuleDec (_, prm_opt, arg_opt, req_opt, conc), _
     ) ->
     (
@@ -230,24 +243,37 @@ let proc_command : EO.command -> LP.command list =
     )
   (* ---------------- *)
   | Define (s, ps, t_def, ty_opt) ->
-    (* register definition in signature *)
-    _sig.defs <- M.add s (ps, t_def) _sig.defs;
-    [ gen_defn _sig s ps t_def ty_opt ]
+    _sig.prm <- M.add s ps    _sig.prm;
+    _sig.def <- M.add s t_def _sig.def;
+    (match ty_opt with
+      | Some t -> _sig.typ <- M.add s t _sig.typ
+      | None -> ()
+    ); [ gen_defn _sig s ps t_def ty_opt ]
   (* ---------------- *)
+  (*  recursively generate signature DAG from `include`? *)
   | Include s -> []
   (* ---------------- *)
   | Program (s, ps, (ts,t), cs) ->
-    let ty = EO.mk_arrow_ty ts t
-    in gen_prog _sig s ps ty cs
+    (* TODO. contemplate handling of program parameters. *)
+    let ty = EO.mk_arrow_ty ts t in
+    _sig.prm <- M.add s ps _sig.prm;
+    _sig.typ <- M.add s ty _sig.typ;
+    gen_prog _sig s ps ty cs
   (* ---------------- *)
   | Reference (_, _) -> []
   (* ---------------- *)
   | Step (s, conc_opt, s', prems_opt, args_opt) ->
     let t_def = mk_step_defn s' prems_opt args_opt in
-    let ty_opt = Option.map EO.mk_proof_tm conc_opt in
+    _sig.def <- M.add s t_def _sig.def;
 
-    _sig.defs <- M.add s' ([], t_def) _sig.defs;
-    [ gen_defn _sig s [] t_def ty_opt ]
+    let ty_opt =
+      match conc_opt with
+      | Some t ->
+          _sig.typ <- M.add s t _sig.typ;
+          Some (EO.proof_of t)
+      | None -> None
+    in
+      [ gen_defn _sig s [] t_def ty_opt ]
   (* ---------------- *)
   | StepPop (_,_,_,_,_) -> []
   (* ---------------- *)
@@ -257,14 +283,8 @@ let proc_command : EO.command -> LP.command list =
 let proc_eo_file (fp : string) : (LP.command list) list =
   let eos = Parse_eo.parse_eo_file fp in
   let f eo =
-    Printf.printf "Processing:\n  %s\n"
-      (EO.command_str eo);
-
-    let lps = proc_command eo in
-    let lps_str =
-      (String.concat "\n" (List.map LP.lp_command_str lps))
-    in
-    Printf.printf "Done!:\n  %s\n\n" lps_str; lps
+    Printf.printf "Processing:\n  %s\n" (EO.command_str eo);
+    proc_command eo
   in
     List.map f eos
 

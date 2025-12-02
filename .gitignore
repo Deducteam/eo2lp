@@ -1,7 +1,6 @@
 admin/
 hs/
 notes/
-lp/
 test/
 
 cpc-less
@@ -10,6 +9,8 @@ cpc-less
 
 .zed/
 .vscode/
+.old/
+.ropeproject/
 
 Dedukti
 cvc5

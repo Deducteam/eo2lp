@@ -232,7 +232,7 @@ param:
       t = term;
       xs = list(attr);
     RPAREN
-  { Param (s, t, xs) }
+  { (s, t, xs) }
 
 params:
   | LPAREN;

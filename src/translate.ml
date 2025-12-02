@@ -22,11 +22,6 @@ let translate_symbol (s : string) : string =
   else
     s
 
-let mk_set_arrow_typ (ts : LP.term list) : LP.term =
-  List.fold_left
-    (fun t_acc t -> LP.App (LP.App (LP.Var "⤳", t_acc), t))
-    (List.hd ts) (List.tl ts)
-
 let app_list (t : LP.term) (ts : LP.term list) : LP.term =
   List.fold_left
     (fun t_acc t -> LP.App (t_acc, t))
@@ -50,14 +45,19 @@ let mk_set_arrow_typ_list (ts : LP.term list) : LP.term =
     (fun t_acc t -> mk_set_arrow_typ (t_acc, t))
     init last
 
+(* TODO. review translation function wrt. elaboration.
+  in particular, are we properly handling arrows?*)
 let rec translate_tm : EO.eterm ->  LP.term =
   function
+  | Const (s,qs) ->
+    (* TODO. contemplate insertion of implicit parameters. *)
+    let f = function
+      | (s,_,EO.Implicit) -> Some (LP.Wrap (Var s))
+      | _ -> None
+    in
+    app_list (Var (translate_symbol s)) (List.filter_map f qs)
   (* ------------ *)
-  | Symbol s ->
-      if s = "->" then
-        (Var "⤳")
-      else
-        Var (translate_symbol s)
+  | Var s -> Var (translate_symbol s)
   (* ------------ *)
   | Literal l -> Var (EO.literal_str l)
   (* ------------ *)
@@ -77,44 +77,48 @@ let rec translate_tm : EO.eterm ->  LP.term =
       translate_tm t2
     )
   (* ------------ *)
-  | TyApp (s, ts) ->
+  | Meta (s, ts) ->
+    let s' = translate_symbol s in
     let ts' = List.map translate_tm ts in
     if s = "->" then
       mk_set_arrow_typ_list ts'
     else
-      app_list (Var (translate_symbol s)) ts'
-  (* ------------ *)
-  | Meta (s, ts) ->
-    let s' = translate_symbol s in
-    let ts' = List.map translate_tm ts in
-    app_list (Var s') ts'
+      app_list (Var s') ts'
 
 let rec translate_ty : EO.eterm -> LP.term =
   function
   (* ------------ *)
-  | Symbol s ->
+  | Var s ->
     if s = "Type" then
       (Var "Set")
     else
       App (Var "El", Var (translate_symbol s))
   (* ------------ *)
-  | TyApp ("->", ts) ->
+  | Meta (s, ts) ->
+    let s' = translate_symbol s in
     let ts' = List.map translate_ty ts in
-    mk_arrow_typ_list ts'
+    if s = "->" then
+      mk_arrow_typ_list ts'
+    else
+      app_list (Var s') ts'
   (* ------------ *)
-  | _ as t ->
-    App (Var "El", translate_tm t)
+  | _ as t -> App (Var "El", translate_tm t)
 
-let translate_param : EO.eparam -> LP.param =
-  function
-  | Explicit (s,t) ->
-      Explicit (translate_symbol s, translate_ty t)
-  | Implicit (s,t) ->
-      Implicit (translate_symbol s, translate_ty t)
+let translate_param (s,t,flag : EO.eparam) : LP.param =
+  let (s',t') = (translate_symbol s, translate_ty t) in
+  match flag with
+  | Explicit -> Explicit (s',t')
+  | Implicit -> Implicit (s',t')
+  | Opaque   ->
+      Printf.printf "WARNING: unhandled :opaque attribute";
+      Explicit (s',t')
 
+(* TODO. refactor to a special case of a map_lp_tm function?. *)
+(* i.e., translate_cases : eparam list -> ecases -> LP.cases *)
 let rec bind_pvars (xs : LP.param list) : LP.term -> LP.term =
   function
-  | PVar s -> Printf.printf
+  | PVar s ->
+      Printf.printf
       "WARNING: Pattern variables already present in term.";
       PVar s
   | Var s ->
@@ -122,6 +126,7 @@ let rec bind_pvars (xs : LP.param list) : LP.term -> LP.term =
   | App (t,t') ->
       App (bind_pvars xs t, bind_pvars xs t')
   | Bind (b, ys, t) ->
+      (* TODO. refactor lambdapi parameters? *)
       let ys' = List.map (function
         | LP.Explicit (s,t) -> LP.Explicit (s, bind_pvars xs t)
         | LP.Implicit (s,t) -> LP.Implicit (s, bind_pvars xs t)
