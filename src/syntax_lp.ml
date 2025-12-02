@@ -4,6 +4,7 @@ type binder =
 
 type term =
   | PVar of string
+  | Wrap of term
   | Var of string
   | App of term * term
   | Bind of binder * param list * term
@@ -39,10 +40,11 @@ let binder_str : binder -> string =
   | Lambda -> "λ"
   | Pi     -> "Π"
 
-let is_var : term -> bool =
+let is_atom : term -> bool =
   function
   | Var _ -> true
   | PVar _ -> true
+  | Wrap _ -> true
   | _ -> false
 
 let is_pi : term -> bool =
@@ -60,9 +62,10 @@ let in_params (s : string) (ps : param list) : bool =
 
 let rec term_str : term -> string =
   function
+  | Wrap t -> Printf.sprintf "[%s]" (term_str t)
   | Var str -> str
   | PVar str -> "$" ^ str
-  | App (App (Var "⤳", t1), t2) when is_var t2 ->
+  | App (App (Var "⤳", t1), t2) when is_atom t2 ->
     Printf.sprintf "%s ⤳ %s"
       (term_str t1)
       (term_str t2)
@@ -70,7 +73,7 @@ let rec term_str : term -> string =
     Printf.sprintf "%s ⤳ (%s)"
       (term_str t1)
       (term_str t2)
-  | App (App (Var "▫", t1), t2) when is_var t2 ->
+  | App (App (Var "▫", t1), t2) when is_atom t2 ->
     Printf.sprintf "%s ▫ %s"
       (term_str t1)
       (term_str t2)
@@ -78,7 +81,7 @@ let rec term_str : term -> string =
     Printf.sprintf "%s ▫ (%s)"
       (term_str t1)
       (term_str t2)
-  | App (t1,t2) when is_var t2 ->
+  | App (t1,t2) when is_atom t2 ->
     Printf.sprintf "%s %s"
       (term_str t1)
       (term_str t2)

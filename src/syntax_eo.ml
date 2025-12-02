@@ -19,10 +19,8 @@ and attr =
   | Attr of string * (term option)
 and atts = attr list
 
-type param =
-  | Param of string * term * (attr list)
-type params = param list
-
+type param = string * term * (attr list)
+type var = (string * term)
 type cases = (term * term) list
 
 (* types for datatype declarations *)
@@ -69,34 +67,31 @@ type command =
   | Assume            of string * term
   | AssumePush        of string * term
   | DeclareConsts     of lit_category * term
-  | DeclareParamConst of string * params * term * attr list
-  | DeclareRule       of string * params * rule_dec * attr list
-  | Define            of string * params * term * (term option)
+  | DeclareParamConst of string * param list * term * attr list
+  | DeclareRule       of string * param list * rule_dec * attr list
+  | Define            of string * param list * term * (term option)
   | Include           of string
-  | Program           of string * params
-                         * (term list * term)
-                         * cases
+  | Program           of string * param list * (term list * term) * cases
   | Reference         of string * string option
   | Step              of string * term option * string * simple_premises option * arguments option
   | StepPop           of string * term option * string * simple_premises option * arguments option
   | Common            of common_command
 
-(* ---- stuff -------- *)
+(* ---- helpers -------- *)
 let var_has_attr
-  (ps : params) (s : string) (att : attr) : bool
+  (ps : param list) (s : string) (att : attr) : bool
 =
-  let f (Param (s',_,xs)) = (s = s' && List.mem att xs) in
+  let f (s',_,xs) = (s = s' && List.mem att xs) in
   List.exists f ps
 
-
-let app ((t1,t2) : term * term) : term =
+let _app ((t1,t2) : term * term) : term =
   Apply ("_", [t1;t2])
 
 let app_binop (f : term) : term * term -> term =
-  fun (t1,t2) -> app (app (f,t1), t2)
+  fun (t1,t2) -> _app (_app (f,t1), t2)
 
 let app_list (f : term) (ts : term list) : term =
-  List.fold_left (fun t_acc t -> app (t_acc,t)) f ts
+  List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
 
 let is_builtin (str : string) : bool =
   String.starts_with ~prefix:"eo::" str
@@ -104,6 +99,23 @@ let is_builtin (str : string) : bool =
 let is_program (str : string) : bool =
   String.starts_with ~prefix:"$" str
 
+(* TODO. deprecate by handling (some) attributes at parser level? *)
+let is_const_attr : attr -> bool =
+  function
+  | Attr (str, Some _) ->
+    List.mem str
+      [
+        "right-assoc-nil";
+        "left-assoc-nil";
+        "binder";
+        "chainable";
+      ]
+  | Attr (str, None) ->
+     List.mem str
+       [
+         "right-assoc";
+         "left-assoc"
+       ]
 
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
@@ -170,11 +182,10 @@ and
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
-let param_str = function
-  | (Param (s,t,xs)) ->
-    Printf.sprintf "(%s %s%s)"
-      s (term_str t)
-      (list_suffix_str attr_str xs)
+let param_str (s,t,xs) =
+  Printf.sprintf "(%s %s%s)"
+    s (term_str t)
+    (list_suffix_str attr_str xs)
 
 let term_pair_str (t,t') =
   Printf.sprintf "(%s %s)"
@@ -305,7 +316,7 @@ let command_str = function
   | Common c ->
       common_command_str c
 
-let mk_proof_tm (t : term) : term =
+let proof_of (t : term) : term =
   Apply ("Proof", [t])
 
 (* TODO. actually implement *)
