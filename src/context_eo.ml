@@ -1,23 +1,6 @@
 open Syntax_eo
 
 module M = Map.Make(String)
-type 'a pmap = (param list * 'a) M.t
-
-(* ---- DELETEME ---- *)
-(* type context =
-  {
-    typs : term M.t;
-    atts : (attr list) M.t;
-  }
-
-let empty_ctx : context =
-  { typs = M.empty; atts = M.empty }
-
-let mk_context (ps : param list) : context =
-  let f (Param (s, t, xs)) = ((s,t), (s,xs)) in
-  let (xs, ys) = List.split (List.map f ps) in
-  { typs = M.of_list xs; atts = M.of_list ys } *)
-(* ---------------------------------------------- *)
 
 let find_typ (s : string) (ps : param list) : term option =
   let f (s',t,_) =
@@ -38,7 +21,6 @@ let is_list (ps : param list) (s : string) : bool =
 
 let is_implicit (ps : param list) (s : string) : bool =
   List.mem (Attr ("implicit", None)) (find_atts s ps)
-
 
 
 (* symbol information *)
@@ -88,18 +70,25 @@ let rec is_kind : term -> bool =
 
 let rec infer_typ (sgn,ps as ctx : signature * param list) : term -> term =
   function
+  (* ---------------- *)
   | Symbol s ->
-    ( (* does `s` have a registered type? *)
-      match M.find_opt s sgn.typ with
+    ( (* is `s` locally bound? *)
+      match find_typ s ps with
       | Some ty -> ty
-      | None -> (* was `s` given by a definition? *)
-      (
-        match M.find_opt s sgn.def with
-        | Some t -> infer_typ ctx t
-        | None -> Printf.ksprintf failwith
-          "Symbol %s not declared or defined in signature." s
+      | None ->
+      ( (* is `s` in the signature? *)
+        match M.find_opt s sgn.typ with
+        | Some ty -> ty
+        | None -> (* was `s` given by a definition? *)
+        (
+          match M.find_opt s sgn.def with
+          | Some t -> infer_typ ctx t
+          | None -> Printf.ksprintf failwith
+            "Symbol %s not declared or defined in signature." s
+        )
       )
     )
+  (* ---------------- *)
   | Literal l ->
     (
       match List.assoc_opt (lcat_of l) sgn.lit with
@@ -108,15 +97,18 @@ let rec infer_typ (sgn,ps as ctx : signature * param list) : term -> term =
         "Literal category %s not associated with any type."
         (lit_category_str (lcat_of l))
     )
+  (* ---------------- *)
   | Apply (s,ts) as t ->
     if s = "->" then
       if is_kind t then Symbol "Kind" else Symbol "Type"
     else
-      let s_ty = infer_typ ctx (Symbol s) in
+      let s_ty   = infer_typ ctx (Symbol s) in
       let ts_tys = List.map (infer_typ ctx) ts in
       unsafe_app_ty s_ty ts_tys
+  (* ---------------- *)
   | Bind (s, xs, t) ->
-    failwith "type inference for binder not implemented yet."
+      failwith "type inference for binder not implemented yet."
+  (* ---------------- *)
   | Bang (t,_) -> infer_typ ctx t
 
 

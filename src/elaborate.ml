@@ -3,6 +3,19 @@ open List
 open Syntax_eo
 open Context_eo
 
+(*
+definition:
+  a symbol `s` is a type constructor iff:
+  (a). `s` is a declared constant with range `Type`,
+  (b). or `s` is a defined constant whose definiens `Ap`
+
+hypothesis:
+
+
+*)
+
+
+
 let split_last (xs : 'a list) : ('a list * 'a) =
   let ys = List.rev xs in
   (List.rev (List.tl ys), List.hd ys)
