@@ -1,28 +1,10 @@
 open List
-
 open Syntax_eo
 open Context_eo
-
-(*
-definition:
-  a symbol `s` is a type constructor iff:
-  (a). `s` is a declared constant with range `Type`,
-  (b). or `s` is a defined constant whose definiens `Ap`
-
-hypothesis:
-
-
-*)
-
-
 
 let split_last (xs : 'a list) : ('a list * 'a) =
   let ys = List.rev xs in
   (List.rev (List.tl ys), List.hd ys)
-
-
-let mk_eo_var ((s,t) : string * term) : term =
-  Apply ("eo::var", [Literal (String s); t])
 
 (* post-elaboration terms *)
 type flag =
@@ -32,10 +14,9 @@ type flag =
 
 type eterm =
   | Literal of literal
-  | Var of string
-  | Const of (string * eparam list)
+  | Symbol of string
   | App of eterm * eterm
-  | Meta of string * eterm list
+  | Meta of eterm * eterm
   | Let of evar list * eterm
 and eparam =
   string * eterm * flag
@@ -44,16 +25,28 @@ and evar =
 and ecases =
   (eterm * eterm) list
 
-let app_list (t : eterm) (ts : eterm list) : eterm =
-  List.fold_left (fun t_acc t' -> App (t_acc, t')) t ts
+let mk_app (t : eterm) (ts : eterm list) : eterm =
+  fold_left (fun t_acc t' -> App (t_acc, t')) t ts
+
+let mk_meta_app (t : eterm) (ts : eterm list) : eterm =
+  fold_left (fun t_acc t' -> Meta (t_acc, t')) t ts
+
+let mk_eo_list_concat
+  (f : eterm) (t1,t2 : eterm * eterm) : eterm =
+  mk_meta_app (Symbol "eo::list_concat") [f;t1;t2]
+
+let mk_eo_var ((s,t) : string * eterm) : eterm =
+  mk_meta_app (Symbol "eo::var") [Literal (String s); t]
+
+
 
 (* auxillary function used in elaboration of f-lists. *)
 let glue (ps : param list) (f : eterm)
   (t1 : eterm) (t2 : eterm) : eterm
 =
   match t1 with
-  | Var s when is_list ps s ->
-      Meta ("eo::list_concat",[f;t1;t2])
+  | Symbol s when is_list ps s ->
+
   | _ -> App (App (f,t1), t2)
 
 let rec elab_tm
@@ -79,12 +72,9 @@ let rec elab_tm
   (* ------------------------ *)
   | Apply (s, ts) ->
     let ts' = map (elab_tm ctx) ts in
-    if is_builtin s || is_program s then
+    if is_builtin s || is_program s || is_def sgn s || s = "->" then
       Meta (s, ts')
     else (* has `s` been registered in the signature?*)
-      if is_tycon sgn s then
-        Meta (s, ts')
-      else
       match M.find_opt s sgn.prm with
       | Some ps ->
         elab_const ctx (s, ps, M.find_opt s sgn.att) ts
@@ -235,3 +225,12 @@ let rec splice (t : eterm)
     else
       let t' = subst (s, List.hd ts) t in
       splice t' ps' (List.tl ts) *)
+
+      let lcat_of : literal -> lit_category =
+  function
+  | Numeral _  -> NUM
+  | Decimal _  -> DEC
+  | Rational _ -> RAT
+  | Binary _   -> BIN
+  | Hexadecimal _ -> HEX
+  | String _      -> STR

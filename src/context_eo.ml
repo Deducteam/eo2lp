@@ -22,7 +22,6 @@ let is_list (ps : param list) (s : string) : bool =
 let is_implicit (ps : param list) (s : string) : bool =
   List.mem (Attr ("implicit", None)) (find_atts s ps)
 
-
 (* symbol information *)
 type signature =
   {
@@ -33,14 +32,8 @@ type signature =
     mutable lit : (lit_category * term) list;
   }
 
-let lcat_of : literal -> lit_category =
-  function
-  | Numeral _  -> NUM
-  | Decimal _  -> DEC
-  | Rational _ -> RAT
-  | Binary _   -> BIN
-  | Hexadecimal _ -> HEX
-  | String _      -> STR
+let is_def (sgn : signature) (s : string) =
+  M.mem s sgn.def
 
 let rec unsafe_app_ty (t : term) (ts : term list) : term =
   match t with
@@ -68,8 +61,39 @@ let rec is_kind : term -> bool =
       false
   | _ -> false
 
-let rec infer_typ (sgn,ps as ctx : signature * param list) : term -> term =
-  function
+
+(*
+  really, inference has to happen after elaboration so that
+  right-assoc-nil etc are calculated correctly. otherwise
+  we have to interleave type inference and elaboration.
+
+  but then it would be better to have binary meta applications...
+
+  okay....
+
+  @@pair : (-> U (-> T (@Pair U T))), prm(@@pair) = {U,T}
+  set.empty : U
+  true : Bool
+  ----------------------------------------
+  @@pair true : (-> T (@Pair U T)),
+  {U == Bool}
+
+  equality constraints are gathered during inference.
+  if needed, we can mark the 'bound parameters' as metavariables.
+
+  when inferring `(s e1 ... en)`, we lookup the type of `s`.
+  which will/should be an arrow type (??), e.g.;
+    `(-> t1 ... tm)`.
+  we (recursively) calculate the types of e1 ... en
+  as t'1 ... t'n and zip, which will either be of length n or m.
+  call this length l.
+
+  for each pair (ti, t'i), we generate a constraint.
+
+  then, we return the 'candidate type' of our application
+*)
+let rec infer_typ (sgn,ps as ctx : signature * param list)
+  : term -> term = function
   (* ---------------- *)
   | Symbol s ->
     ( (* is `s` locally bound? *)
@@ -115,5 +139,3 @@ let rec infer_typ (sgn,ps as ctx : signature * param list) : term -> term =
 let is_tycon (sgn : signature) (s : string) : bool =
   if (s = "->") then true else
   is_kind (infer_typ (sgn,[]) (Symbol s))
-(* let is_macro (sgn : signature) (s : string) =
-  M.mem s sgn.defs *)

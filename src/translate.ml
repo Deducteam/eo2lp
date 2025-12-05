@@ -45,12 +45,12 @@ let mk_set_arrow_typ_list (ts : LP.term list) : LP.term =
     (fun t_acc t -> mk_set_arrow_typ (t_acc, t))
     init last
 
+
 (* TODO. review translation function wrt. elaboration.
   in particular, are we properly handling arrows?*)
 let rec translate_tm : EO.eterm ->  LP.term =
   function
   | Const (s,qs) ->
-    (* TODO. contemplate insertion of implicit parameters. *)
     let f = function
       | (s,_,EO.Implicit) -> Some (LP.Wrap (Var s))
       | _ -> None
@@ -72,9 +72,8 @@ let rec translate_tm : EO.eterm ->  LP.term =
     )
   (* ------------ *)
   | App (t1,t2) ->
-    App (
-      App (Var "▫", translate_tm t1),
-      translate_tm t2
+    App (App
+      (Var "▫", translate_tm t1), translate_tm t2
     )
   (* ------------ *)
   | Meta (s, ts) ->
@@ -94,13 +93,9 @@ let rec translate_ty : EO.eterm -> LP.term =
     else
       App (Var "El", Var (translate_symbol s))
   (* ------------ *)
-  | Meta (s, ts) ->
-    let s' = translate_symbol s in
+  | Meta ("->", ts) ->
     let ts' = List.map translate_ty ts in
-    if s = "->" then
-      mk_arrow_typ_list ts'
-    else
-      app_list (Var s') ts'
+    mk_arrow_typ_list ts'
   (* ------------ *)
   | _ as t -> App (Var "El", translate_tm t)
 
@@ -148,3 +143,39 @@ let translate_cases (cs : EO.ecases) : LP.cases =
     f (t,t') = (translate_tm t, translate_tm t')
   in
     List.map f cs
+
+
+(* TODO.
+  insertion of implicits needs to happen on the lhs and rhs
+  of declarations for definitions and programs.
+  this needs to be done after translation.
+
+  for the rhs: we need to apply [..] to constants with
+  implicit parameters that are 'waiting'.
+
+  for the lhs: we need to find all of 'free parameters' on the rhs.
+
+  alternatively, we can insert during elaboration.
+  but we have no good way of knowing which parameters
+  need to have 'wrapped' applications.
+
+  if the constant is not applied to anything,
+  then we know we need all of them.
+
+  if the constant is fully applied, then we don't need any.
+
+  if it's partially applied, then it depends on where the
+  implicit parameters appear in the type of the symbol.
+
+  maybe this is fine, but it wouldn't surprise me if
+  there are many cases were programs/builtins are
+  partially applied.
+
+  the general case obviously requires type inference with
+  ho-unification. better to do this pre or post elaboration?
+
+  probably pre-elaboration. then we can easily check if
+  symbols are type constructors.
+
+
+*)
