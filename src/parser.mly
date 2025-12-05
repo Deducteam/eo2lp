@@ -177,9 +177,9 @@ common_command:
   | LPAREN; DECLARE_CONST;
       s = symbol ;
       t = term;
-      att = const_attr;
+      att_opt = option(const_attr);
     RPAREN
-  { DeclareConst (s,t,att) }
+  { DeclareConst (s,t,att_opt) }
   | LPAREN; DECLARE_DATATYPE;
       s = symbol ;
       dt = datatype_dec;
