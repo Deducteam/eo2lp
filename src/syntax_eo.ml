@@ -1,7 +1,6 @@
 type lit_category =
   NUM | DEC | RAT | BIN | HEX | STR
-
-type literal =
+and literal =
   | Numeral of int
   | Decimal of float
   | Rational of int * int
@@ -9,19 +8,51 @@ type literal =
   | Hexadecimal of string
   | String of string
 
-type term =
-  | Symbol of string
-  | Literal of literal
-  | Bind of string * ((string * term) list) * term
-  | Apply of string * (term list)
-  | Bang of term * (attr list)
-and attr =
-  | Attr of string * (term option)
-and atts = attr list
+type var_attr =
+  | Implicit
+  | Opaque
+  | List
 
-type param = string * term * (attr list)
-type var = (string * term)
-type cases = (term * term) list
+type symbol = string
+
+type term =
+  | Symbol of symbol
+  | Apply of symbol * (term list)
+  | Literal of literal
+  | Bind of symbol * (var list) * term
+and const_attr =
+  | RightAssocNil of term
+  | RightAssocNilNSN of term
+  | LeftAssocNil of term
+  | LeftAssocNilNSN of term
+  | RightAssoc
+  | LeftAssoc
+  | Chainable of symbol
+  | Pairwise of symbol
+  | ArgList of symbol
+  | Binder of symbol
+and var = (symbol * term)
+
+type typ = term
+type param = symbol * typ * (var_attr option)
+type case = (term * term)
+
+(* types for inference rule declarations *)
+type premises =
+  | Simple of term list
+  | PremiseList of term * term
+and conclusion =
+  | Conclusion of term
+  | ConclusionExplicit of term
+and rule_dec =
+  {
+    assm : term option;
+    prem : premises option;
+    args : term list;
+    reqs : case list;
+    conc : conclusion;
+  }
+
 
 (* types for datatype declarations *)
 type sort_dec =
@@ -33,55 +64,36 @@ and cons_dec =
 and dt_dec =
   | DatatypeDec of cons_dec list
 
-(* types for inference rule declarations *)
-type assumption =
-  | Assumption of term
-and simple_premises =
-  | Premises of term list
-and premises =
-  | Simple of simple_premises
-  | PremiseList of term * term
-and arguments =
-  | Args of term list
-and reqs =
-  | Requires of cases
-and conclusion =
-  | Conclusion of term
-  | ConclusionExplicit of term
-and rule_dec =
-  | RuleDec of
-      assumption option * premises option *
-      arguments option * reqs option * conclusion
 
 type common_command =
-  | DeclareConst     of string * term * attr list
-  | DeclareDatatype  of string * dt_dec
+  | DeclareConst     of symbol * term * const_attr
+  | DeclareDatatype  of symbol * dt_dec
   | DeclareDatatypes of (sort_dec list) * (dt_dec list)
   | Echo             of string option
   | Exit
   | Reset
-  | SetOption        of attr
+  | SetOption        of string
 
 (* commands exclusive to eunoia *)
 type command =
   | Assume            of string * term
   | AssumePush        of string * term
   | DeclareConsts     of lit_category * term
-  | DeclareParamConst of string * param list * term * attr list
-  | DeclareRule       of string * param list * rule_dec * attr list
+  | DeclareParamConst of string * param list * term * const_attr
+  | DeclareRule       of string * param list * rule_dec
   | Define            of string * param list * term * (term option)
   | Include           of string
-  | Program           of string * param list * (term list * term) * cases
+  | Program           of string * param list * (term list * term) * case list
   | Reference         of string * string option
-  | Step              of string * term option * string * simple_premises option * arguments option
-  | StepPop           of string * term option * string * simple_premises option * arguments option
+  | Step              of string * term option * string * term list * term list
+  | StepPop           of string * term option * string * term list * term list
   | Common            of common_command
 
 (* ---- helpers -------- *)
 let var_has_attr
-  (ps : param list) (s : string) (att : attr) : bool
+  (ps : param list) (s : string) (att : var_attr) : bool
 =
-  let f (s',_,xs) = (s = s' && List.mem att xs) in
+  let f (s',_,att_opt) = (s = s' && Some att = att_opt) in
   List.exists f ps
 
 let _app ((t1,t2) : term * term) : term =
@@ -98,24 +110,6 @@ let is_builtin (str : string) : bool =
 
 let is_program (str : string) : bool =
   String.starts_with ~prefix:"$" str
-
-(* TODO. deprecate by handling (some) attributes at parser level? *)
-let is_const_attr : attr -> bool =
-  function
-  | Attr (str, Some _) ->
-    List.mem str
-      [
-        "right-assoc-nil";
-        "left-assoc-nil";
-        "binder";
-        "chainable";
-      ]
-  | Attr (str, None) ->
-     List.mem str
-       [
-         "right-assoc";
-         "left-assoc"
-       ]
 
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
@@ -154,15 +148,35 @@ let list_suffix_str (f : 'a -> string) =
   | [] -> ""
   | ys -> " " ^ (list_str f ys)
 
+let var_attr_str = function
+  | Implicit -> ":implicit"
+  | Opaque -> ":opaque"
+  | List -> ":list"
+
 let rec
   var_str = fun (str,t) ->
     Printf.sprintf "%s ≔ %s"
       str (term_str t)
 and
-  attr_str = function (Attr (kw_str,t_opt)) ->
-    match t_opt with
-    | Some t -> Printf.sprintf ":%s %s" kw_str (term_str t)
-    | None   -> Printf.sprintf ":%s" kw_str
+  const_attr_str = function
+  | RightAssoc -> ":right-assoc"
+  | LeftAssoc  -> ":left-assoc"
+  | RightAssocNil t ->
+      Printf.sprintf ":right-assoc-nil %s" (term_str t)
+  | LeftAssocNil t ->
+      Printf.sprintf ":left-assoc-nil %s" (term_str t)
+  | RightAssocNilNSN t ->
+      Printf.sprintf ":right-assoc-nil-non-singleton-nil %s" (term_str t)
+  | LeftAssocNilNSN t ->
+      Printf.sprintf ":left-assoc-nil-non-singleton-nil %s" (term_str t)
+  | Chainable s ->
+      Printf.sprintf ":chainable %s" s
+  | Binder s ->
+      Printf.sprintf ":binder %s" s
+  | Pairwise s ->
+      Printf.sprintf ":pairwise %s" s
+  | ArgList s ->
+      Printf.sprintf ":arg-list %s" s
 and
   term_str = function
   | Symbol str  -> str
@@ -175,25 +189,21 @@ and
   | Apply (s, ts) ->
       Printf.sprintf "(%s %s)"
         s (String.concat " " (List.map term_str ts))
-  | Bang (t, xs) ->
-      Printf.sprintf "(! %s %s)"
-        (term_str t)
-        (list_str attr_str xs)
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
 let param_str (s,t,xs) =
   Printf.sprintf "(%s %s%s)"
     s (term_str t)
-    (list_suffix_str attr_str xs)
+    (list_suffix_str var_attr_str xs)
 
-let term_pair_str (t,t') =
+let case_str (t,t') =
   Printf.sprintf "(%s %s)"
     (term_str t)
     (term_str t')
 
-let cases_str : cases -> string =
-  list_str term_pair_str
+let case_list_str : case list -> string =
+  list_str case_str
 
 let sort_dec_str = function
   | SortDec (s,n) ->

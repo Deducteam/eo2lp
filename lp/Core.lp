@@ -21,3 +21,25 @@ with {|eo::eq|} _   _ ↪ false;
 
 sequential symbol
   {|eo::gt|} [T : Set] : El T → El T → El Bool;
+
+
+
+
+symbol {|eo::numeral|} : Set;
+symbol {|eo::rational|} : Set;
+//symbol NONE : Set;
+
+// declare-consts <numeral> Int
+//symbol magic [a : Set] : El (NONE ⤳ a);
+//coerce_rule coerce (El NONE) (El $a) $x ↪ magic $x;
+symbol Int : Set;
+symbol z : El Int;
+
+sequential symbol
+ {|eo::add|} [T : Set] [S : Set] : El T → El T → El S;
+
+rule {|eo::add|} [Int] [Int] z z ↪ z;
+
+type {|eo::add|} ({|eo::add|} true true) z;
+
+assert ⊢ () : El Bool;

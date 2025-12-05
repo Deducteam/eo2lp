@@ -26,8 +26,6 @@ rule token = parse
   | eof             { EOF }
   | '('             { LPAREN }
   | ')'             { RPAREN }
-  | ':'             { COLON }
-  | "!"             { BANG }
   (* common commands *)
   | "declare-const"      { DECLARE_CONST }
   | "declare-datatype"   { DECLARE_DATATYPE }
@@ -44,6 +42,23 @@ rule token = parse
   | "include"                       { INCLUDE }
   | "program"                       { PROGRAM }
   | "reference"                     { REFERENCE }
+  (* constant attributes *)
+  | ":right-assoc-nil-non-singleton-nil" { RIGHT_ASSOC_NIL_NSN }
+  | ":left-assoc-nil-non-singleton-nil"  { LEFT_ASSOC_NIL_NSN }
+  | ":right-assoc-nil" { RIGHT_ASSOC_NIL }
+  | ":left-assoc-nil"  { LEFT_ASSOC_NIL }
+  | ":right-assoc"     { RIGHT_ASSOC }
+  | ":left-assoc"      { LEFT_ASSOC }
+  | ":chainable"       { CHAINABLE }
+  | ":pairwise"        { PAIRWISE }
+  | ":arg-list"        { ARG_LIST }
+  | ":binder"          { BINDER }
+  (* variable attributes *)
+  | ":implicit"        { IMPLICIT }
+  | ":opaque"          { OPAQUE }
+  | ":list"            { LIST }
+  (* type attribute for `define` command *)
+  | ":type" { TYPE }
   (* eunoia proof script commands *)
   | "assume"         { ASSUME }
   | "assume-push"    { ASSUME_PUSH }

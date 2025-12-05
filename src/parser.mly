@@ -11,7 +11,7 @@ open Syntax_eo
 %token <string> HEXADECIMAL
 %token <string> STRING
 
-%token LPAREN RPAREN COLON BANG EOF
+%token LPAREN RPAREN EOF
 %token STR NUM DEC RAT BIN HEX
 
 %token
@@ -34,6 +34,18 @@ open Syntax_eo
   STEP STEP_POP
 
 %token
+  RIGHT_ASSOC_NIL_NSN LEFT_ASSOC_NIL_NSN
+  RIGHT_ASSOC_NIL LEFT_ASSOC_NIL
+  RIGHT_ASSOC LEFT_ASSOC
+  CHAINABLE PAIRWISE ARG_LIST BINDER
+
+%token
+  IMPLICIT OPAQUE LIST
+
+%token
+  TYPE
+
+%token
   ASSUMPTION
   PREMISES
   PREMISE_LIST
@@ -42,7 +54,6 @@ open Syntax_eo
   CONCLUSION
   CONCLUSION_EXPLICIT
   SIGNATURE
-  TYPE
   RULE
 
 %start <command option> toplevel_eof
@@ -53,7 +64,7 @@ open Syntax_eo
 %%
 toplevel_eof:
   | EOF        { None }
-  | command { Some $1 }
+  | command    { Some $1 }
 
 symbol:
   | s = SYMBOL { s }
@@ -90,29 +101,35 @@ command:
       s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       t = term;
-      atts = list(attr);
+      att = const_attr;
     RPAREN
-  { DeclareParamConst (s, xs, t, atts) }
+  { DeclareParamConst (s, xs, t, att) }
   | LPAREN; DECLARE_RULE;
       s = symbol ;
       LPAREN; xs = list(param); RPAREN;
-      assm  = option(assumption);
-      prems = option(premises);
-      args  = option(arguments);
-      reqs  = option(reqs);
-      conc  = conclusion;
-      atts  = list(attr);
+      assm_opt  = option(assumption);
+      prems_opt = option(premises);
+      args_opt  = option(arguments);
+      reqs_opt  = option(reqs);
+      conc = conclusion;
     RPAREN
-  { DeclareRule (s, xs,
-      RuleDec (assm, prems, args, reqs, conc),
-      atts
-    )
+  { let drop = Option.fold ~none:[] ~some:(fun x -> x) in
+    let r =
+      {
+        assumption = assm_opt;
+        premises = prems_opt;
+        args = drop args_opt;
+        reqs = drop reqs_opt;
+        conclusion = conc
+      }
+    in
+      DeclareRule (s, xs, r)
   }
   | LPAREN; DEFINE;
       s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       t = term;
-      ty_opt = option(ty_attr);
+      ty_opt = option(defn_attr);
     RPAREN
   { Define (s,xs,t,ty_opt) }
   | LPAREN; INCLUDE;
@@ -160,9 +177,9 @@ common_command:
   | LPAREN; DECLARE_CONST;
       s = symbol ;
       t = term;
-      atts = list(attr);
+      att = const_attr;
     RPAREN
-  { DeclareConst (s,t,atts) }
+  { DeclareConst (s,t,att) }
   | LPAREN; DECLARE_DATATYPE;
       s = symbol ;
       dt = datatype_dec;
@@ -181,19 +198,27 @@ common_command:
   { Exit }
   | LPAREN; RESET; RPAREN
   { Reset }
-  | LPAREN; SET_OPTION; a = attr; RPAREN
-  { SetOption (a) }
+  | LPAREN; SET_OPTION; s = symbol; RPAREN
+  { SetOption (s) }
 
+const_attr:
+  | RIGHT_ASSOC_NIL; t = term { RightAssocNil t }
+  | RIGHT_ASSOC_NIL_NSN; t = term { RightAssocNilNSN t }
+  | LEFT_ASSOC_NIL; t = term  { LeftAssocNil t }
+  | LEFT_ASSOC_NIL_NSN; t = term { LeftAssocNilNSN t }
+  | RIGHT_ASSOC { RightAssoc t }
+  | LEFT_ASSOC { LeftAssoc t  }
+  | CHAINABLE; s = symbol { Chainable s }
+  | PAIRWISE; s = symbol  { Pairwise s }
+  | ARG_LIST; s = symbol  { ArgList s }
+  | BINDER; s = symbol    { Symbol s }
 
-keyword:
-  | COLON; s = SYMBOL
-  { s }
+var_attr:
+  | LIST     { List }
+  | IMPLICIT { Implicit }
+  | OPAQUE   { Opaque }
 
-attr:
-  | kw = keyword; t_opt = option(term)
-  { Attr (kw, t_opt) }
-
-ty_attr:
+defn_attr:
   | TYPE; t = term
   { t }
 
@@ -213,12 +238,6 @@ term:
       t = term;
     RPAREN
   { Bind (b, xs, t) }
-  | LPAREN;
-      BANG;
-      t = term;
-      atts = nonempty_list(attr);
-    RPAREN
-  { Bang (t, atts) }
 
 var:
   | LPAREN;
@@ -230,9 +249,9 @@ param:
   | LPAREN;
       s = symbol;
       t = term;
-      xs = list(attr);
+      att = var_attr;
     RPAREN
-  { (s, t, xs) }
+  { (s, t, att) }
 
 params:
   | LPAREN;
