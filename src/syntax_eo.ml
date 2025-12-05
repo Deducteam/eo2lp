@@ -8,33 +8,30 @@ and literal =
   | Hexadecimal of string
   | String of string
 
-type var_attr =
-  | Implicit
-  | Opaque
-  | List
-
-type symbol = string
-
 type term =
-  | Symbol of symbol
-  | Apply of symbol * (term list)
+  | Symbol of string
+  | Apply of string * (term list)
   | Literal of literal
-  | Bind of symbol * (var list) * term
-and const_attr =
+  | Bind of string * (var list) * term
+and var = (string * term)
+
+type const_attr =
   | RightAssocNil of term
   | RightAssocNilNSN of term
   | LeftAssocNil of term
   | LeftAssocNilNSN of term
   | RightAssoc
   | LeftAssoc
-  | Chainable of symbol
-  | Pairwise of symbol
-  | ArgList of symbol
-  | Binder of symbol
-and var = (symbol * term)
+  | Chainable of string
+  | Pairwise of string
+  | ArgList of string
+  | Binder of string
+and param_attr =
+  | Implicit
+  | Opaque
+  | List
 
-type typ = term
-type param = symbol * typ * (var_attr option)
+type param = string * term * (param_attr option)
 type case = (term * term)
 
 (* types for inference rule declarations *)
@@ -64,10 +61,9 @@ and cons_dec =
 and dt_dec =
   | DatatypeDec of cons_dec list
 
-
 type common_command =
-  | DeclareConst     of symbol * term * const_attr
-  | DeclareDatatype  of symbol * dt_dec
+  | DeclareConst     of string * term * (const_attr option)
+  | DeclareDatatype  of string * dt_dec
   | DeclareDatatypes of (sort_dec list) * (dt_dec list)
   | Echo             of string option
   | Exit
@@ -79,7 +75,7 @@ type command =
   | Assume            of string * term
   | AssumePush        of string * term
   | DeclareConsts     of lit_category * term
-  | DeclareParamConst of string * param list * term * const_attr
+  | DeclareParamConst of string * param list * term * (const_attr option)
   | DeclareRule       of string * param list * rule_dec
   | Define            of string * param list * term * (term option)
   | Include           of string
@@ -90,19 +86,13 @@ type command =
   | Common            of common_command
 
 (* ---- helpers -------- *)
-let var_has_attr
-  (ps : param list) (s : string) (att : var_attr) : bool
-=
-  let f (s',_,att_opt) = (s = s' && Some att = att_opt) in
-  List.exists f ps
-
 let _app ((t1,t2) : term * term) : term =
   Apply ("_", [t1;t2])
 
-let app_binop (f : term) : term * term -> term =
+let _app_bin (f : term) : term * term -> term =
   fun (t1,t2) -> _app (_app (f,t1), t2)
 
-let app_list (f : term) (ts : term list) : term =
+let _app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
 
 let is_builtin (str : string) : bool =
@@ -148,7 +138,7 @@ let list_suffix_str (f : 'a -> string) =
   | [] -> ""
   | ys -> " " ^ (list_str f ys)
 
-let var_attr_str = function
+let param_attr_str = function
   | Implicit -> ":implicit"
   | Opaque -> ":opaque"
   | List -> ":list"
@@ -192,10 +182,10 @@ and
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
-let param_str (s,t,xs) =
+let param_str (s,t,att) =
   Printf.sprintf "(%s %s%s)"
     s (term_str t)
-    (list_suffix_str var_attr_str xs)
+    (opt_suffix_str param_attr_str att)
 
 let case_str (t,t') =
   Printf.sprintf "(%s %s)"
@@ -221,45 +211,34 @@ let dt_dec_str = function
       Printf.sprintf "(%s)"
         (String.concat " " (List.map cons_dec_str xs))
 
-let assumption_str = function
-  | Assumption t ->
-      Printf.sprintf ":assumption %s" (term_str t)
-and simple_premises_str = function
-  | Premises ts ->
-      Printf.sprintf ":premises %s"
-        (String.concat " " (List.map term_str ts))
 let premises_str = function
-  | Simple sp -> simple_premises_str sp
+  | Simple sp -> term_list_str sp
   | PremiseList (t, t') ->
       Printf.sprintf ":premsie-list %s %s"
-        (term_str t)
-        (term_str t')
-and arguments_str = function
-  | Args ts -> Printf.sprintf ":args %s" (term_list_str ts)
-and reqs_str = function
-  | Requires cs ->
-      Printf.sprintf ":requires (%s)"
-        (cases_str cs)
+      (term_str t) (term_str t')
+and arguments_str ts =
+  Printf.sprintf ":args %s" (term_list_str ts)
+and reqs_str cs =
+  Printf.sprintf ":requires (%s)" (case_list_str cs)
 and conclusion_str = function
   | Conclusion t ->
-      Printf.sprintf ":conclusion %s" (term_str t)
+    Printf.sprintf ":conclusion %s" (term_str t)
   | ConclusionExplicit t ->
-      Printf.sprintf ":conclusion-explicit %s" (term_str t)
+    Printf.sprintf ":conclusion-explicit %s" (term_str t)
 
-let rule_dec_str = function
-  | RuleDec (assm_opt, prems_opt, args_opt, reqs_opt, conc)
-    -> Printf.sprintf "%s%s%s%s%s"
-        (opt_newline assumption_str assm_opt)
-        (opt_newline premises_str prems_opt)
-        (opt_newline arguments_str args_opt)
-        (opt_newline reqs_str reqs_opt)
-        (opt_newline conclusion_str (Some conc))
+let rule_dec_str {assm; prem; args; reqs; conc} =
+  Printf.sprintf "%s%s%s%s%s"
+    (opt_newline term_str assm)
+    (opt_newline premises_str prem)
+    (opt_newline arguments_str (Some args))
+    (opt_newline reqs_str (Some reqs))
+    (opt_newline conclusion_str (Some conc))
 
 let common_command_str = function
-  | DeclareConst (s,t,xs) ->
+  | DeclareConst (s,t,att) ->
       Printf.sprintf "(declare-const %s %s %s)"
         s (term_str t)
-        (list_suffix_str attr_str xs)
+        (opt_suffix_str const_attr_str att)
   | DeclareDatatype (s,dt) ->
       Printf.sprintf "(declare-datatype %s %s)"
         s (dt_dec_str dt)
@@ -272,7 +251,7 @@ let common_command_str = function
         (opt_suffix_str (fun x -> x) str_opt)
   | Reset -> "(reset)"
   | SetOption x ->
-      Printf.sprintf "(set-option %s)" (attr_str x)
+      Printf.sprintf "(set-option %s)" (x)
 
 let command_str = function
   | Assume (s,t) ->
@@ -285,17 +264,16 @@ let command_str = function
       Printf.sprintf "(declare-consts %s %s)"
         (lit_category_str lc)
         (term_str t)
-  | DeclareParamConst (s,xs,t,ys) ->
+  | DeclareParamConst (s,ps,t,att_opt) ->
       Printf.sprintf
         "(declare-parameterized-const %s (%s) %s%s)"
-        s (list_str param_str xs)
+        s (list_str param_str ps)
         (term_str t)
-        (list_suffix_str attr_str ys)
-  | DeclareRule (s,xs,rdec,ys) ->
-      Printf.sprintf "(declare-rule %s (%s)\n%s%s)"
+        (opt_suffix_str const_attr_str att_opt)
+  | DeclareRule (s,xs,rdec) ->
+      Printf.sprintf "(declare-rule %s (%s)\n%s)"
         s (list_str param_str xs)
         (rule_dec_str rdec)
-        (list_suffix_str attr_str ys)
   | Define (s,xs,t,t_opt) ->
       Printf.sprintf "(define %s (%s)\n %s%s\n)"
         s (list_str param_str xs)
@@ -307,22 +285,20 @@ let command_str = function
       Printf.sprintf
         "(program %s (%s)\n  :signature (%s) %s\n (%s\n )\n)"
         s (list_str param_str xs)
-        (term_list_str ts)
-        (term_str t)
-        (cases_str cs)
+        (term_list_str ts) (term_str t) (case_list_str cs)
   | Reference (str, s_opt) ->
       Printf.sprintf "(reference %s %s)"
         str (opt_str (fun x -> x) s_opt)
-  | Step (s,t_opt,s',sp_opt,args_opt) ->
+  | Step (s,t_opt,s',ts,ts') ->
       Printf.sprintf "(step %s %s %s%s%s)"
         s (opt_str term_str t_opt) s'
-        (opt_suffix_str simple_premises_str sp_opt)
-        (opt_suffix_str arguments_str args_opt)
-  | StepPop (s,t_opt,s',sp_opt,args_opt) ->
+        (list_suffix_str term_str ts)
+        (list_suffix_str term_str ts')
+  | StepPop (s,t_opt,s',ts,ts') ->
       Printf.sprintf "(step-pop %s %s %s%s%s)"
         s (opt_str term_str t_opt) s'
-        (opt_suffix_str simple_premises_str sp_opt)
-        (opt_suffix_str arguments_str args_opt)
+        (list_suffix_str term_str ts)
+        (list_suffix_str term_str ts')
   | Common c ->
       common_command_str c
 
@@ -342,16 +318,19 @@ let mk_aux_str (str : string) : string =
 let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
   Apply ("eo::requires", [t1;t2;t3])
 
-let mk_reqs_list_tm (cs : cases) (t : term) : term =
+
+(* -- these are used when elaborating rule declarations - *)
+let mk_reqs_list_tm (cs : case list) (t : term) : term =
   List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
 
-let mk_conc_tm (cs : cases) : conclusion -> term =
+let mk_conc_tm (cs : case list) : conclusion -> term =
   function
   | Conclusion t ->
       mk_reqs_list_tm cs t
   | ConclusionExplicit t ->
       Printf.printf "WARNING! --- :conclusion-explicit\n";
       mk_reqs_list_tm cs t
+(* ------------------------------------------------------ *)
 
 (* let mk_aux_jlist
   (s : string) (ps : params)

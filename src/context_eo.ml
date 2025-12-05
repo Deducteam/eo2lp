@@ -1,40 +1,47 @@
-open Syntax_eo
+(*
+  Code for interacting with Eunoia contexts:
+  (i.e., parameter lists, signatures)
+*)
 
+open Syntax_eo
 module M = Map.Make(String)
 
-let find_typ (s : string) (ps : param list) : term option =
+(* find the type of `s` wrt. `ps`. *)
+let find_param_typ_opt (s : string) (ps : param list) : term option =
   let f (s',t,_) =
     if s = s' then Some t else None
   in
     List.find_map f ps
 
-let find_atts (s : string) (ps : param list) : attr list =
-  let f (s',_,xs) =
-    if s = s' then Some xs else None
+(* find the attribute of `s` wrt. `ps`.  *)
+let find_param_attr_opt
+  (s : string) (ps : param list) : param_attr option =
+  let f (s',_,att_opt) =
+    if s = s' then att_opt else None
   in
-  match List.find_map f ps with
-  | Some xs -> xs
-  | None -> []
+    List.find_map f ps
 
-let is_list (ps : param list) (s : string) : bool =
-  List.mem (Attr ("list", None)) (find_atts s ps)
+let is_list_param =
+  fun s ps -> (find_param_attr_opt s ps) = (Some List)
 
-let is_implicit (ps : param list) (s : string) : bool =
-  List.mem (Attr ("implicit", None)) (find_atts s ps)
+let is_implicit_param =
+  fun s ps -> (find_param_attr_opt s ps) = (Some Implicit)
 
-(* symbol information *)
+let is_opaque_param =
+  fun s ps -> (find_param_attr_opt s ps) = (Some Opaque)
+
 type signature =
   {
     mutable prm : (param list) M.t;
-    mutable att : attr M.t;
+    mutable att : const_attr M.t;
     mutable typ : term M.t;
     mutable def : term M.t;
     mutable lit : (lit_category * term) list;
   }
 
-let is_def (sgn : signature) (s : string) =
-  M.mem s sgn.def
+(*
 
+(*  *)
 let rec unsafe_app_ty (t : term) (ts : term list) : term =
   match t with
   | Apply ("->", ts') ->
@@ -138,4 +145,4 @@ let rec infer_typ (sgn,ps as ctx : signature * param list)
 
 let is_tycon (sgn : signature) (s : string) : bool =
   if (s = "->") then true else
-  is_kind (infer_typ (sgn,[]) (Symbol s))
+  is_kind (infer_typ (sgn,[]) (Symbol s)) *)
