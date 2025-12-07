@@ -19,12 +19,15 @@ type param_attr =
 
 type term =
   | Literal of EO.literal
-  | Symbol of string
+  | Const of string * (term M.t)
+  | Var of string
   | App of term * term
   | Meta of term * term
   | Let of var list * term
 and param =
   string * term * param_attr
+and pmap =
+  term M.t
 and var =
   string * term
 and case =
@@ -41,20 +44,19 @@ let mk_meta_app (t : term) (ts : term list) : term =
   fold_left (fun t_acc t' -> Meta (t_acc, t')) t ts
 
 let mk_eo_list_concat
-  (f, t1,t2 : term * term * term) : term =
-  mk_meta_app (Symbol "eo::list_concat") [f;t1;t2]
-
-let mk_eo_var (s,t : string * term) : term =
-  mk_meta_app (Symbol "eo::var") [Literal (String s); t]
+  (f,t1,t2 : term * term * term) : term =
+  mk_meta_app (Var "eo::list_concat") [f;t1;t2]
 
 (* auxillary function used in elaboration of f-lists. *)
 let glue (ps : EO.param list)
   (f,t1,t2 : term * term * term) : term
 =
   match t1 with
-  | Symbol s when EO.is_list_param s ps ->
+  | Var s when EO.is_list_param s ps ->
     mk_eo_list_concat (f,t1,t2)
   | _ -> mk_app f [t1;t2]
+
+let fresh : int ref = ref 0
 
 let rec elab_tm
   (sgn, ps as ctx : EO.signature * EO.param list)
@@ -64,7 +66,17 @@ let rec elab_tm
   (* ------------------------ *)
   | Literal l -> Literal l
   (* ------------------------ *)
-  | Symbol s -> Symbol s
+  | Symbol s ->
+    (
+      match M.find_opt s sgn.prm with
+      | Some ps ->
+        let f (s,_,_) =
+          incr fresh;
+          (s, Var ("?" ^ string_of_int !fresh))
+        in
+          Const (s, M.of_list (List.map f ps))
+      | None -> Var s
+    )
   (* ------------------------ *)
   | Bind (s, vs, t) ->
     if s = "eo::define" then
@@ -73,9 +85,12 @@ let rec elab_tm
       elab_binder_app ctx (s,vs,t)
   (* ------------------------ *)
   | Apply (s, ts) ->
-    (* refactor to `EO.is_meta` *)
+    (* TODO. refactor to `EO.is_meta` *)
     if EO.is_builtin s || EO.is_program s || M.mem s sgn.def || s = "->" then
-      mk_meta_app (Symbol s) (map (elab_tm ctx) ts)
+       (* TODO. parameters for programs/builtins?  *)
+      mk_meta_app
+        (elab_tm ctx (Symbol s))
+        (map (elab_tm ctx) ts)
     else
       elab_const_app ctx s ts
 and
@@ -83,10 +98,11 @@ and
     (sgn,ps as ctx : EO.signature * EO.param list)
     (s : string) (ts : EO.term list) : term
   =
+    let c = elab_tm ctx (Symbol s) in
     let
       ts' = map (elab_tm ctx) ts       and
-      g x y = glue ps (Symbol s, x, y) and
-      h y x = glue ps (Symbol s, y, x)
+      g x y = glue ps (c, x, y) and
+      h y x = glue ps (c, y, x)
     in
       match M.find_opt s sgn.att with
       | Some (RightAssocNil t_nil) ->
@@ -102,9 +118,9 @@ and
         Printf.printf
           "WARNING: naive application of constant %s with attribute %s.\n"
           s (EO.const_attr_str att);
-        mk_app (Symbol s) ts'
+        mk_app c ts'
       | None ->
-        mk_app (Symbol s) ts'
+        mk_app c ts'
 and
   elab_binder_app
     (sgn,ps as ctx : EO.signature * EO.param list)
@@ -112,38 +128,34 @@ and
   =
     match M.find_opt s sgn.att with
     | Some (Binder t_cons) ->
-      let vs' = map (fun v -> mk_eo_var (elab_var ctx v)) vs in
-      let vlist = elab_tm ctx (Apply (t_cons, ts)) in
-      (* TODO. lookup params of binder symbol? *)
-      let c = Const (s,[]) in
-      mk_app s
-      App (App (c, ts'), elab_tm ctx t)
+      let c = elab_tm ctx (Symbol s) in
+      let xs = map EO.mk_eo_var vs in
+      let xs' = elab_tm ctx (Apply (t_cons, xs)) in
+      let t'  = elab_tm ctx t in
+      App (App (c, xs'), t')
     | _ -> failwith "error: unregistered binder."
 and
   elab_param
-    (sgn : EO.signature) (s,t,xs : EO.param) : param
+    (sgn : EO.signature) (s,t,att_opt : EO.param) : param
   =
     let t' = elab_tm (sgn,[]) t in
-    let fl =
-      if List.mem (Attr ("implicit", None)) xs then
-        Implicit
-      else if List.mem (Attr ("opaque", None)) xs then
-        Opaque
-      else
-        Explicit
+    let att' =
+      match att_opt with
+      | Some (Implicit) -> Implicit
+      | Some (Opaque) -> Opaque
+      | _ -> Explicit
     in
-      (s,t',fl)
+      (s,t',att')
 and
   elab_var (ctx : EO.signature * EO.param list)
-    (s,t : EO.var) : var =
-    (s, elab_tm ctx t)
+    (s,t : EO.var) : var = (s, elab_tm ctx t)
 
 let elab_case (ctx : EO.signature * EO.param list)
   (t,t' : EO.case) : case
 =
   (elab_tm ctx t, elab_tm ctx t')
 
-let rec free_in (t : term) (s : string) =
+(* let rec free_in (t : term) (s : string) =
   match t with
   | Const (_,_) -> false
   | Var s' -> s = s'
@@ -163,38 +175,39 @@ let free_params (ps : eparam list) (t : term) : (string * term) list =
   let f (s,ty,flg) =
     if free_in t s then Some (s,ty) else None
   in
-    List.filter_map f ps
+    List.filter_map f ps *)
 
 (* --------- pretty printing ---------- *)
 let rec term_str : term -> string =
   function
-  | Const (s,qs) ->
-      let qs_str = String.concat " " (map eparam_str qs) in
-      Printf.sprintf "%s⟦%s⟧" s qs_str
-  | Var s -> s
-  | Literal l -> literal_str l
+  | Const (s, pm) ->
+    Printf.sprintf "%s(%s)" s (pmap_str pm)
+  | Literal l -> EO.literal_str l
   | App (t1,t2) ->
     Printf.sprintf "(_ %s %s)"
       (term_str t1)
       (term_str t2)
+  | Meta (t1,t2) ->
+    Printf.sprintf "(%s %s)"
+      (term_str t1) (term_str t2)
   | Let (xs, t) ->
-    let xs_str = String.concat " " (List.map evar_str xs) in
-    Printf.sprintf "(eo::define (%s) %s)" xs_str (term_str t)
-  | Meta (s, ts) ->
-    let ts_str = String.concat " " (List.map term_str ts) in
-    Printf.sprintf "(%s %s)" s ts_str
-and evar_str : (string * term) -> string =
-  fun (s,t) ->
-    Printf.sprintf "(%s %s)" s (term_str t)
-and eparam_str : eparam -> string =
-  fun (s,t,flag) ->
-    match flag with
-    | Explicit ->
-        Printf.sprintf "(%s : %s)" s (term_str t)
-    | Implicit ->
-        Printf.sprintf "[%s : %s]" s (term_str t)
-    | Opaque ->
-        Printf.sprintf "⟬%s : %s⟭" s (term_str t)
+    let xs_str = EO.list_str evar_str xs in
+    Printf.sprintf
+      "(eo::define (%s) %s)"
+      xs_str (term_str t)
+and pmap_str (pm : pmap) : string =
+  let f = (fun (s,t) -> s ^ " :> " ^ term_str t) in
+  String.concat " " (List.map f (M.to_list pm))
+and evar_str (s,t : string * term) : string =
+  Printf.sprintf "(%s %s)" s (term_str t)
+and eparam_str (s,t,att : param) : string =
+  match att with
+  | Explicit ->
+      Printf.sprintf "(%s : %s)" s (term_str t)
+  | Implicit ->
+      Printf.sprintf "[%s : %s]" s (term_str t)
+  | Opaque ->
+      Printf.sprintf "⟬%s : %s⟭" s (term_str t)
 
 
     (* let rec subst ((s,t) : string * term) =
@@ -222,7 +235,7 @@ let rec splice (t : term)
       let t' = subst (s, List.hd ts) t in
       splice t' ps' (List.tl ts) *)
 
-      let lcat_of : literal -> lit_category =
+let lcat_of : EO.literal -> EO.lit_category =
   function
   | Numeral _  -> NUM
   | Decimal _  -> DEC

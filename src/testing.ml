@@ -1,4 +1,4 @@
-open Main
+open Syntax_lp
 
 (* open Elaborate *)
 let cpc_root  = "../cvc5/proofs/eo/cpc"

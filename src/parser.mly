@@ -1,5 +1,6 @@
 %{
 open Syntax_eo
+let drop = Option.fold ~none:[] ~some:(fun x -> x)
 %}
 
 %token <string> SYMBOL
@@ -101,9 +102,9 @@ command:
       s = symbol ;
       LPAREN; xs = list(param); RPAREN;
       t = term;
-      att = const_attr;
+      att_opt = option(const_attr);
     RPAREN
-  { DeclareParamConst (s, xs, t, att) }
+  { DeclareParamConst (s, xs, t, att_opt) }
   | LPAREN; DECLARE_RULE;
       s = symbol ;
       LPAREN; xs = list(param); RPAREN;
@@ -113,14 +114,17 @@ command:
       reqs_opt  = option(reqs);
       conc = conclusion;
     RPAREN
-  { let drop = Option.fold ~none:[] ~some:(fun x -> x) in
-    let r =
+  { let r =
       {
-        assumption = assm_opt;
-        premises = prems_opt;
+        assm = assm_opt;
+        prem = prems_opt;
         args = drop args_opt;
-        reqs = drop reqs_opt;
-        conclusion = conc
+        reqs = (
+          match reqs_opt with
+          | Some cs -> cs
+          | None -> []
+        );
+        conc = conc
       }
     in
       DeclareRule (s, xs, r)
@@ -161,7 +165,7 @@ command:
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { Step (s1, t_opt, s2, prem_opt, args_opt) }
+  { Step (s1, t_opt, s2, drop prem_opt, drop args_opt) }
   | LPAREN; STEP_POP;
       s1 = symbol ;
       t_opt = option(term);
@@ -169,7 +173,7 @@ command:
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { StepPop (s1, t_opt, s2, prem_opt, args_opt) }
+  { StepPop (s1, t_opt, s2, drop prem_opt, drop args_opt) }
   | c = common_command
   { Common c }
 
@@ -206,14 +210,14 @@ const_attr:
   | RIGHT_ASSOC_NIL_NSN; t = term { RightAssocNilNSN t }
   | LEFT_ASSOC_NIL; t = term  { LeftAssocNil t }
   | LEFT_ASSOC_NIL_NSN; t = term { LeftAssocNilNSN t }
-  | RIGHT_ASSOC { RightAssoc t }
-  | LEFT_ASSOC { LeftAssoc t  }
+  | RIGHT_ASSOC { RightAssoc }
+  | LEFT_ASSOC { LeftAssoc }
   | CHAINABLE; s = symbol { Chainable s }
   | PAIRWISE; s = symbol  { Pairwise s }
+  | BINDER; s = symbol    { Binder s }
   | ARG_LIST; s = symbol  { ArgList s }
-  | BINDER; s = symbol    { Symbol s }
 
-var_attr:
+param_attr:
   | LIST     { List }
   | IMPLICIT { Implicit }
   | OPAQUE   { Opaque }
@@ -249,7 +253,7 @@ param:
   | LPAREN;
       s = symbol;
       t = term;
-      att = var_attr;
+      att = option(param_attr);
     RPAREN
   { (s, t, att) }
 
@@ -299,10 +303,10 @@ lit_category:
 
 assumption:
   | ASSUMPTION; t = term
-  { Assumption t }
+  { t }
 simple_premises:
   | PREMISES; LPAREN; ts = list(term); RPAREN;
-  { Premises ts }
+  { ts }
 premises:
   | ts = simple_premises
   { Simple ts }
@@ -310,10 +314,10 @@ premises:
   { PremiseList (t1,t2) }
 arguments:
   | ARGS; LPAREN; ts = list(term); RPAREN;
-  { Args ts }
+  { ts }
 reqs:
-  | REQUIRES; LPAREN; cs = list(case); RPAREN
-  { Requires cs }
+  | REQUIRES; LPAREN; cs = cases; RPAREN
+  { cs }
 conclusion:
   | CONCLUSION; t = term
   { Conclusion t }

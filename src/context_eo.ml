@@ -2,12 +2,12 @@
   Code for interacting with Eunoia contexts:
   (i.e., parameter lists, signatures)
 *)
-
 open Syntax_eo
 module M = Map.Make(String)
 
 (* find the type of `s` wrt. `ps`. *)
-let find_param_typ_opt (s : string) (ps : param list) : term option =
+let find_param_typ_opt
+  (s : string) (ps : param list) : term option =
   let f (s',t,_) =
     if s = s' then Some t else None
   in
@@ -30,6 +30,8 @@ let is_implicit_param =
 let is_opaque_param =
   fun s ps -> (find_param_attr_opt s ps) = (Some Opaque)
 
+(* for elaboration, we only need to track attributes. *)
+(* for type inference, we need to track (post-elaboration) types.*)
 type signature =
   {
     mutable prm : (param list) M.t;
