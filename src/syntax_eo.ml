@@ -22,9 +22,9 @@ type const_attr =
   | LeftAssocNilNSN of term
   | RightAssoc
   | LeftAssoc
+  | ArgList of string
   | Chainable of string
   | Pairwise of string
-  | ArgList of string
   | Binder of string
 and param_attr =
   | Implicit
@@ -94,6 +94,9 @@ let _app_bin (f : term) : term * term -> term =
 
 let _app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
+
+let mk_eo_var (s,t : var) : term =
+  Apply("eo::var", [Literal (String s); t])
 
 let is_builtin (str : string) : bool =
   String.starts_with ~prefix:"eo::" str

@@ -1,5 +1,4 @@
 open Elaborate
-open Translate
 open Context_eo
 open List
 
