@@ -43,3 +43,14 @@ let parse_eo_file (fp : string) : command list =
   with
   | Exit -> close_in ch; List.rev !cmds
   | exn -> close_in ch; raise exn
+
+(* find eo files in dir *)
+let find_eo_files (dir : string) : string list =
+  Array.fold_left
+    (fun acc name ->
+      if Filename.check_suffix name ".eo" then
+        (Filename.concat dir name) :: acc
+      else
+        acc
+    )
+    [] (Sys.readdir dir)

@@ -1,6 +1,4 @@
-(lang dune 3.16)
-
-(generate_opam_files true)
+(lang dune 3.20)
 
 (authors "Ciaran Dunne")
 (using menhir 3.0)

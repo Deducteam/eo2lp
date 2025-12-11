@@ -13,7 +13,8 @@
  (modules
    parser lexer
    parse_eo syntax_eo context_eo
-   syntax_lp elaborate
+   syntax_lp elaborate infer
+   main
  )
  (flags :standard -w -8 -w -27)
  (libraries str)
