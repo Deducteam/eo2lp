@@ -14,6 +14,7 @@ type term =
   | Literal of literal
   | Bind of string * (var list) * term
 and var = (string * term)
+and case = (term * term)
 
 type const_attr =
   | RightAssocNil of term
@@ -32,7 +33,12 @@ and param_attr =
   | List
 
 type param = string * term * (param_attr option)
-type case = (term * term)
+
+(* signature maps each symbol to its params/attr/type/def. *)
+module M = Map.Make(String)
+type signature =
+  (param list * const_attr option *
+   term option * term option) M.t
 
 (* types for inference rule declarations *)
 type premises =
@@ -49,7 +55,6 @@ and rule_dec =
     reqs : case list;
     conc : conclusion;
   }
-
 
 (* types for datatype declarations *)
 type sort_dec =
@@ -85,7 +90,12 @@ type command =
   | StepPop           of string * term option * string * term list * term list
   | Common            of common_command
 
+
 (* ---- helpers -------- *)
+(* ##########
+  deprecated?
+  no longer needed because we post-elab term datatype?
+
 let _app ((t1,t2) : term * term) : term =
   Apply ("_", [t1;t2])
 
@@ -94,15 +104,59 @@ let _app_bin (f : term) : term * term -> term =
 
 let _app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
+##########*)
 
 let mk_eo_var (s,t : var) : term =
   Apply("eo::var", [Literal (String s); t])
+
+let mk_proof (t : term) : term =
+  Apply("Proof", [t])
 
 let is_builtin (str : string) : bool =
   String.starts_with ~prefix:"eo::" str
 
 let is_program (str : string) : bool =
   String.starts_with ~prefix:"$" str
+
+let is_def (s : string) (sgn : signature) =
+  match M.find_opt s sgn with
+  | Some (_,_,_, Some _) -> true
+  | _ -> false
+
+let get_attr (s : string) (sgn : signature) =
+  match M.find_opt s sgn with
+  | Some (_, att_opt, _, _) -> att_opt
+  | None -> None
+
+(* save signature info at parse time *)
+let _sig : signature ref = ref M.empty
+
+let mk_arrow_ty (ts : term list) (t : term) : term =
+  Apply ("->", List.append ts [t])
+
+let mk_aux_str (str : string) : string =
+  (str ^ "_aux")
+
+let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
+  Apply ("eo::requires", [t1;t2;t3])
+
+let mk_reqs_list_tm (cs : case list) (t : term) : term =
+  List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
+
+let mk_conc_tm (cs : case list) : conclusion -> term =
+  function
+  | Conclusion t ->
+      mk_reqs_list_tm cs t
+  | ConclusionExplicit t ->
+      Printf.printf "WARNING! --- :conclusion-explicit\n";
+      mk_reqs_list_tm cs t
+
+let mk_arg_vars (arg_tys : term list) : (string * term) list =
+  let arg_sym =
+    (fun i t -> (("α" ^ string_of_int i), t))
+  in
+    List.mapi arg_sym arg_tys
+
 
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
@@ -305,34 +359,10 @@ let command_str = function
   | Common c ->
       common_command_str c
 
-let proof_of (t : term) : term =
-  Apply ("Proof", [t])
-
 (* TODO. actually implement *)
 let ty_of (t : term) : term =
   Symbol ("TY[" ^  term_str t ^ "]")
 
-let mk_arrow_ty (ts : term list) (t : term) : term =
-  Apply ("->", List.append ts [t])
-
-let mk_aux_str (str : string) : string =
-  (str ^ "_aux")
-
-let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
-  Apply ("eo::requires", [t1;t2;t3])
-
-
-(* -- these are used when elaborating rule declarations - *)
-let mk_reqs_list_tm (cs : case list) (t : term) : term =
-  List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
-
-let mk_conc_tm (cs : case list) : conclusion -> term =
-  function
-  | Conclusion t ->
-      mk_reqs_list_tm cs t
-  | ConclusionExplicit t ->
-      Printf.printf "WARNING! --- :conclusion-explicit\n";
-      mk_reqs_list_tm cs t
 (* ------------------------------------------------------ *)
 
 (* let mk_aux_jlist
@@ -348,11 +378,7 @@ let mk_conc_tm (cs : case list) : conclusion -> term =
     DefnJ (s', ps, Cases aux_cs)
   ] *)
 
-let mk_arg_vars (arg_tys : term list) : (string * term) list =
-  let arg_sym =
-    (fun i t -> (("α" ^ string_of_int i), t))
-  in
-    List.mapi arg_sym arg_tys
+
 (* (* ---- pretty printing ----- *)
 let defn_str (d : defn) =
   match d with

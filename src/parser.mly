@@ -1,6 +1,7 @@
 %{
 open Syntax_eo
-let drop = Option.fold ~none:[] ~some:(fun x -> x)
+let flatten =
+  Option.fold ~none:[] ~some:(fun x -> x)
 %}
 
 %token <string> SYMBOL
@@ -82,100 +83,6 @@ cases:
   | LPAREN; cs = nonempty_list(case); RPAREN
   { cs }
 
-command:
-  | LPAREN; ASSUME;
-      s = symbol ;
-      t = term;
-    RPAREN
-  { Assume (s,t) }
-  | LPAREN; ASSUME_PUSH;
-      s = symbol ;
-      t = term;
-    RPAREN
-  { AssumePush (s,t) }
-  | LPAREN; DECLARE_CONSTS;
-      l = lit_category;
-      t = term;
-    RPAREN
-  { DeclareConsts (l,t) }
-  | LPAREN; DECLARE_PARAM_CONST;
-      s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      t = term;
-      att_opt = option(const_attr);
-    RPAREN
-  { DeclareParamConst (s, xs, t, att_opt) }
-  | LPAREN; DECLARE_RULE;
-      s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      assm_opt  = option(assumption);
-      prems_opt = option(premises);
-      args_opt  = option(arguments);
-      reqs_opt  = option(reqs);
-      conc = conclusion;
-    RPAREN
-  { let r =
-      {
-        assm = assm_opt;
-        prem = prems_opt;
-        args = drop args_opt;
-        reqs = (
-          match reqs_opt with
-          | Some cs -> cs
-          | None -> []
-        );
-        conc = conc
-      }
-    in
-      DeclareRule (s, xs, r)
-  }
-  | LPAREN; DEFINE;
-      s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      t = term;
-      ty_opt = option(defn_attr);
-    RPAREN
-  { Define (s,xs,t,ty_opt) }
-  | LPAREN; INCLUDE;
-      str = STRING;
-    RPAREN
-  { Include str }
-  | LPAREN; PROGRAM;
-      s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      SIGNATURE;
-        LPAREN; doms = nonempty_list(term); RPAREN;
-        ran = term;
-      cs_opt = option(cases);
-    RPAREN
-  { let cs = match cs_opt with
-      | Some cs -> cs
-      | None -> [] in
-    Program (s, xs, (doms, ran), cs)
-  }
-  | LPAREN; REFERENCE;
-      str = STRING ;
-      s_opt = option(symbol);
-    RPAREN
-  { Reference (str, s_opt) }
-  | LPAREN; STEP;
-      s1 = symbol ;
-      t_opt = option(term);
-      RULE; s2 = symbol ;
-      prem_opt = option(simple_premises);
-      args_opt = option(arguments);
-    RPAREN
-  { Step (s1, t_opt, s2, drop prem_opt, drop args_opt) }
-  | LPAREN; STEP_POP;
-      s1 = symbol ;
-      t_opt = option(term);
-      RULE; s2 = symbol ;
-      prem_opt = option(simple_premises);
-      args_opt = option(arguments);
-    RPAREN
-  { StepPop (s1, t_opt, s2, drop prem_opt, drop args_opt) }
-  | c = common_command
-  { Common c }
 
 common_command:
   | LPAREN; DECLARE_CONST;
@@ -183,7 +90,10 @@ common_command:
       t = term;
       att_opt = option(const_attr);
     RPAREN
-  { DeclareConst (s,t,att_opt) }
+  {
+    _sig := M.add s ([], att_opt, Some t, None) !_sig;
+    DeclareConst (s,t,att_opt)
+  }
   | LPAREN; DECLARE_DATATYPE;
       s = symbol ;
       dt = datatype_dec;
@@ -204,6 +114,131 @@ common_command:
   { Reset }
   | LPAREN; SET_OPTION; s = symbol; RPAREN
   { SetOption (s) }
+
+
+command:
+  | LPAREN; ASSUME;
+      s = symbol ;
+      t = term;
+    RPAREN
+  {
+    _sig := M.add s ([], None, Some (mk_proof t), None) !_sig;
+    Assume (s,t)
+  }
+  | LPAREN; ASSUME_PUSH;
+      s = symbol ;
+      t = term;
+    RPAREN
+  {
+    _sig := M.add s ([], None, Some (mk_proof t), None) !_sig;
+    AssumePush (s,t)
+  }
+  | LPAREN; DECLARE_CONSTS;
+      l = lit_category;
+      t = term;
+    RPAREN
+  { DeclareConsts (l,t) }
+  | LPAREN; DECLARE_PARAM_CONST;
+      s = symbol ;
+      LPAREN; xs = list(param); RPAREN;
+      t = term;
+      att_opt = option(const_attr);
+    RPAREN
+  {
+    _sig := M.add s (xs, att_opt, Some t, None) !_sig;
+    DeclareParamConst (s, xs, t, att_opt)
+  }
+  | LPAREN; DECLARE_RULE;
+      s = symbol ;
+      LPAREN; xs = list(param); RPAREN;
+      assm_opt  = option(assumption);
+      prems_opt = option(premises);
+      args_opt  = option(arguments);
+      reqs_opt  = option(reqs);
+      conc = conclusion;
+    RPAREN
+  { let r =
+      {
+        assm = assm_opt;
+        prem = prems_opt;
+        args = flatten args_opt;
+        reqs = (
+          match reqs_opt with
+          | Some cs -> cs
+          | None -> []
+        );
+        conc = conc
+      }
+    in
+      _sig := M.add s ([], None, None, None) !_sig;
+      DeclareRule (s, xs, r)
+  }
+  | LPAREN; DEFINE;
+      s = symbol ;
+      LPAREN; xs = list(param); RPAREN;
+      t = term;
+      ty_opt = option(defn_attr);
+    RPAREN
+  {
+    _sig := M.add s (xs, None, ty_opt, Some t) !_sig;
+    Define (s,xs,t,ty_opt)
+  }
+  | LPAREN; INCLUDE;
+      str = STRING;
+    RPAREN
+  { Include str }
+  | LPAREN; PROGRAM;
+      s = symbol ;
+      LPAREN; xs = list(param); RPAREN;
+      SIGNATURE;
+        LPAREN; doms = nonempty_list(term); RPAREN;
+        ran = term;
+      cs_opt = option(cases);
+    RPAREN
+  { let cs = match cs_opt with
+      | Some cs -> cs
+      | None -> []
+    in
+      _sig := M.add s ([], None, None, None) !_sig;
+      Program (s, xs, (doms, ran), cs)
+  }
+  | LPAREN; REFERENCE;
+      str = STRING ;
+      s_opt = option(symbol);
+    RPAREN
+  { Reference (str, s_opt) }
+  | LPAREN; STEP;
+      s1 = symbol ;
+      t_opt = option(term);
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  {
+    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
+    let step_typ = Option.map mk_proof t_opt in
+    let step_def = Apply (s2, List.append xs ys) in
+    _sig := M.add s1
+      ([], None, step_typ, Some step_def) !_sig;
+    Step (s1, t_opt, s2, xs, ys)
+  }
+  | LPAREN; STEP_POP;
+      s1 = symbol ;
+      t_opt = option(term);
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  {
+    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
+    let step_typ = Option.map mk_proof t_opt in
+    let step_def = Apply (s2, List.append xs ys) in
+    _sig := M.add s1
+      ([], None, step_typ, Some step_def) !_sig;
+    StepPop (s1, t_opt, s2, xs, ys)
+  }
+  | c = common_command
+  { Common c }
 
 const_attr:
   | RIGHT_ASSOC_NIL; t = term { RightAssocNil t }

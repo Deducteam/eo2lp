@@ -32,14 +32,7 @@ let is_opaque_param =
 
 (* for elaboration, we only need to track attributes. *)
 (* for type inference, we need to track (post-elaboration) types.*)
-type signature =
-  {
-    mutable prm : (param list) M.t;
-    mutable att : const_attr M.t;
-    mutable typ : term M.t;
-    mutable def : term M.t;
-    mutable lit : (lit_category * term) list;
-  }
+
 
 (*
 
