@@ -16,7 +16,12 @@ let proc_eo_file (fp : string) : (Elab.command list) =
   let eos = Parse_eo.parse_eo_file fp in
   let f eo =
     Printf.printf "Processing:\n  %s\n" (EO.command_str eo);
-    Elab.elab_command (!EO._sig) eo
+    let eo' = Elab.elab_command (!EO._sig) eo in
+    if Option.is_some eo' then
+      Printf.printf "Done!:\n  %s\n\n"
+      (Elab.command_str (Option.get eo'));
+
+    eo'
   in
     List.filter_map f eos
 
