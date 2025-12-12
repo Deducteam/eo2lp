@@ -24,31 +24,89 @@ let is_opaque_param s ps =
 
 type eq = Eq of term * term
 
-(*
-  sgn.typ('=') == (-> U U Bool)
-  =(U -> ?1) : (-> ?1 (-> ?1 Bool))
-*)
-let rec pmap_subst (pm : pmap) =
+let rec pmap_subst (PMap xs as pm : pmap) =
+  let f = pmap_subst pm in
   function
-  | (Literal _|Const _) as t -> t
+  | (Literal _|Const _| MVar _) as t -> t
   | Var s ->
-    (
-      match M.find_opt s pm with
+    begin match List.assoc_opt s xs with
       | Some t -> t
       | None -> Var s
-    )
-  | App (t1,t2) -> App (pmap_subst pm t1, pmap_subst pm t2)
-  | Meta (t1,t2) -> Meta (pmap_subst pm t1, pmap_subst pm t2)
+    end
+  | App (t1,t2) ->
+    App (f t1, f t2)
+  | Meta (t1,t2) ->
+    Meta (f t1, f t2)
   | Let (xs,t) ->
     let ys =
-      List.map (fun (s,def) -> (s, pmap_subst pm def)) xs
+      List.map (fun (s,def) -> (s, f def)) xs
     in
-      Let (ys, pmap_subst pm t)
+      Let (ys, f t)
+
+type mmap = MMap of ((string * int) * term) list
+let rec mmap_subst (MMap xs as mm : mmap) =
+  let f = mmap_subst mm in
+  function
+  | (Literal _|Const _|Var _) as t -> t
+  | MVar (s,i) ->
+    begin match List.assoc_opt (s,i) xs with
+      | Some t -> t
+      | None -> Var s
+    end
+  | App (t1,t2) ->
+    App (f t1, f t2)
+  | Meta (t1,t2) ->
+    Meta (f t1, f t2)
+  | Let (xs,t) ->
+    let ys =
+      List.map (fun (s,def) -> (s, f def)) xs
+    in
+      Let (ys, f t)
+
+let rec mvars_in : term -> (string * int) list =
+  function
+  | (Literal _|Const _|Var _) -> []
+  | MVar (s,i) -> [(s,i)]
+  | App (t1,t2) | Meta (t1,t2) ->
+    List.append (mvars_in t1) (mvars_in t2)
+  | Let (xs,t) ->
+    let mvs =
+      List.concat_map (fun (_,def) -> mvars_in def) xs
+    in
+      List.append mvs (mvars_in t)
+
+(* given some mmap `xs` and maplet `(m ↦ t)`,
+  propogate this substitution throughout `mm`. *)
+let mmap_update (MMap xs : mmap)
+  (mt : (string * int) * term) : mmap
+=
+  let f ((s,i), t) =
+    if List.mem (s,i) (mvars_in t) then
+      Printf.ksprintf failwith
+        "ERROR: %s occurs in %s"
+        (term_str (MVar (s, i))) (term_str t)
+    else
+      ((s,i), mmap_subst (MMap [mt]) t)
+  in
+    MMap (mt :: List.map f xs)
+
+let eqs_update (mm : mmap) (es : eq list) : eq list =
+  let f (Eq (t,t')) =
+    Eq (mmap_subst mm t, mmap_subst mm t')
+  in
+    List.map f es
+
+let mmap_str (MMap xs : mmap) : string =
+  let f ((s,i),t) =
+    (term_str (MVar (s,i))) ^ " ↦ " ^ term_str t
+  in
+    String.concat ", " (List.map f xs)
+
 
 let rec infer_typ
   (sgn, ps as ctx : signature * param list)
   : term -> term * eq list =
-  function
+  begin function
   (* ------------------------ *)
   | Literal l -> failwith "LITERAL!\n"
     (* match List.assoc_opt (lcat_of l) sgn.lit with
@@ -96,32 +154,69 @@ let rec infer_typ
       (ty', List.append eqs eqs')
     | [] -> infer_typ ctx t
     end
-(* ------------------------ *)
+  end
 
-(* let tsig : signature =
-  let b = Const ("Bool", M.empty) in
-  let i = Const ("Int", M.empty) in
-  let typ = Const ("Type", M.empty) in
-  let arr x y = App(App(Const ("->", M.empty), x),y) in
-  {
-  prm = M.of_list [
-    ("=", [("U", typ, Implicit)])
-  ];
-  typ = M.of_list [
-    ("Bool", typ);
-    ("Int", typ);
-    ("0", i);
-    ("true", b);
-    ("false", b);
-    ("or", arr b (arr b b));
-    ("=", arr (Var "U") (arr (Var "U") b))
-    ];
-  def = M.empty;
-  lit = [];
-} *)
+let rec unify (MMap xs as mm : mmap)
+  : eq list -> mmap
+=
+  begin function
+  | [] -> mm
+  | Eq (t1,t2) :: es ->
+    let (t1',t2') =
+      (mmap_subst mm t1, mmap_subst mm t1)
+    in begin match (t1',t2') with
+    (* ---------------- *)
+    | (MVar (s,i), MVar (s',j)) when s = s' && i = j ->
+      unify mm es
+    | (MVar (s,i), _) ->
+      let mm' = mmap_update mm ((s,i), t2') in
+      let es' = eqs_update mm es in
+      unify mm' es'
+    | (_, MVar (s,i)) ->
+      let mm' = mmap_update mm ((s,i), t1') in
+      let es' = eqs_update mm es in
+      unify mm' es'
+    (* ---------------- *)
+    | (App (f, x), App (g,y)) | (Meta (f,x), Meta (g,y)) ->
+      unify mm (Eq (f,g) :: Eq (x,y) :: es)
+    (* ---------------- *)
+    | (Let (xs, t), Let (ys, t')) ->
+      begin match (xs,ys) with
+      | ([],[]) -> unify mm (Eq (t,t') :: es)
+      | ((x,xd)::xs, (y,yd)::ys) ->
+        let eq = Eq (Let (xs, t), Let (ys, t')) in
+        unify mm (Eq (xd,yd) :: eq :: es)
+      end
+    (* ---------------- *)
+    | ((_ as x), (_ as y)) when x = y ->
+      unify mm es
+    end
+  end
+
 let infer
   (sgn,ps as ctx : signature * param list)
-  (t : term)
+  (tm : term) : term * term
 =
-  let (ty, eqs) = infer_typ ctx t in
-  ty
+  let (ty, eqs) = infer_typ ctx tm in
+  let mm = unify (MMap []) eqs in
+  (mmap_subst mm tm, mmap_subst mm ty)
+
+let infer_command
+  (sgn : signature) : command -> command
+=
+  begin function
+  | Decl (s,ps,t) ->
+    let (t', ty) = infer (sgn,ps) t in
+    Decl (s,ps,t')
+  (* -------------------- *)
+  | Defn (s,ps,t,ty_opt) ->
+    let (t', ty) = infer (sgn,ps) t in
+    Defn (s,ps,t',ty_opt)
+  (* -------------------- *)
+  | Prog (s,ps,ty,cs) ->
+    let (ty', _) = infer (sgn,ps) ty in
+    Prog (s,ps,ty',cs)
+  | Rule (s,ps,rd) ->
+    Rule (s,ps,rd)
+  (* -------------------- *)
+  end

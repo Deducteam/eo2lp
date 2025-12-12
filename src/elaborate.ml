@@ -18,7 +18,8 @@ type param_attr =
   | Opaque
 type term =
   | Literal of EO.literal
-  | Const of string * (term M.t)
+  | Const of string * pmap
+  | MVar of string * int
   | Var of string
   | App of term * term
   | Meta of term * term
@@ -26,7 +27,7 @@ type term =
 and param =
   string * term * param_attr
 and pmap =
-  term M.t
+  PMap of (string * term) list
 and var =
   string * term
 and case =
@@ -35,9 +36,17 @@ and case =
 let mk_app (t : term) (ts : term list) : term =
   fold_left (fun t_acc t' -> App (t_acc, t')) t ts
 
-let mk_app_binop_right (cons, nil : term * term) (ts : term list) =
+let mk_app_bin =
+  fun f t1 t2 -> App (App (f, t1), t2)
+
+let mk_arrow_app (ts : term list) =
+  let (xs,x) = split_last ts in
+  let arr = Const ("->", PMap []) in
+  fold_right (fun t_acc t' -> mk_app_bin arr t_acc t') xs x
+
+(* let mk_app_binop_right (cons, nil : term * term) (ts : term list) =
   let app_bin f t1 t2 = App (App (f, t1), t2) in
-  fold_right (fun t_acc t' -> app_bin cons t_acc t') ts nil
+  fold_right (fun t_acc t' -> app_bin cons t_acc t') ts nil *)
 
 let mk_meta_app (t : term) (ts : term list) : term =
   fold_left (fun t_acc t' -> Meta (t_acc, t')) t ts
@@ -55,7 +64,19 @@ let glue (ps : EO.param list)
     mk_eo_list_concat (f,t1,t2)
   | _ -> mk_app f [t1;t2]
 
-let fresh : int ref = ref 0
+(* fresh metavariable names should have the name of
+   the parameter as prefix, followed by an index.
+
+   so our ref for this should be a map from strings to index.
+*)
+let _ids : int M.t ref = ref M.empty
+let gen_id (s : string) : int =
+  let f = function
+    | Some i -> Some (i + 1)
+    | None   -> Some (0)
+  in
+    _ids := M.update s f !_ids;
+    M.find s !_ids
 
 let rec elab_tm
   (sgn, ps as ctx : EO.signature * EO.param list)
@@ -69,12 +90,12 @@ let rec elab_tm
     (
       (* is `s` registered in the signature? *)
       match M.find_opt s sgn with
+      (* if so, initialize parameters as metavariables. *)
       | Some (ps,_,_,_) ->
         let f (s,_,_) =
-          incr fresh;
-          (s, Var ("?" ^ string_of_int !fresh))
+          (s, MVar (s, gen_id s))
         in
-          Const (s, M.of_list (List.map f ps))
+          Const (s, PMap (List.map f ps))
       | None -> Var s
     )
   (* ------------------------ *)
@@ -117,7 +138,10 @@ and
           s (EO.const_attr_str att);
         mk_app c ts'
       | None ->
-        mk_app c ts'
+        if s = "->" then
+          mk_arrow_app ts'
+        else
+          mk_app c ts'
 and
   elab_binder_app
     (sgn,ps as ctx : EO.signature * EO.param list)
@@ -277,28 +301,32 @@ let elab_command (sgn : EO.signature)
 (* --------- pretty printing ---------- *)
 let rec term_str : term -> string =
   function
+  | MVar (s,id) ->
+    Printf.sprintf "?%s%s"
+      s (string_of_int id)
   | Var s -> s
   | Const (s, pm) ->
-    Printf.sprintf "%s[%s]" s (pmap_str pm)
+    Printf.sprintf "%s⟨%s⟩" s (pmap_str pm)
   | Literal l -> EO.literal_str l
   | App (t1,t2) ->
-    Printf.sprintf "(_ %s %s)"
+    Printf.sprintf "(%s ⋅ %s)"
       (term_str t1)
       (term_str t2)
   | Meta (t1,t2) ->
     Printf.sprintf "(%s %s)"
       (term_str t1) (term_str t2)
   | Let (xs, t) ->
-    let xs_str = EO.list_str evar_str xs in
+    let xs_str = EO.list_str var_str xs in
     Printf.sprintf
       "(eo::define (%s) %s)"
       xs_str (term_str t)
-and pmap_str (pm : pmap) : string =
-  let f = (fun (s,t) -> s ^ " :> " ^ term_str t) in
-  String.concat ", " (List.map f (M.to_list pm))
-and evar_str (s,t : string * term) : string =
+and pmap_str (PMap pm : pmap) : string =
+  let f (s,t) = s ^ " ↦ " ^ term_str t in
+  String.concat ", " (List.map f pm)
+and var_str (s,t : string * term) : string =
   Printf.sprintf "(%s %s)" s (term_str t)
-and eparam_str (s,t,att : param) : string =
+
+let param_str (s,t,att : param) : string =
   match att with
   | Explicit ->
       Printf.sprintf "(%s : %s)" s (term_str t)
@@ -306,6 +334,32 @@ and eparam_str (s,t,att : param) : string =
       Printf.sprintf "[%s : %s]" s (term_str t)
   | Opaque ->
       Printf.sprintf "⟬%s : %s⟭" s (term_str t)
+
+let param_list_str (ps : param list) : string =
+  String.concat ", " (List.map param_str ps)
+
+
+let command_str : command -> string =
+  function
+  | Decl (s, ps, t) ->
+    Printf.sprintf
+      "declare %s⟨%s⟩ : %s"
+      s (param_list_str ps) (term_str t)
+  | Prog (s,ps,t,_) ->
+    Printf.sprintf
+      "program %s⟨%s⟩ : %s := (...)"
+      s (param_list_str ps) (term_str t)
+  | Defn (s,ps,def,ty_opt) ->
+    let ty_opt_str =
+      match ty_opt with
+      | Some ty -> " : " ^ (term_str ty)
+      | None -> ""
+    in
+      Printf.sprintf
+        "define %s⟨%s⟩%s := %s"
+        s (param_list_str ps) ty_opt_str (term_str def)
+  | Rule (s,_,_) ->
+    Printf.sprintf "WARNING: rule %s not printed" s
 
 let lcat_of : EO.literal -> EO.lit_category =
   function
