@@ -5,24 +5,9 @@
 open Syntax_eo
 module M = Map.Make(String)
 
-(* find the type of `s` wrt. `ps`. *)
-let find_param_typ_opt
-  (s : string) (ps : param list) : term option =
-  let f (s',t,_) =
-    if s = s' then Some t else None
-  in
-    List.find_map f ps
 
-(* find the attribute of `s` wrt. `ps`.  *)
-let find_param_attr_opt
-  (s : string) (ps : param list) : param_attr option =
-  let f (s',_,att_opt) =
-    if s = s' then att_opt else None
-  in
-    List.find_map f ps
 
-let is_list_param =
-  fun s ps -> (find_param_attr_opt s ps) = (Some List)
+
 
 let is_implicit_param =
   fun s ps -> (find_param_attr_opt s ps) = (Some Implicit)

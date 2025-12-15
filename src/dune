@@ -11,9 +11,8 @@
  (name eo2lp)
  (public_name eo2lp)
  (modules
-   parser lexer
-   parse_eo syntax_eo context_eo
-   syntax_lp elaborate infer
+   parser lexer parse_eo syntax_eo
+   desugar resolve elaborate
    main
  )
  (flags :standard -w -8 -w -27)

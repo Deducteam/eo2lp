@@ -91,7 +91,9 @@ common_command:
       att_opt = option(const_attr);
     RPAREN
   {
-    _sig := M.add s ([], att_opt, Some t, None) !_sig;
+    _sig := M.add s
+      { prm = []; att = att_opt; typ = Some t; def = None }
+      !_sig;
     DeclareConst (s,t,att_opt)
   }
   | LPAREN; DECLARE_DATATYPE;
@@ -122,7 +124,9 @@ command:
       t = term;
     RPAREN
   {
-    _sig := M.add s ([], None, Some (mk_proof t), None) !_sig;
+    _sig := M.add s
+      { prm = []; att = None; typ = Some (mk_proof t); def = None }
+      !_sig;
     Assume (s,t)
   }
   | LPAREN; ASSUME_PUSH;
@@ -130,7 +134,9 @@ command:
       t = term;
     RPAREN
   {
-    _sig := M.add s ([], None, Some (mk_proof t), None) !_sig;
+    _sig := M.add s
+      { prm = []; att = None; typ = Some (mk_proof t); def = None }
+      !_sig;
     AssumePush (s,t)
   }
   | LPAREN; DECLARE_CONSTS;
@@ -145,7 +151,9 @@ command:
       att_opt = option(const_attr);
     RPAREN
   {
-    _sig := M.add s (xs, att_opt, Some t, None) !_sig;
+    _sig := M.add s
+      { prm = xs; att = att_opt; typ = Some t; def = None }
+      !_sig;
     DeclareParamConst (s, xs, t, att_opt)
   }
   | LPAREN; DECLARE_RULE;
@@ -170,7 +178,9 @@ command:
         conc = conc
       }
     in
-      _sig := M.add s ([], None, None, None) !_sig;
+      _sig := M.add s
+        { prm = []; att = None; typ = None; def = None }
+       !_sig;
       DeclareRule (s, xs, r)
   }
   | LPAREN; DEFINE;
@@ -180,7 +190,9 @@ command:
       ty_opt = option(defn_attr);
     RPAREN
   {
-    _sig := M.add s (xs, None, ty_opt, Some t) !_sig;
+    _sig := M.add s
+      { prm = xs; att = None; typ = ty_opt; def = Some t }
+      !_sig;
     Define (s,xs,t,ty_opt)
   }
   | LPAREN; INCLUDE;
@@ -199,7 +211,9 @@ command:
       | Some cs -> cs
       | None -> []
     in
-      _sig := M.add s ([], None, None, None) !_sig;
+      _sig := M.add s
+        { prm = []; att = None; typ = None; def = None }
+        !_sig;
       Program (s, xs, (doms, ran), cs)
   }
   | LPAREN; REFERENCE;
@@ -219,7 +233,8 @@ command:
     let step_typ = Option.map mk_proof t_opt in
     let step_def = Apply (s2, List.append xs ys) in
     _sig := M.add s1
-      ([], None, step_typ, Some step_def) !_sig;
+      { prm = []; att = None; typ = step_typ; def = Some step_def }
+      !_sig;
     Step (s1, t_opt, s2, xs, ys)
   }
   | LPAREN; STEP_POP;
@@ -234,7 +249,8 @@ command:
     let step_typ = Option.map mk_proof t_opt in
     let step_def = Apply (s2, List.append xs ys) in
     _sig := M.add s1
-      ([], None, step_typ, Some step_def) !_sig;
+      { prm = []; att = None; typ = step_typ; def = Some step_def }
+      !_sig;
     StepPop (s1, t_opt, s2, xs, ys)
   }
   | c = common_command
