@@ -1,32 +1,17 @@
-module EO = struct
-  include Syntax_eo
-  include Parse_eo
-end
-
-module Elab = Elaborate
-module LP = Syntax_lp
 
 let cpc_root  = "../cvc5/proofs/eo/cpc"
 let cpc_mini  =
   let con fp = Filename.concat cpc_root fp in
-  let fps = ["programs/Utils.eo"; "theories/Builtin.eo"] in
+  let fps = ["programs/Utils.eo"] in
   List.map con fps
-
+(*
 let proc_eo_file (fp : string) : (Elab.command list) =
   let eos = Parse_eo.parse_eo_file fp in
-  let f eo =
-    Printf.printf "Processing:\n  %s\n" (EO.command_str eo);
-    let eo' = Elab.elab_command (!EO._sig) eo in
-    if Option.is_some eo' then
-      Printf.printf "Done!:\n  %s\n\n"
-      (Elab.command_str (Option.get eo'));
-
-    eo'
-  in
-    List.filter_map f eos
+  let (_sig', eos') = Elab.elab_eo_file !EO._sig eos in
+  eos'
 
 let proc_cpc_mini : Elab.command list =
-  List.concat_map proc_eo_file cpc_mini
+  List.concat_map proc_eo_file cpc_mini *)
 
 
 (* let builtin_tys =

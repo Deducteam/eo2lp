@@ -36,9 +36,14 @@ type param = string * term * (param_attr option)
 
 (* signature maps each symbol to its params/attr/type/def. *)
 module M = Map.Make(String)
-type signature =
-  (param list * const_attr option *
-   term option * term option) M.t
+type info =
+  {
+    prm : param list;
+    att : const_attr option;
+    typ : term option;
+    def : term option
+  }
+and signature = info M.t
 
 (* types for inference rule declarations *)
 type premises =
@@ -120,12 +125,12 @@ let is_program (str : string) : bool =
 
 let is_def (s : string) (sgn : signature) =
   match M.find_opt s sgn with
-  | Some (_,_,_, Some _) -> true
+  | Some info -> Option.is_some info.def
   | _ -> false
 
 let get_attr (s : string) (sgn : signature) =
   match M.find_opt s sgn with
-  | Some (_, att_opt, _, _) -> att_opt
+  | Some info -> info.att
   | None -> None
 
 (* save signature info at parse time *)
@@ -156,6 +161,25 @@ let mk_arg_vars (arg_tys : term list) : (string * term) list =
     (fun i t -> (("α" ^ string_of_int i), t))
   in
     List.mapi arg_sym arg_tys
+
+(* find the type of `s` wrt. `ps`. *)
+let find_param_typ_opt
+  (s : string) (ps : param list) : term option =
+  let f (s',t,_) =
+    if s = s' then Some t else None
+  in
+    List.find_map f ps
+
+(* find the attribute of `s` wrt. `ps`.  *)
+let find_param_attr_opt
+  (s : string) (ps : param list) : param_attr option =
+  let f (s',_,att_opt) =
+    if s = s' then att_opt else None
+  in
+    List.find_map f ps
+
+let is_list_param =
+  fun s ps -> (find_param_attr_opt s ps) = (Some List)
 
 
 (* ---- pretty printing -------- *)
@@ -332,7 +356,7 @@ let command_str = function
         s (list_str param_str xs)
         (rule_dec_str rdec)
   | Define (s,xs,t,t_opt) ->
-      Printf.sprintf "(define %s (%s)\n %s%s\n)"
+      Printf.sprintf "(define %s (%s) %s%s)"
         s (list_str param_str xs)
         (term_str t)
         (opt_suffix_str term_str t_opt)
@@ -340,9 +364,10 @@ let command_str = function
       Printf.sprintf "(include '%s')" s
   | Program (s,xs,(ts,t),cs) ->
       Printf.sprintf
-        "(program %s (%s)\n  :signature (%s) %s\n (%s\n )\n)"
+        "(program %s (%s) :signature (%s) %s (...))"
         s (list_str param_str xs)
-        (term_list_str ts) (term_str t) (case_list_str cs)
+        (term_list_str ts) (term_str t)
+        (* (case_list_str cs) *)
   | Reference (str, s_opt) ->
       Printf.sprintf "(reference %s %s)"
         str (opt_str (fun x -> x) s_opt)
