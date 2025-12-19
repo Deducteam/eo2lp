@@ -1,9 +1,41 @@
 
+module EO = struct
+  include Syntax_eo
+  include Parse_eo
+end
+
+module Elab = Elaborate
+
 let cpc_root  = "../cvc5/proofs/eo/cpc"
 let cpc_mini  =
   let con fp = Filename.concat cpc_root fp in
   let fps = ["programs/Utils.eo"] in
   List.map con fps
+(*
+let cpc_eos : EO.command list =
+  List.concat_map EO.parse_eo_file cpc_mini *)
+
+let test_eo : EO.command list =
+  EO.parse_eo_file "src/test.eo"
+
+let cpc_elab : Elab.command list =
+  let f eo =
+    Printf.printf
+      "Elaborating:\n%s\n"
+      (EO.command_str eo);
+
+    let eo' = (Elab.elaborate_cmd eo) in
+    if Option.is_some eo' then
+      Printf.printf
+        "Done:\n%s\n\n"
+        (Elab.command_str (Option.get eo'));
+    eo'
+  in
+    List.filter_map f test_eo
+
+let tctx = (!Elab._sig, [])
+let tt : EO.term =
+  Apply ("@Pair", [Symbol "Bool"; Symbol "Bool"])
 (*
 let proc_eo_file (fp : string) : (Elab.command list) =
   let eos = Parse_eo.parse_eo_file fp in

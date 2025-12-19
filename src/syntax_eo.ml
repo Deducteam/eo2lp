@@ -45,6 +45,8 @@ type info =
   }
 and signature = info M.t
 
+type context = signature * param list
+
 (* types for inference rule declarations *)
 type premises =
   | Simple of term list
@@ -120,8 +122,9 @@ let mk_proof (t : term) : term =
 let is_builtin (str : string) : bool =
   String.starts_with ~prefix:"eo::" str
 
-let is_program (str : string) : bool =
+let is_prog (str : string) : bool =
   String.starts_with ~prefix:"$" str
+  || String.starts_with ~prefix:"eo::" str
 
 let is_def (s : string) (sgn : signature) =
   match M.find_opt s sgn with
@@ -134,7 +137,11 @@ let get_attr (s : string) (sgn : signature) =
   | None -> None
 
 (* save signature info at parse time *)
-let _sig : signature ref = ref M.empty
+let _sig : signature ref = ref (M.of_list
+  [
+    ("Type",
+      { prm = []; att = None; typ = None; def = None })
+  ])
 
 let mk_arrow_ty (ts : term list) (t : term) : term =
   Apply ("->", List.append ts [t])
@@ -181,6 +188,14 @@ let find_param_attr_opt
 let is_list_param =
   fun s ps -> (find_param_attr_opt s ps) = (Some List)
 
+let lcat_of : literal -> lit_category =
+  function
+  | Numeral _  -> NUM
+  | Decimal _  -> DEC
+  | Rational _ -> RAT
+  | Binary _   -> BIN
+  | Hexadecimal _ -> HEX
+  | String _      -> STR
 
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
