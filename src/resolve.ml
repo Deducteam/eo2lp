@@ -60,198 +60,226 @@ let is_opaque_param s ps =
 (* equations for constraints. *)
 type eq = Eq of term * term
 
-(* perform substitution given by a parameter map.*)
-let rec pmap_subst (PMap xs as pm : pmap) =
-  let f = pmap_subst pm in
+let rec map_leaves (f : leaf -> term) : term -> term =
   function
-  | (Literal _|Const _| MVar _) as t -> t
-  | Var s ->
-    begin match List.assoc_opt s xs with
+  | Leaf l -> f l
+  | App (lv,t,t') ->
+    App (lv, map_leaves f t, map_leaves f t')
+  | Arrow (lv,ts) ->
+    Arrow (lv, List.map (map_leaves f) ts)
+  | Let ((s,t), t') ->
+    Let ((s, map_leaves f t), map_leaves f t')
+
+let rec pmap_subst (xs : pmap) (t : term) : term =
+  let f : leaf -> term =
+    function
+    | Var s ->
+      begin match List.assoc_opt s xs with
       | Some t -> t
-      | None -> Var s
-    end
-  | App (t1,t2)  -> App (f t1, f t2)
-  | Meta (t1,t2) -> Meta (f t1, f t2)
-  | Let (xs,t) ->
-    let ys =
-      List.map (fun (s,def) -> (s, f def)) xs
-    in
-      Let (ys, f t)
+      | None -> Leaf (Var s)
+      end
+    | Type -> Leaf Type
+    | Kind -> Leaf Kind
+    | Literal l  -> Leaf (Literal l)
+    | SVar (s,i) -> Leaf (SVar (s,i))
+    | Const (s, ps) ->
+      let f' (s,t') = (s, pmap_subst xs t') in
+      let ps' = List.map f' ps in
+      Leaf (Const (s, ps'))
+  in
+    map_leaves f t
 
-
-(* type of metavariable maps.  *)
-type mmap = MMap of ((string * int) * term) list
+(* type of schematic variable maps. *)
+type svmap = ((string * int) * term) list
 
 (* perform substitution given by a metavar map.*)
-let rec mmap_subst (MMap xs as mm : mmap) =
-  let f = mmap_subst mm in
-  function
-  | (Literal _|Const _|Var _) as t -> t
-  | MVar (s,i) ->
-    begin match List.assoc_opt (s,i) xs with
-      | Some t -> t
-      | None -> Var s
-    end
-  | App (t1,t2) -> App (f t1, f t2)
-  | Meta (t1,t2) -> Meta (f t1, f t2)
-  | Let (xs,t) ->
-    let ys =
-      List.map (fun (s,def) -> (s, f def)) xs
-    in
-      Let (ys, f t)
+let rec svmap_subst (xs : svmap) (t : term) =
+  let f : leaf -> term =
+    function
+    | Type -> Leaf Type
+    | Kind -> Leaf Kind
+    | Var s -> Leaf (Var s)
+    | Literal l  -> Leaf (Literal l)
+    | SVar (s,i) -> Leaf (SVar (s,i))
+    | Const (s, ps) ->
+      let ps' =
+        List.map (fun (s,t') -> (s, svmap_subst xs t')) ps
+      in
+        Leaf (Const (s, ps'))
+  in
+    map_leaves f t
 
-(* generate list of metavariable ocurrences in a term. *)
-let rec mvars_in : term -> (string * int) list =
+(* list of schematic variable ocurrences in a term. *)
+let rec svars_in : term -> (string * int) list =
   function
-  | (Literal _|Const _|Var _) -> []
-  | MVar (s,i) -> [(s,i)]
-  | App (t1,t2) | Meta (t1,t2) ->
-    List.append (mvars_in t1) (mvars_in t2)
-  | Let (xs,t) ->
-    let mvs =
-      List.concat_map (fun (_,def) -> mvars_in def) xs
-    in
-      List.append mvs (mvars_in t)
+  | Leaf (SVar (s,i)) -> [(s,i)]
+  | Leaf _ -> []
+  | App (lv,t1,t2) ->
+    List.append (svars_in t1) (svars_in t2)
+  | Arrow (lv,ts) ->
+    List.concat_map svars_in ts
+  | Let ((s,t),t') ->
+    List.append (svars_in t) (svars_in t')
 
 (* given some mmap `mm` and maplet `(m ↦ t)`,
   propagate the substitution throughout `mm`. *)
-let mmap_update (MMap xs : mmap)
-  (mt : (string * int) * term) : mmap
+let svmap_update
+  (xs : svmap) (x : (string * int) * term) : svmap
 =
-  let f ((s,i), t) =
-    if List.mem (s,i) (mvars_in t) then
+  let f (v, t) =
+    if List.mem v (svars_in t) then
       Printf.ksprintf failwith
         "ERROR: %s occurs in %s"
-        (term_str (MVar (s, i))) (term_str t)
+        (term_str (Leaf (SVar (fst v, snd v))))
+        (term_str t)
     else
-      ((s,i), mmap_subst (MMap [mt]) t)
+      (v, svmap_subst [x] t)
   in
-    MMap (mt :: List.map f xs)
+    (x :: List.map f xs)
 
 (* given some metavar map `mm` and list of equalities `es`,
   apply the metavar substitution to both sides of each
   equality in `es`.*)
-let eqs_update (mm : mmap) (es : eq list) : eq list =
+let eqs_update (xs : svmap) (es : eq list) : eq list =
   let f (Eq (t,t')) =
-    Eq (mmap_subst mm t, mmap_subst mm t')
+    Eq (svmap_subst xs t, svmap_subst xs t')
   in
     List.map f es
+
+let type_const = Const ("Type", [])
 
 (* given a term `t`, signature `sgn` and params `ps`,
    perform type inference to give a term (possibly
    containing metavariables) and eq-constraints.
 *)
 let rec infer
-  (sgn, ps as ctx : EO.signature * EO.param list)
-  (qs : param list) (t : term) : term * eq list =
+  (sgn,ps as ctx : context)
+  (t : term) : term * eq list
+=
   begin match t with
   (* ------------------------ *)
-  | Literal l -> failwith "LITERAL!\n"
-    (* match List.assoc_opt (lcat_of l) sgn.lit with
+  | Leaf (SVar (_,_)) -> failwith
+    "ERROR: infer not defined for schematic variables!";
+  (* ------------------------ *)
+  | Leaf (Literal l) -> failwith
+    "ERROR: infer not defined for literals!";
+  (* ------------------------ *)
+  | Leaf (Var s) ->
+    begin match find_param_typ_opt s ps with
     | Some ty -> (ty, [])
     | None -> Printf.ksprintf failwith
-      "ERROR: literal category %s not associated
-       with any type in signature."
-       (EO.lit_category_str (lcat_of l)) *)
-  (* ------------------------ *)
-  | Var s ->
-    begin match EO.find_param_typ_opt s ps with
-    | Some ty -> (desugar ctx ty, [])
-    | None -> Printf.ksprintf failwith
-      "ERROR: type of %s not given by parameter list." s
+      "ERROR: variable `%s` not given by params." s
     end
   (* ------------------------ *)
-  | Const (s,pm) ->
+  | Leaf Type -> (Leaf Kind, [])
+  (* ------------------------ *)
+  | Leaf Kind -> failwith
+    "ERROR: infer not defined for KIND!"
+  (* ------------------------ *)
+  | Leaf (Const (s,xs)) ->
     begin match M.find_opt s sgn with
-    | Some info ->
-      begin match info.EO.typ with
-      | Some ty -> (pmap_subst pm (desugar ctx ty), [])
-      | _ -> Printf.ksprintf failwith
-        "ERROR: type of %s not given by signature." s
-      end
-    | _ -> Printf.ksprintf failwith
-      "ERROR: symbol %s not registered in signature." s
+    | Some info -> (pmap_subst xs info.typ, [])
+    | None -> Printf.ksprintf failwith
+      "ERROR: constant `%s` not given by signature." s
     end
   (* ------------------------ *)
-  | (App (t1,t2) | Meta (t1,t2)) ->
-    let (ty1, xs) = infer ctx qs t1 in
-    let (ty2, ys) = infer ctx qs t2 in
+  | Arrow (lv,ts) ->
+    let es =
+      List.concat_map (fun t -> snd (infer ctx t)) ts
+    in
+      if lv = M then (Leaf Kind, es) else (Leaf Type, es)
+  (* ------------------------ *)
+  | App (_,t1,t2) ->
+    let (ty1, xs) = infer ctx t1 in
+    let (ty2, ys) = infer ctx t2 in
     begin match ty1 with
-    | App (App (Const ("->",_), u), v) ->
-      (v, Eq (u, ty2) :: (List.append xs ys))
+    | (Arrow (lv, t :: ts)) ->
+      (
+        Arrow (lv, ts),
+        Eq (t, ty2) :: (List.append xs ys)
+      )
     | _ -> Printf.ksprintf failwith
       "ERROR: failed to infer type of application.\n
       The type of %s was %s, and the type of %s was %s\n"
       (term_str t1) (term_str ty1)
       (term_str t2) (term_str ty2)
-      end
-  (* ------------------------ *)
-  | Let (xs, t) ->
-    (* `infer` needs to take `qs` for post-elaboration
-      params to support let properly. *)
-    begin match xs with
-    | (s,def) :: ys ->
-      let (ty, eqs) = infer ctx qs def in
-      let qs' = (s,ty,Explicit) :: qs in
-      let (ty',eqs') = infer ctx qs' (Let (ys, t)) in
-      (ty', List.append eqs eqs')
-    | [] -> infer ctx qs t
     end
+  (* ------------------------ *)
+  | Let ((s,def), t) ->
+    let (def_ty, es) = infer ctx def in
+    let ctx' = (sgn, (s,def_ty,Explicit) :: ps) in
+    let (t_ty,fs) = infer ctx' t in
+    (t_ty, List.append es fs)
   end
 
 (* given a metavariable map `mm` (init; MMap []),
   and constraints `es`, calculate the appropriate
   metavariable map by unification.*)
-let rec unify (MMap xs as mm : mmap)
-  : eq list -> mmap
-=
+let rec unify (xs : svmap) : eq list -> svmap =
   begin function
-  | [] -> mm
+  | [] -> xs
   | Eq (t1,t2) :: es ->
-    let (t1',t2') =
-      (mmap_subst mm t1, mmap_subst mm t1)
-    in begin match (t1',t2') with
+    let (t1',t2') = (svmap_subst xs t1, svmap_subst xs t2) in
+    begin match (t1',t2') with
     (* ---------------- *)
-    | (MVar (s,i), MVar (s',j)) when s = s' && i = j ->
-      unify mm es
-    | (MVar (s,i), _) ->
-      let mm' = mmap_update mm ((s,i), t2') in
-      let es' = eqs_update mm es in
-      unify mm' es'
-    | (_, MVar (s,i)) ->
-      let mm' = mmap_update mm ((s,i), t1') in
-      let es' = eqs_update mm es in
-      unify mm' es'
+    | (Leaf SVar (s,i), Leaf SVar (s',j))
+      when s = s' && i = j -> unify xs es
+    | (Leaf SVar (s,i), _) ->
+      let ys = svmap_update xs ((s,i), t2') in
+      let fs = eqs_update xs es in
+      unify ys fs
+    | (_, Leaf SVar (s,i)) ->
+      let ys = svmap_update xs ((s,i), t1') in
+      let fs = eqs_update xs es in
+      unify ys fs
     (* ---------------- *)
-    | (App (f, x), App (g,y)) | (Meta (f,x), Meta (g,y)) ->
-      unify mm (Eq (f,g) :: Eq (x,y) :: es)
+    | (App (lv, f, x), App (lv',g,y)) when lv = lv' ->
+      unify xs (Eq (f,g) :: Eq (x,y) :: es)
     (* ---------------- *)
-    | (Let (xs, t), Let (ys, t')) ->
-      begin match (xs,ys) with
-      | ([],[]) -> unify mm (Eq (t,t') :: es)
-      | ((x,xd)::xs, (y,yd)::ys) ->
-        let eq = Eq (Let (xs, t), Let (ys, t')) in
-        unify mm (Eq (xd,yd) :: eq :: es)
-      end
+    | (Let ((x,xd), t), Let ((y,yd), t')) ->
+      unify xs (Eq (xd,yd) :: Eq (t,t') :: es)
     (* ---------------- *)
-    | ((_ as x), (_ as y)) when x = y ->
-      unify mm es
+    | ((_ as t), (_ as t')) when t = t' ->
+      unify xs es
     end
   end
+
+(* pretty print a metavariable map. *)
+let svmap_str (xs : svmap) : string =
+  let f ((s,i),t) =
+    (term_str (Leaf (SVar (s,i)))) ^ " ↦ " ^ term_str t
+  in
+    String.concat ", " (List.map f xs)
+
+(* pretty print a metavariable map. *)
+let eq_list_str (es : eq list) : string =
+  let f (Eq (t,t')) =
+    (term_str t) ^ " ≡ " ^ (term_str t')
+  in
+    String.concat ", " (List.map f es)
+
 
 (* given a term `t` and context `sgn,ps`.
    return the resolved form of `t` and its type.    *)
 let resolve
-  (sgn,ps as ctx : EO.signature * EO.param list)
-  (tm : term) : term * term
+  (sgn,ps as ctx : context)
+  (t : term) : term * term
 =
-  let (ty, eqs) = infer ctx [] tm in
-  let mm = unify (MMap []) eqs in
-  (mmap_subst mm tm, mmap_subst mm ty)
+  Printf.printf "Begin resolving `%s`\n" (term_str t);
+  let (ty, es) = infer ctx t in
+    (* Printf.printf
+      "Type of `%s` was `%s` with constraints [%s]\n"
+      (term_str t) (term_str ty) (eq_list_str es); *)
 
-(* pretty print an metavariable map. *)
-let mmap_str (MMap xs : mmap) : string =
-  let f ((s,i),t) =
-    (term_str (MVar (s,i))) ^ " ↦ " ^ term_str t
-  in
-    String.concat ", " (List.map f xs)
+  let xs = unify [] es in
+  (* Printf.printf "Solution found: [%s]\n"
+    (svmap_str xs); *)
+
+  let (t',ty') = (svmap_subst xs t, svmap_subst xs ty) in
+  Printf.printf "Resolved: `%s` with type `%s`\n"
+    (term_str t') (term_str ty');
+
+  (t',ty')
+
+(* let resolve_term ctx trm = fst (resolve ctx ctx' trm) *)
+(* let resolve_type ctx trm = snd (resolve ctx ctx' trm) *)
