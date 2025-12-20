@@ -24,7 +24,7 @@ let cpc_elab : Elab.command list =
       "Elaborating:\n%s\n"
       (EO.command_str eo);
 
-    let eo' = (Elab.elaborate_cmd eo) in
+    let eo' = Option.map Elab.bind_mvars (Elab.elaborate_cmd eo) in
     if Option.is_some eo' then
       Printf.printf
         "Done:\n%s\n\n"

@@ -8,16 +8,21 @@ type command =
   | Defn of string * param list * term * term option
   | Rule of string * param list * rule_dec
 
+let const_str (str : string) : param list -> string =
+  function
+    | [] -> str
+    | ps  -> Printf.sprintf "%s⟨%s⟩" str (param_list_str ps)
+
 let command_str : command -> string =
   function
   | Decl (s, ps, t) ->
     Printf.sprintf
-      "declare %s⟨%s⟩ : %s"
-      s (param_list_str ps) (term_str t)
+      "declare %s : %s"
+      (const_str s ps) (term_str t)
   | Prog (s,ps,t,_) ->
     Printf.sprintf
-      "program %s⟨%s⟩ : %s := (...)"
-      s (param_list_str ps) (term_str t)
+      "program %s : %s := (...)"
+      (const_str s ps) (term_str t)
   | Defn (s,ps,def,ty_opt) ->
     let ty_opt_str =
       match ty_opt with
@@ -25,15 +30,11 @@ let command_str : command -> string =
       | None -> ""
     in
       Printf.sprintf
-        "define %s⟨%s⟩%s := %s"
-        s (param_list_str ps) ty_opt_str (term_str def)
+        "define %s%s := %s"
+        (const_str s ps) ty_opt_str (term_str def)
   | Rule (s,_,_) ->
     Printf.sprintf "WARNING: rule %s not printed" s
-
-
-let elab (ctx : context) (t : EO.term) : term * term =
-  resolve ctx (desugar ctx t)
-
+(* ----------------------------------------------------- *)
 
 (* ?TODO?.
   should param elaboration be part of main term elaboration
@@ -50,7 +51,64 @@ let elab_params (sgn : signature)
   in
     List.map f qs
 
+let elab (ctx : context) (t : EO.term) : term * term =
+  resolve ctx (desugar ctx t)
+
 let _sig : signature ref = ref M.empty
+
+let mvars_in_params (ps : param list) : S.t =
+  List.fold_left
+    (fun x (s,t,att) -> S.union x (mvars_in t))
+    S.empty ps
+
+(* our 'goal' is to generate a list of parameters that
+  will be used in place of the the lingering mvars.
+
+  so really, we can just generate an mvmap and a param list,
+  then substitute afterwards.
+
+  perhaps this should be a side-effect of resolution?
+  i.e.,
+*)
+let bind_nulls_pmap (pm : pmap) : pmap * param list =
+  let f = function
+    | (((_,ty,_) as p), Null (s,i)) ->
+      let s' = s ^ string_of_int i in
+      ((p, This (Leaf (Var s'))), Some (s', ty, Implicit))
+    | (p, This t) -> ((p, This t), None)
+  in
+    let (qm,qs) = List.split (List.map f pm) in
+    (qm, List.filter_map (fun x -> x) qs)
+
+let rec bind_nulls_term : term -> term * param list =
+  function
+  | Leaf (Const (s, pm)) ->
+    let (qm,qs) = bind_nulls_pmap pm in
+    (Leaf (Const (s,qm)), qs)
+  | Leaf l -> (Leaf l, [])
+  | App (lv,t1,t2) ->
+    let (t1',ps) = bind_nulls_term t1 in
+    let (t2',qs) = bind_nulls_term t2 in
+    (App (lv,t1',t2'), List.append ps qs)
+  | Arrow (lv,ts) ->
+    let (ts', pss) =
+      List.split (List.map bind_nulls_term ts)
+    in
+      (Arrow (lv,ts'), List.concat pss)
+  | Let ((s,def), t) ->
+    let (def',ps) = bind_nulls_term def in
+    let (t',qs) = bind_nulls_term t in
+    (Let ((s,def'), t'), List.append ps qs)
+
+let bind_mvars : command -> command =
+  function
+  | Decl (s,ps,t) ->
+    let (t', qs) = bind_nulls_term t in
+    Decl (s, List.append qs ps, t)
+  | Defn (s,ps,def,ty_opt) ->
+    let (def', qs) = bind_nulls_term def in
+    Defn (s, List.append qs ps, def', ty_opt)
+  | _ as cmd -> cmd
 
 let rec elaborate_cmd : EO.command -> command option =
   function

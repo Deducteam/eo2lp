@@ -1,6 +1,7 @@
 
 (declare-const Bool Type)
+(declare-const true Bool)
 (declare-const @@Pair (-> Type Type Type))
 (define @Pair () @@Pair)
 (declare-parameterized-const @@pair ((U Type :implicit) (T Type :implicit)) (-> U T (@Pair U T)))
-(define @pair () @@pair)
+(define @pair () (@@pair true))
