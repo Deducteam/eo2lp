@@ -10,7 +10,7 @@ type leaf =
   | Literal of literal
   | Const of string * pmap
   | Var of string
-  | SVar of string * int
+  | MVar of string * int
 and term =
   | Leaf of leaf
   | App of level * term * term
@@ -18,7 +18,16 @@ and term =
   | Let of var * term
 and level = O | M
 and var = (string * term)
-and pmap = (string * term) list
+and param = string * term * param_attr
+and pmap = (param * inst) list
+and inst =
+  | Null of string * int
+  | This of term
+and param_attr =
+  | Explicit
+  | Implicit
+  | Opaque
+  | List
 
 (* post-elab attributes *)
 type const_attr =
@@ -32,14 +41,8 @@ type const_attr =
   | Chainable of string
   | Pairwise of string
   | Binder of string
-type param_attr =
-  | Explicit
-  | Implicit
-  | Opaque
-  | List
 
 type case = term * term
-type param = string * term * param_attr
 
 (* post-elab rule declaration *)
 type premises =
@@ -70,15 +73,20 @@ type context = signature * param list
 
 
 (* --------- pretty printing ---------- *)
+let mvar_str : string * int -> string =
+  function
+    | (s,0) -> s
+    | (s,i) -> s ^ (string_of_int i)
+
 let rec term_str : term -> string =
   function
   | Leaf (Type) -> "TYPE"
   | Leaf (Kind) -> "KIND"
-  | Leaf (SVar (s,id)) ->
-    Printf.sprintf "?%s%s"
-      s (string_of_int id)
+  | Leaf (MVar (s,i)) ->
+    Printf.sprintf "?%s" (mvar_str (s,i))
   | Leaf (Var s) -> s
   | Leaf (Const (s, xs)) ->
+    if xs = [] then s else
     Printf.sprintf "%s⟨%s⟩" s (pmap_str xs)
   | Leaf (Literal l) -> EO.literal_str l
   | App (O, t1,t2) ->
@@ -96,8 +104,12 @@ let rec term_str : term -> string =
     Printf.sprintf
       "let (%s := %s) in %s"
       s (term_str t) (term_str t')
+and inst_str : inst -> string =
+  function
+  | Null (s,i) -> term_str (Leaf (MVar (s,i)))
+  | This t -> term_str t
 and pmap_str (xs : pmap) : string =
-  let f (s,t) = s ^ " ↦ " ^ term_str t in
+  let f ((s,_,_),i) = s ^ " ↦ " ^ inst_str i in
   String.concat ", " (List.map f xs)
 
 let param_attr_str = function
@@ -129,12 +141,15 @@ let param_str (s,t,att : param) : string =
   match att with
   | Explicit ->
       Printf.sprintf "(%s ⦂ %s)" s (term_str t)
-  | _ ->
-      Printf.sprintf "(%s ⦂ (%s, %s))"
-        s (term_str t) (param_attr_str att)
+  | Implicit ->
+      Printf.sprintf "[%s ⦂ %s]" s (term_str t)
+  | Opaque ->
+      Printf.sprintf "{%s ⦂ %s}" s (term_str t)
+  | List ->
+      Printf.sprintf "|%s ⦂ %s|" s (term_str t)
 
 let param_list_str (ps : param list) : string =
-  String.concat ";" (List.map param_str ps)
+  String.concat "; " (List.map param_str ps)
 
 (* -------- auxilliary functions -------- *)
 let split_last (xs : 'a list) : ('a list * 'a) =
@@ -167,7 +182,7 @@ let gen_id (s : string) : int =
     M.find s !_ids
 
 let mk_const (str : string) (ps : param list) =
-  let f (s,_,_) = (s, Leaf (SVar (s, gen_id s))) in
+  let f ((s,_,_) as p) = (p, Null (s, gen_id s)) in
   let xs = List.map f ps in
   Leaf (Const (str, xs))
 
@@ -261,7 +276,7 @@ let rec desugar (sgn,ps as ctx : context)
     | Some info ->
       let f = mk_const s info.prm in
       if EO.is_prog s || Option.is_some info.def then
-        mk_app O f ts'
+        mk_app M f ts'
       else
         mk_const_app (f, info.att) (ts', ps)
     | None -> mk_app O (mk_var s) ts'

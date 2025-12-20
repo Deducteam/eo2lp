@@ -29,3 +29,17 @@ For each free schematic var, we choose a name.
 We use this list of variables as our (implicit) parameters for @@pair.
 Then we replace the schematic vars in the body with our choice
 using `svmap_subst`.
+
+
+# 2025-12-20
+
+(* (unresolved) metavars can only come from constants.
+  so really, a 'parameter map' should hold the parameters,
+  along with some information about its instantiation.
+  kind of like an option type.
+
+  so to collect all free mvars, we need to look at all
+  constants and their parameter maps. if it maps to a
+  metavariable, we consider it 'free'
+
+*)
