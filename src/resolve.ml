@@ -290,13 +290,20 @@ let eq_list_str (es : eq list) : string =
     String.concat ", " (List.map f es)
 
 
+let is_leaf : term -> bool =
+  function
+    | Leaf l -> true
+    | _ -> false
+
 (* given a term `t` and context `sgn,ps`.
    return the resolved form of `t` and its type.    *)
 let resolve
   (sgn,ps as ctx : context)
   (t : term) : term * term
 =
-  Printf.printf "Begin resolving `%s`\n" (term_str t);
+  if not (is_leaf t) then
+    Printf.printf "Begin resolving `%s`\n" (term_str t);
+
   let (ty, es) = infer ctx t in
     (* Printf.printf
       "Type of `%s` was `%s` with constraints [%s]\n"
@@ -307,7 +314,8 @@ let resolve
     (mvmap_str xs); *)
 
   let (t',ty') = (mvmap_subst xs t, mvmap_subst xs ty) in
-  Printf.printf "Resolved: `%s` with type `%s`\n"
+  if not (is_leaf t) then
+    Printf.printf "Resolved: `%s` with type `%s`\n"
     (term_str t') (term_str ty');
 
   (t',ty')

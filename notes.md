@@ -43,3 +43,32 @@ using `svmap_subst`.
   metavariable, we consider it 'free'
 
 *)
+
+can we simplify mvmaps and param maps??
+it feels like we shouldn't need both.
+
+consider changing Const constructor to just take a string
+and a list of terms for the parameter instantiations.
+when we initialize, we lookup the params of the constant
+in the signature, then generate metavars for them.
+
+for binding lingering mvars, we need to be able to know
+the type of the metavar. otherwise, there's no need to
+remember the 'original initialization site' of the metavar.
+
+it just matters that they have unique names.
+do this after lunch and chores.
+
+
+also, it's quite important that we consider how params
+are handled during desugaring and resolution.
+
+# 2025-12-21
+
+It feels possible that elaboration should process the
+local context (param list), followed by the body.
+  Perhaps there are constraints generated in the local
+context that cannot be resolved alone (without the
+constraints generated when inferring the body).
+  But I'm skeptical of this. I think we just need to
+elaborate the parameters sequentially.

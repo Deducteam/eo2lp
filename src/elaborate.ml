@@ -36,20 +36,22 @@ let command_str : command -> string =
     Printf.sprintf "WARNING: rule %s not printed" s
 (* ----------------------------------------------------- *)
 
-(* ?TODO?.
-  should param elaboration be part of main term elaboration
-  procedure? are there situations where constraints
-  generated during param elaboration may be relevant
-  to the body? *)
-let elab_params (sgn : signature)
-  (qs : EO.param list) : param list
+let elab_param (ctx : context) (p : EO.param) : param =
+  let (s,ty,att) = desugar_param ctx p in
+  let (ty',_)    = resolve ctx ty in
+  (s,ty',att)
+
+let elab_param_list (sgn : signature)
+  : EO.param list -> param list
 =
-  let f q =
-    let (s,ty,att) = desugar_param (sgn,[]) q in
-    let (ty',_)    = resolve (sgn, []) ty in
-    (s,ty',att)
+  let rec aux sgn ps =
+    function
+    | [] -> []
+    | (q :: qs) ->
+      let q' = elab_param (sgn, ps) q in
+      q' :: (aux sgn (q' :: ps) qs)
   in
-    List.map f qs
+    aux sgn []
 
 let elab (ctx : context) (t : EO.term) : term * term =
   resolve ctx (desugar ctx t)
@@ -63,51 +65,58 @@ let mvars_in_params (ps : param list) : S.t =
 
 (* our 'goal' is to generate a list of parameters that
   will be used in place of the the lingering mvars.
-
-  so really, we can just generate an mvmap and a param list,
-  then substitute afterwards.
-
-  perhaps this should be a side-effect of resolution?
-  i.e.,
+  generate mvmap and param list, then substitute.
 *)
-let bind_nulls_pmap (pm : pmap) : pmap * param list =
+let bind_nulls_pmap (pm : pmap) : param list * mvmap =
   let f = function
-    | (((_,ty,_) as p), Null (s,i)) ->
+    | ((_,ty,_), Null (s,i)) ->
       let s' = s ^ string_of_int i in
-      ((p, This (Leaf (Var s'))), Some (s', ty, Implicit))
-    | (p, This t) -> ((p, This t), None)
+      Some (
+        (s', ty, Implicit),
+        ((s,i), Leaf (Var s'))
+      )
+    | (p, This t) -> None
   in
-    let (qm,qs) = List.split (List.map f pm) in
-    (qm, List.filter_map (fun x -> x) qs)
+    List.split (List.filter_map f pm)
 
-let rec bind_nulls_term : term -> term * param list =
+(* for a term `t`, generate a list of parameters `ps`
+   and a metavariable map `mv` such that `mv` assigns
+   every null parameter in `t` to some parameter in `ps`.
+
+   e.g., if `t == bar<U -> ?U0, T -> Bool>`,
+   then we obtain `ps == [(U0, Type, Explicit)]`
+   and `[(MVar ?U0, Var U0)].
+*)
+let rec bind_nulls_term : term -> param list * mvmap =
   function
-  | Leaf (Const (s, pm)) ->
-    let (qm,qs) = bind_nulls_pmap pm in
-    (Leaf (Const (s,qm)), qs)
-  | Leaf l -> (Leaf l, [])
+  | Leaf (Const (s, pm)) -> bind_nulls_pmap pm
+  | Leaf l -> ([],[])
   | App (lv,t1,t2) ->
-    let (t1',ps) = bind_nulls_term t1 in
-    let (t2',qs) = bind_nulls_term t2 in
-    (App (lv,t1',t2'), List.append ps qs)
+    let (ps, mv1) = bind_nulls_term t1 in
+    let (qs, mv2) = bind_nulls_term t2 in
+    (List.append ps qs, List.append mv1 mv2)
   | Arrow (lv,ts) ->
-    let (ts', pss) =
+    let (pss, mvms) =
       List.split (List.map bind_nulls_term ts)
     in
-      (Arrow (lv,ts'), List.concat pss)
+      (List.concat pss, List.concat mvms)
   | Let ((s,def), t) ->
-    let (def',ps) = bind_nulls_term def in
-    let (t',qs) = bind_nulls_term t in
-    (Let ((s,def'), t'), List.append ps qs)
+    let (ps, mvm1) = bind_nulls_term def in
+    let (qs, mvm2) = bind_nulls_term t in
+    (List.append ps qs, List.append mvm1 mvm2)
 
 let bind_mvars : command -> command =
   function
   | Decl (s,ps,t) ->
-    let (t', qs) = bind_nulls_term t in
-    Decl (s, List.append qs ps, t)
+    let (qs, mvm) = bind_nulls_term t in
+    Decl (s, List.append qs ps, mvmap_subst mvm t)
   | Defn (s,ps,def,ty_opt) ->
-    let (def', qs) = bind_nulls_term def in
-    Defn (s, List.append qs ps, def', ty_opt)
+    let (qs, mvm) = bind_nulls_term def in
+    Defn (s,
+      List.append qs ps,
+      mvmap_subst mvm def,
+      Option.map (mvmap_subst mvm) ty_opt
+    )
   | _ as cmd -> cmd
 
 let rec elaborate_cmd : EO.command -> command option =
@@ -125,7 +134,7 @@ let rec elaborate_cmd : EO.command -> command option =
   | DeclareConsts (lc,t)  -> None
   (* ---------------- *)
   | DeclareParamConst (s,ps,ty,att) ->
-    let qs = elab_params !_sig ps in
+    let qs = elab_param_list !_sig ps in
     let att' = Option.map (desugar_cattr !_sig) att in
     let (ty',_) = elab (!_sig, qs) ty in
 
@@ -135,8 +144,8 @@ let rec elaborate_cmd : EO.command -> command option =
     Some (Decl (s, qs, ty'))
   (* ---------------- *)
   | DeclareRule (s,ps,rd) ->
-    let qs = elab_params !_sig ps in
-    let r'  = desugar_rdec (!_sig, qs) rd in
+    let qs = elab_param_list !_sig ps in
+    let r' = desugar_rdec (!_sig, qs) rd in
     Printf.printf
       "WARNING: rule declaration resolution not implemented.\n";
 
@@ -146,7 +155,7 @@ let rec elaborate_cmd : EO.command -> command option =
     Some (Rule (s, qs, r'))
   (* ---------------- *)
   | Define (s, ps, def, _) ->
-    let qs = elab_params !_sig ps in
+    let qs = elab_param_list !_sig ps in
     let (def', ty) = elab (!_sig, qs) def in
 
     _sig := M.add s
@@ -158,7 +167,7 @@ let rec elaborate_cmd : EO.command -> command option =
   (* ---------------- *)
   | Program (s, ps, (ts,t), cs) ->
     (* TODO. contemplate handling of program parameters. *)
-    let qs = elab_params !_sig ps in
+    let qs = elab_param_list !_sig ps in
     let (ty, _) = elab (!_sig, qs) (EO.mk_arrow_ty ts t) in
     let ds = List.map (desugar_case (!_sig,qs)) cs in
     Printf.printf
