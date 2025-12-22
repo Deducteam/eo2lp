@@ -131,26 +131,41 @@ let rec mvmap_subst (mvm : mvmap) (t : term) =
   in
     map_leaves f t
 
+module Var = struct
+  type t = string
+  let compare = compare
+end
 
 module MVar = struct
   type t = (string * int)
   let compare = compare
 end
 
-module S = Set.Make(MVar)
-(* list of schematic variable ocurrences in a term. *)
-let rec mvars_in : term -> S.t =
+module VSet = Set.Make(Var)
+module MVSet = Set.Make(MVar)
+
+(* set of variable ocurrences in a term. *)
+let rec free (s : string) : term -> bool =
   function
-  | Leaf (MVar (s,i)) -> S.singleton (s,i)
-  | Leaf _ -> S.empty
+  | Leaf (Var s') -> s = s'
+  | Leaf _ -> false
+  | App (lv,t1,t2) -> (free s t1) || (free s t2)
+  | Arrow (lv,ts)  -> List.exists (free s) ts
+  | Let ((s,t),t') -> (free s t) || (free s t')
+
+(* set of schematic variable ocurrences in a term. *)
+let rec mvars_in : term -> MVSet.t =
+  function
+  | Leaf (MVar (s,i)) -> MVSet.singleton (s,i)
+  | Leaf _ -> MVSet.empty
   | App (lv,t1,t2) ->
-    S.union (mvars_in t1) (mvars_in t2)
+    MVSet.union (mvars_in t1) (mvars_in t2)
   | Arrow (lv,ts) ->
     List.fold_left
-      (fun vs t -> S.union vs (mvars_in t))
-      S.empty ts
+      (fun vs t -> MVSet.union vs (mvars_in t))
+      MVSet.empty ts
   | Let ((s,t),t') ->
-    S.union (mvars_in t) (mvars_in t')
+    MVSet.union (mvars_in t) (mvars_in t')
 
 (* given some mmap `mm` and maplet `(m ↦ t)`,
   propagate the substitution throughout `mm`. *)
@@ -158,7 +173,7 @@ let mvmap_update
   (xs : mvmap) (x : (string * int) * term) : mvmap
 =
   let f (v, t) =
-    if S.mem v (mvars_in t) then
+    if MVSet.mem v (mvars_in t) then
       Printf.ksprintf failwith
         "ERROR: %s occurs in %s"
         (term_str (Leaf (MVar (fst v, snd v))))
@@ -319,6 +334,27 @@ let resolve
     (term_str t') (term_str ty');
 
   (t',ty')
+
+let resolve_case (ctx : context) (lhs,rhs : case) =
+  Printf.printf "Begin resolving `%s ↪ %s`\n"
+    (term_str lhs) (term_str rhs);
+
+  let (lhs_ty, es) = infer ctx lhs in
+  let (rhs_ty, fs) = infer ctx rhs in
+  let mvm = unify [] (List.append es fs) in
+
+  let (lhs', rhs') =
+    (mvmap_subst mvm lhs, mvmap_subst mvm rhs) in
+  let (lhs_ty', rhs_ty') =
+    (mvmap_subst mvm lhs_ty, mvmap_subst mvm rhs_ty) in
+
+  if not (lhs_ty' = rhs_ty') then
+    Printf.printf
+      "WARNING: type of lhs `%s` not equal to rhs `%s`."
+      (term_str lhs_ty')
+      (term_str rhs_ty');
+
+    (mvmap_subst mvm lhs, mvmap_subst mvm rhs)
 
 (* let resolve_term ctx trm = fst (resolve ctx ctx' trm) *)
 (* let resolve_type ctx trm = snd (resolve ctx ctx' trm) *)

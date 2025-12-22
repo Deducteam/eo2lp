@@ -19,10 +19,14 @@ let command_str : command -> string =
     Printf.sprintf
       "declare %s : %s"
       (const_str s ps) (term_str t)
-  | Prog (s,ps,t,_) ->
-    Printf.sprintf
-      "program %s : %s := (...)"
-      (const_str s ps) (term_str t)
+  | Prog (s,ps,t,cs) ->
+    let cs_str = String.concat "\n" (List.map
+      (fun (l,r) -> term_str l ^ " ↪ " ^ term_str r) cs)
+    in
+      Printf.sprintf
+        "program %s : %s :=\n%s"
+        (const_str s ps) (term_str t) cs_str
+
   | Defn (s,ps,def,ty_opt) ->
     let ty_opt_str =
       match ty_opt with
@@ -56,12 +60,15 @@ let elab_param_list (sgn : signature)
 let elab (ctx : context) (t : EO.term) : term * term =
   resolve ctx (desugar ctx t)
 
+let elab_cases (ctx : context) : EO.case list -> case list =
+  List.map (fun c -> resolve_case ctx (desugar_case ctx c))
+
 let _sig : signature ref = ref M.empty
 
-let mvars_in_params (ps : param list) : S.t =
+let mvars_in_params (ps : param list) : MVSet.t =
   List.fold_left
-    (fun x (s,t,att) -> S.union x (mvars_in t))
-    S.empty ps
+    (fun x (s,t,att) -> MVSet.union x (mvars_in t))
+    MVSet.empty ps
 
 (* our 'goal' is to generate a list of parameters that
   will be used in place of the the lingering mvars.
@@ -105,20 +112,6 @@ let rec bind_nulls_term : term -> param list * mvmap =
     let (qs, mvm2) = bind_nulls_term t in
     (List.append ps qs, List.append mvm1 mvm2)
 
-let bind_mvars : command -> command =
-  function
-  | Decl (s,ps,t) ->
-    let (qs, mvm) = bind_nulls_term t in
-    Decl (s, List.append qs ps, mvmap_subst mvm t)
-  | Defn (s,ps,def,ty_opt) ->
-    let (qs, mvm) = bind_nulls_term def in
-    Defn (s,
-      List.append qs ps,
-      mvmap_subst mvm def,
-      Option.map (mvmap_subst mvm) ty_opt
-    )
-  | _ as cmd -> cmd
-
 let rec elaborate_cmd : EO.command -> command option =
   function
   (* ---------------- *)
@@ -157,25 +150,30 @@ let rec elaborate_cmd : EO.command -> command option =
   | Define (s, ps, def, _) ->
     let qs = elab_param_list !_sig ps in
     let (def', ty) = elab (!_sig, qs) def in
+    let (qs', mvm) = bind_nulls_term def' in
+    let (def'', ty') =
+      (mvmap_subst mvm def', mvmap_subst mvm ty)
+    in
 
     _sig := M.add s
-      { prm = qs; typ = ty;
-        def = Some def'; att = None } !_sig;
-    Some (Defn (s, qs, def', Some ty))
+      { prm = qs'; typ = ty';
+        def = Some def''; att = None } !_sig;
+
+    Some (Defn (s, qs', def'', Some ty'))
   (* ---------------- *)
   | Include s -> None
   (* ---------------- *)
   | Program (s, ps, (ts,t), cs) ->
-    (* TODO. contemplate handling of program parameters. *)
     let qs = elab_param_list !_sig ps in
     let (ty, _) = elab (!_sig, qs) (EO.mk_arrow_ty ts t) in
-    let ds = List.map (desugar_case (!_sig,qs)) cs in
-    Printf.printf
-      "WARNING: resolution on cases not defined.\n";
+    let sym_ps = List.filter (fun (s,_,_) -> free s ty) qs in
 
     _sig := M.add s
-      { prm = qs; typ = ty; def = None; att = None } !_sig;
-    Some (Prog (s, qs, ty, ds))
+      { prm = sym_ps; typ = ty; def = None; att = None }
+      !_sig;
+
+    let ds = elab_cases (!_sig,qs) cs in
+    Some (Prog (s, sym_ps, ty, ds))
     (* ---------------- *)
   | Reference (_, _) -> None
   (* ---------------- *)
