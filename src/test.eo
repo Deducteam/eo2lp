@@ -4,7 +4,7 @@
 (declare-const @@Pair (-> Type Type Type))
 (define @Pair () @@Pair)
 (declare-parameterized-const @@pair ((U Type :implicit) (T Type :implicit)) (-> U T (@Pair U T)))
-(define @pair () (@@pair true))
+(define @pair () @@pair)
 
 ; program: $pair_first
 ; args:
@@ -14,5 +14,16 @@
   :signature ((@Pair T S)) T
   (
   (($pair_first (@pair t s)) t)
+  )
+)
+
+; program: $pair_second
+; args:
+; - t (@Pair T S)
+; return: The second element in the pair
+(program $pair_second ((T Type) (S Type) (t T) (s S))
+  :signature ((@Pair T S)) S
+  (
+  (($pair_second (@pair t s)) s)
   )
 )
