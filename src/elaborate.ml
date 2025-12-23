@@ -129,9 +129,11 @@ let rec elaborate_cmd : EO.command -> command option =
   (* ---------------- *)
   | Assume (s,p) ->
     let (ty, _) = elab (!_sig, []) (EO.mk_proof p) in
+
     _sig := M.add s
       { prm = []; typ = ty; def = None; att = None; }
       !_sig;
+
     Some (Decl (s, [], ty))
   (* ---------------- *)
   | AssumePush (_,_)      -> None
@@ -152,8 +154,8 @@ let rec elaborate_cmd : EO.command -> command option =
   | DeclareRule (s,ps,rd) ->
     let qs = elab_param_list !_sig ps in
     let r' = desugar_rdec (!_sig, qs) rd in
-    Printf.printf
-      "WARNING: rule declaration resolution not implemented.\n";
+    Printf.printf "WARNING:
+      resolution on rule declarations not implemented.\n";
 
     _sig := M.add s
       { prm = qs; typ = mk_var "NONE";
@@ -167,7 +169,7 @@ let rec elaborate_cmd : EO.command -> command option =
 
     let (rs, mvm) = bind_nulls def' in
     let (def'', ty') =
-      (mvmap_subst mvm def', mvmap_subst mvm ty)
+      (mvsubst mvm def', mvsubst mvm ty)
     in
 
     _sig := M.add s

@@ -1,6 +1,26 @@
 
 (declare-const Bool Type)
 (declare-const true Bool)
+(declare-const false Bool)
+
+(declare-parameterized-const eo::eq
+  ((T Type :implicit))
+  (-> T T Bool)
+)
+
+(declare-parameterized-const eo::cons
+  ((U Type :implicit) (T Type :implicit))
+  (-> (-> U T T) U T T)
+)
+
+(declare-const eo::List Type)
+(declare-const eo::List::nil eo::List)
+(declare-parameterized-const eo::List::cons
+  ((T Type :implicit))
+  (-> T eo::List eo::List)
+  :right-assoc-nil eo::List::nil
+)
+
 (declare-const @@Pair (-> Type Type Type))
 (define @Pair () @@Pair)
 (declare-parameterized-const @@pair ((U Type :implicit) (T Type :implicit)) (-> U T (@Pair U T)))
@@ -25,5 +45,50 @@
   :signature ((@Pair T S)) S
   (
   (($pair_second (@pair t s)) s)
+  )
+)
+
+(define @List () eo::List)
+(define @list.nil () eo::List::nil)
+(define @list () eo::List::cons)
+
+(program $evaluate_list () :signature (@List) @List)
+
+(program $evaluate_internal ((T Type) (t T) (tev T))
+  :signature (T @List) T
+  (
+  (($evaluate_internal t (@list tev)) tev)
+  )
+)
+
+(define $evaluate ((T Type :implicit) (t T))
+  ($evaluate_internal t ($evaluate_list (@list t))))
+
+(program $get_arg_list_rec ((T Type) (S Type) (f (-> T S)) (x T) (y S) (acc @List))
+  :signature (S @List) @List
+  (
+    (($get_arg_list_rec (f x) acc)  ($get_arg_list_rec f (eo::cons @list x acc)))
+    (($get_arg_list_rec y acc)      acc)
+  )
+)
+
+; define: $get_arg_list
+; args:
+; - t T: The term to inspect.
+; return: >
+;   The list of arguments provided to the function at the head of t, or the nil
+;   list if t is not a function application.
+(define $get_arg_list ((T Type :implicit) (t T)) ($get_arg_list_rec t @list.nil))
+
+; program: $is_app
+; args:
+; - f (-> T U): The function.
+; - t S: The term to inspect.
+; return: True if and only if t is an application of f.
+(program $is_app ((T Type) (S Type) (U Type) (f (-> T U)) (g (-> T S)) (x T) (y S))
+  :signature ((-> T U) S) Bool
+  (
+    (($is_app f (g x))  ($is_app f g))
+    (($is_app f x)      (eo::eq f x))
   )
 )
