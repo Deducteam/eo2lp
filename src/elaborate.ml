@@ -40,7 +40,8 @@ let command_str : command -> string =
     Printf.sprintf "WARNING: rule %s not printed" s
 (* ----------------------------------------------------- *)
 
-let elab_param (ctx : context) (p : EO.param) : param =
+let elab_param (ctx : context)
+  (p : EO.param) : param =
   let (s,ty,att) = desugar_param ctx p in
   let (ty',_)    = resolve ctx ty in
   (s,ty',att)
@@ -58,33 +59,27 @@ let elab_param_list (sgn : signature)
     aux sgn []
 
 let elab (ctx : context) (t : EO.term) : term * term =
-  resolve ctx (desugar ctx t)
+  resolve ctx (desugar_term ctx t)
 
 let elab_cases (ctx : context) : EO.case list -> case list =
   List.map (fun c -> resolve_case ctx (desugar_case ctx c))
 
 let _sig : signature ref = ref M.empty
 
-let mvars_in_params (ps : param list) : MVSet.t =
+let mvars_in_params (ps : param list) : S.t =
   List.fold_left
-    (fun x (s,t,att) -> MVSet.union x (mvars_in t))
-    MVSet.empty ps
+    (fun x (s,t,att) -> S.union x (mvars_in t))
+    S.empty ps
 
 (* our 'goal' is to generate a list of parameters that
   will be used in place of the the lingering mvars.
-  generate mvmap and param list, then substitute.
-*)
-let bind_nulls_pmap (pm : pmap) : param list * mvmap =
+  generate mvmap and param list, then substitute. *)
+let get_nulls_pmap (pm : pmap) : (term * int) list =
   let f = function
-    | ((_,ty,_), Null (s,i)) ->
-      let s' = s ^ string_of_int i in
-      Some (
-        (s', ty, Implicit),
-        ((s,i), Leaf (Var s'))
-      )
+    | ((_,ty,_), Null i) -> Some (ty, i)
     | (p, This t) -> None
   in
-    List.split (List.filter_map f pm)
+    List.filter_map f pm
 
 (* for a term `t`, generate a list of parameters `ps`
    and a metavariable map `mv` such that `mv` assigns
@@ -94,23 +89,40 @@ let bind_nulls_pmap (pm : pmap) : param list * mvmap =
    then we obtain `ps == [(U0, Type, Explicit)]`
    and `[(MVar ?U0, Var U0)].
 *)
-let rec bind_nulls_term : term -> param list * mvmap =
+let rec get_nulls_term : term -> (term * int) list =
   function
-  | Leaf (Const (s, pm)) -> bind_nulls_pmap pm
-  | Leaf l -> ([],[])
+  | Leaf (Const (s, pm)) -> get_nulls_pmap pm
+  | Leaf l -> []
   | App (lv,t1,t2) ->
-    let (ps, mv1) = bind_nulls_term t1 in
-    let (qs, mv2) = bind_nulls_term t2 in
-    (List.append ps qs, List.append mv1 mv2)
+    let xs = get_nulls_term t1 in
+    let ys = get_nulls_term t2 in
+    List.append xs ys
   | Arrow (lv,ts) ->
-    let (pss, mvms) =
-      List.split (List.map bind_nulls_term ts)
-    in
-      (List.concat pss, List.concat mvms)
+    List.concat_map get_nulls_term ts
   | Let ((s,def), t) ->
-    let (ps, mvm1) = bind_nulls_term def in
-    let (qs, mvm2) = bind_nulls_term t in
-    (List.append ps qs, List.append mvm1 mvm2)
+    let xs = get_nulls_term def in
+    let def = get_nulls_term t in
+    List.append xs def
+
+let bind_nulls (t : term) : (param list * mvmap) =
+  let xs = get_nulls_term t in
+  let f j (ty, i) =
+    let s' = "x_" ^ string_of_int j in
+    (
+      (s', ty, Implicit),
+      (i, Leaf (Var s'))
+    )
+  in
+    List.split (List.mapi f xs)
+
+let prog_params (ps : param list) (t : term) : param list =
+  let f (s,ty,_) =
+    if free s t then
+      Some (s, ty, Implicit)
+    else
+      None
+  in
+    List.filter_map f ps
 
 let rec elaborate_cmd : EO.command -> command option =
   function
@@ -134,6 +146,7 @@ let rec elaborate_cmd : EO.command -> command option =
     _sig := M.add s
       { prm = qs; typ = ty';
         def = None ; att = att'; } !_sig;
+
     Some (Decl (s, qs, ty'))
   (* ---------------- *)
   | DeclareRule (s,ps,rd) ->
@@ -145,35 +158,38 @@ let rec elaborate_cmd : EO.command -> command option =
     _sig := M.add s
       { prm = qs; typ = mk_var "NONE";
         def = None; att = None } !_sig;
+
     Some (Rule (s, qs, r'))
   (* ---------------- *)
   | Define (s, ps, def, _) ->
     let qs = elab_param_list !_sig ps in
     let (def', ty) = elab (!_sig, qs) def in
-    let (qs', mvm) = bind_nulls_term def' in
+
+    let (rs, mvm) = bind_nulls def' in
     let (def'', ty') =
       (mvmap_subst mvm def', mvmap_subst mvm ty)
     in
 
     _sig := M.add s
-      { prm = qs'; typ = ty';
+      { prm = List.append rs qs; typ = ty';
         def = Some def''; att = None } !_sig;
 
-    Some (Defn (s, qs', def'', Some ty'))
+    Some (Defn (s, List.append rs qs, def'', Some ty'))
   (* ---------------- *)
   | Include s -> None
   (* ---------------- *)
   | Program (s, ps, (ts,t), cs) ->
-    let qs = elab_param_list !_sig ps in
-    let (ty, _) = elab (!_sig, qs) (EO.mk_arrow_ty ts t) in
-    let sym_ps = List.filter (fun (s,_,_) -> free s ty) qs in
+    let ps' = elab_param_list !_sig ps in
+    let (ty, _) = elab (!_sig, ps') (EO.mk_arrow_ty ts t) in
+    let qs = prog_params ps' ty in
 
     _sig := M.add s
-      { prm = sym_ps; typ = ty; def = None; att = None }
+      { prm = qs; typ = ty;
+        def = None; att = None }
       !_sig;
 
-    let ds = elab_cases (!_sig,qs) cs in
-    Some (Prog (s, sym_ps, ty, ds))
+    let ds = elab_cases (!_sig, ps') cs in
+    Some (Prog (s, qs, ty, ds))
     (* ---------------- *)
   | Reference (_, _) -> None
   (* ---------------- *)
@@ -188,8 +204,11 @@ and
   function
   | DeclareConst (s,ty,att)  ->
     let (ty',_) = elab (!_sig, []) ty in
+
     _sig := M.add s
-      { prm = []; typ = ty'; def = None; att = None } !_sig;
+      { prm = []; typ = ty';
+        def = None; att = None }
+      !_sig;
     Some (Decl (s, [], ty'))
   | DeclareDatatype  (_s,_dt)    -> None
   | DeclareDatatypes (_sts,_dts) -> None
