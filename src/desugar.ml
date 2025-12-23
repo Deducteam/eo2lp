@@ -10,7 +10,7 @@ type leaf =
   | Literal of literal
   | Const of string * pmap
   | Var of string
-  | MVar of string * int
+  | MVar of int
 and term =
   | Leaf of leaf
   | App of level * term * term
@@ -21,7 +21,7 @@ and var = (string * term)
 and param = string * term * param_attr
 and pmap = (param * inst) list
 and inst =
-  | Null of string * int
+  | Null of int
   | This of term
 and param_attr =
   | Explicit
@@ -60,7 +60,6 @@ and rule_dec =
     conc : conclusion;
   }
 
-
 (* post elaboration signature. *)
 type info = {
     prm : param list;
@@ -80,15 +79,14 @@ let mvar_str : string * int -> string =
 
 let rec term_str : term -> string =
   function
+  | Leaf (Literal l) -> EO.literal_str l
   | Leaf (Type) -> "TYPE"
   | Leaf (Kind) -> "KIND"
-  | Leaf (MVar (s,i)) ->
-    Printf.sprintf "?%s" (mvar_str (s,i))
+  | Leaf (MVar i) -> Printf.sprintf "?%d" i
   | Leaf (Var s) -> s
   | Leaf (Const (s, xs)) ->
     if xs = [] then s else
     Printf.sprintf "%s⟨%s⟩" s (pmap_str xs)
-  | Leaf (Literal l) -> EO.literal_str l
   | App (O, t1,t2) ->
     Printf.sprintf "(%s ⋅ %s)"
       (term_str t1)
@@ -106,10 +104,10 @@ let rec term_str : term -> string =
       s (term_str t) (term_str t')
 and inst_str : inst -> string =
   function
-  | Null (s,i) -> term_str (Leaf (MVar (s,i)))
+  | Null i -> term_str (Leaf (MVar i))
   | This t -> term_str t
 and pmap_str (xs : pmap) : string =
-  let f ((s,_,_),i) = s ^ " ↦ " ^ inst_str i in
+  let f ((s,_,_),i) = inst_str i in
   String.concat ", " (List.map f xs)
 
 let param_attr_str = function
@@ -170,21 +168,15 @@ let is_list_param (s : string) (ps : param list) =
   in
     List.exists f ps
 
-(* ref for unique metavariable names.  *)
-let _ids : int M.t ref = ref M.empty
-
-let gen_id (s : string) : int =
-  let f = function
-    | Some i -> Some (i + 1)
-    | None   -> Some (0)
+let mk_const
+  (str : string) (ps : param list)
+  (iref : int ref)
+=
+  let f ((s,_,_) as p) =
+    incr iref;
+    (p, Null !iref)
   in
-    _ids := M.update s f !_ids;
-    M.find s !_ids
-
-let mk_const (str : string) (ps : param list) =
-  let f ((s,_,_) as p) = (p, Null (s, gen_id s)) in
-  let xs = List.map f ps in
-  Leaf (Const (str, xs))
+    Leaf (Const (str, List.map f ps))
 
 (* used for desugaring 'f-lists'. *)
 let glue (ps : param list)
@@ -224,7 +216,7 @@ let mk_const_app
 let mk_let (ws : var list) (t : term) =
   List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
 
-let rec desugar (sgn,ps as ctx : context)
+let rec desugar (sgn,ps as ctx : context) (iref : int ref)
   : EO.term -> term =
   function
   (* ------------------------ *)
@@ -235,25 +227,25 @@ let rec desugar (sgn,ps as ctx : context)
       Leaf (Type)
     else
       begin match M.find_opt s sgn with
-      | Some info -> mk_const s info.prm
+      | Some info -> mk_const s info.prm iref
       | None -> Leaf (Var s)
       end
   (* ------------------------ *)
   | Bind ("eo::define", vs, t) ->
     let ws =
-      List.map (fun (s,t') -> (s, desugar ctx t')) vs
+      List.map (fun (s,t') -> (s, desugar ctx iref t')) vs
     in
-      mk_let ws (desugar ctx t)
+      mk_let ws (desugar ctx iref t)
   (* ------------------------ *)
   | Bind (s, vs, t) ->
     begin match M.find_opt s sgn with
     | Some info ->
-      let f = mk_const s info.prm in
+      let f = mk_const s info.prm iref in
       let ws = List.map EO.mk_eo_var vs in
-      let t' = desugar ctx t in
+      let t' = desugar ctx iref t in
       begin match info.att with
       | Some (Binder t_cons) ->
-        let ws_tm = desugar ctx (Apply (t_cons, ws)) in
+        let ws_tm = desugar ctx iref (Apply (t_cons, ws)) in
         mk_binop_app (f, ws_tm, t')
       | None -> Printf.ksprintf failwith
         "ERROR: symbol `%s` used as binder without :binder attribute." s
@@ -264,17 +256,17 @@ let rec desugar (sgn,ps as ctx : context)
     end
   (* ------------------------ *)
   | Apply ("->", ts) ->
-    let ts' = List.map (desugar ctx) ts in
+    let ts' = List.map (desugar ctx iref) ts in
     if List.mem (Leaf Type) ts' then
       Arrow (M, ts')
     else
       Arrow (O, ts')
   (* ------------------------ *)
   | Apply (s, ts) ->
-    let ts' = List.map (desugar ctx) ts in
+    let ts' = List.map (desugar ctx iref) ts in
     begin match M.find_opt s sgn with
     | Some info ->
-      let f = mk_const s info.prm in
+      let f = mk_const s info.prm iref in
       if EO.is_prog s || Option.is_some info.def then
         mk_app M f ts'
       else
@@ -282,10 +274,15 @@ let rec desugar (sgn,ps as ctx : context)
     | None -> mk_app O (mk_var s) ts'
     end
 
+let desugar_term (ctx : context) (t : EO.term) =
+  let mvs = ref 0 in
+  desugar ctx mvs t
+
 let desugar_param
   (ctx : context)
   (s,t,att_opt : EO.param) : param
 =
+  let mvs = ref 0 in
   let att' =
     match att_opt with
     | Some (Implicit) -> Implicit
@@ -293,16 +290,18 @@ let desugar_param
     | Some (List)     -> List
     | _               -> Explicit
   in
-    (s, desugar ctx t, att')
+    (s, desugar ctx mvs t, att')
 
-let desugar_case (ctx : context) (t,t' : EO.case) : case =
-  (desugar ctx t, desugar ctx t')
+let desugar_case (ctx : context)
+  (t,t' : EO.case) : case =
+  let mvs = ref 0 in
+  (desugar ctx mvs t, desugar ctx mvs t')
 
 let desugar_rdec
   (sgn,ps as ctx : context)
   (rd : EO.rule_dec) : rule_dec
 =
-  let e = desugar ctx in
+  let e = desugar_term ctx in
   {
     assm = Option.map e rd.assm;
     prem =
@@ -321,95 +320,22 @@ let desugar_rdec
       end;
   }
 
-let desugar_cattr (sgn : signature) :
-  EO.const_attr -> const_attr =
-  function
+let desugar_cattr (sgn : signature) (att : EO.const_attr)
+  : const_attr
+=
+  let mvs = ref 0 in
+  match att with
   | RightAssocNil t ->
-    RightAssocNil (desugar (sgn,[]) t)
+    RightAssocNil (desugar (sgn,[]) mvs t)
   | RightAssocNilNSN t ->
-    RightAssocNilNSN (desugar (sgn,[]) t)
+    RightAssocNilNSN (desugar (sgn,[]) mvs t)
   | LeftAssocNil t ->
-    LeftAssocNil (desugar (sgn,[]) t)
+    LeftAssocNil (desugar (sgn,[]) mvs t)
   | LeftAssocNilNSN t ->
-    LeftAssocNilNSN (desugar (sgn,[]) t)
+    LeftAssocNilNSN (desugar (sgn,[]) mvs t)
   | RightAssoc -> RightAssoc
   | LeftAssoc -> LeftAssoc
   | ArgList s -> ArgList s
   | Chainable s -> Chainable s
   | Pairwise s -> Pairwise s
   | Binder s -> Binder s
-
-(* let rec free_in (t : term) (s : string) =
-  match t with
-  | Const (_,_) -> false
-  | Var s' -> s = s'
-  | Literal l -> false
-  | App (t1,t2)   -> free_in t1 s || free_in t2 s
-  | Meta (s', ts) -> List.exists (fun t' -> free_in t' s) ts
-  | Let (xs, t') ->
-      let b = List.exists
-        (fun (s',t') ->
-          if s = s' then failwith "error: variable capture in eo::define"
-          else free_in t' s
-        ) xs
-      in
-        b || free_in t' s
-
-let free_params (ps : eparam list) (t : term) : (string * term) list =
-  let f (s,ty,flg) =
-    if free_in t s then Some (s,ty) else None
-  in
-    List.filter_map f ps *)
-    (* let rec subst ((s,t) : string * term) =
-  let f = subst (s,t) in
-  function
-  | Symbol s' -> if s = s' then t else Symbol s'
-  | Literal l -> Literal l
-  | App (t1,t2) -> App (f t1, f t2)
-  | Let (xs, t') ->
-      let ys =
-        List.map (fun (x,d) -> (x, f d)) xs
-      in
-        Let (ys, f t')
-  | Meta (s, ts) -> Meta (s,List.map f ts)
-
-let rec splice (t : term)
-  (ps : params) (ts : term list) : term
-=
-  match ps with
-  | [] -> t
-  | Param (s, _, xs) :: ps' ->
-    if List.mem (Attr ("implicit", None)) xs then
-      splice t ps' ts
-    else
-      let t' = subst (s, List.hd ts) t in
-      splice t' ps' (List.tl ts) *)
-
-(* let esig : EO.signature =
-  {
-    prm = M.of_list [
-      ("Int", []);
-      ("Bool", []);
-      ("or", []);
-      ("true", []);
-      ("false", []);
-      ("0", []);
-      ("=", [("U", EO.Symbol "Type", Some EO.Implicit)])
-    ];
-    typ = M.empty;
-    def = M.empty;
-    att = M.of_list [
-      ("or", EO.RightAssocNil (EO.Symbol "false"))]
-  }
-
-let eps : EO.param list =
-  [ ("x", Symbol "Bool", None); ("y", Symbol "Int", None) ]
-
-let eterm : EO.term =
-  Apply ("or",
-    [
-      Apply ("=", [Symbol "true"; Symbol "false"]);
-      Symbol "x";
-      Apply ("=", [Symbol "0"; Symbol "y"]);
-    ]
-  ) *)

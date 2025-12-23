@@ -81,7 +81,7 @@ let map_pmap (f : term -> term) (pm : pmap) : pmap =
   let g (p, it) =
     let it' = match it with
     | This t -> This (f t)
-    | Null (s,i) -> Null (s,i)
+    | Null i -> Null i
     in
       (map_param f p, it')
   in
@@ -92,7 +92,7 @@ let rec pmap_subst (pm : pmap) (t : term) : term =
     function
     | Var s ->
       begin match pmap_find_opt s pm with
-      | Some (p, Null (s,i)) -> Leaf (MVar (s,i))
+      | Some (p, Null i) -> Leaf (MVar i)
       | Some (p, This t) -> t
       | None -> Leaf (Var s)
       end
@@ -103,25 +103,25 @@ let rec pmap_subst (pm : pmap) (t : term) : term =
     map_leaves f t
 
 (* type of schematic variable maps. *)
-type mvmap = ((string * int) * term) list
+type mvmap = (int * term) list
 
 (* perform substitution given by a metavar map.*)
 let rec mvmap_subst (mvm : mvmap) (t : term) =
   let f : leaf -> term =
     function
-    | MVar (s,i) ->
-      begin match List.assoc_opt (s,i) mvm with
+    | MVar i ->
+      begin match List.assoc_opt i mvm with
       | Some t -> t
-      | None -> Leaf (MVar (s,i))
+      | None -> Leaf (MVar i)
       end
     | Const (s, pm) ->
       let g (p, it) =
         let it' = match it with
         | This t -> This (mvmap_subst mvm t)
-        | Null (s,i) ->
-          begin match List.assoc_opt (s,i) mvm with
+        | Null i ->
+          begin match List.assoc_opt i mvm with
           | Some t -> This t
-          | None -> Null (s,i)
+          | None   -> Null i
           end
         in
           (map_param (mvmap_subst mvm) p, it')
@@ -131,18 +131,12 @@ let rec mvmap_subst (mvm : mvmap) (t : term) =
   in
     map_leaves f t
 
-module Var = struct
-  type t = string
-  let compare = compare
-end
-
 module MVar = struct
-  type t = (string * int)
+  type t = int
   let compare = compare
 end
 
-module VSet = Set.Make(Var)
-module MVSet = Set.Make(MVar)
+module S = Set.Make(MVar)
 
 (* set of variable ocurrences in a term. *)
 let rec free (s : string) : term -> bool =
@@ -154,32 +148,32 @@ let rec free (s : string) : term -> bool =
   | Let ((s,t),t') -> (free s t) || (free s t')
 
 (* set of schematic variable ocurrences in a term. *)
-let rec mvars_in : term -> MVSet.t =
+let rec mvars_in : term -> S.t =
   function
-  | Leaf (MVar (s,i)) -> MVSet.singleton (s,i)
-  | Leaf _ -> MVSet.empty
+  | Leaf (MVar i) -> S.singleton i
+  | Leaf _ -> S.empty
   | App (lv,t1,t2) ->
-    MVSet.union (mvars_in t1) (mvars_in t2)
+    S.union (mvars_in t1) (mvars_in t2)
   | Arrow (lv,ts) ->
     List.fold_left
-      (fun vs t -> MVSet.union vs (mvars_in t))
-      MVSet.empty ts
+      (fun vs t -> S.union vs (mvars_in t))
+      S.empty ts
   | Let ((s,t),t') ->
-    MVSet.union (mvars_in t) (mvars_in t')
+    S.union (mvars_in t) (mvars_in t')
 
 (* given some mmap `mm` and maplet `(m ↦ t)`,
   propagate the substitution throughout `mm`. *)
 let mvmap_update
-  (xs : mvmap) (x : (string * int) * term) : mvmap
+  (xs : mvmap) (x : int * term) : mvmap
 =
-  let f (v, t) =
-    if MVSet.mem v (mvars_in t) then
+  let f (i, t) =
+    if S.mem i (mvars_in t) then
       Printf.ksprintf failwith
         "ERROR: %s occurs in %s"
-        (term_str (Leaf (MVar (fst v, snd v))))
+        (term_str (Leaf (MVar i)))
         (term_str t)
     else
-      (v, mvmap_subst [x] t)
+      (i, mvmap_subst [x] t)
   in
     (x :: List.map f xs)
 
@@ -204,7 +198,7 @@ let rec infer
 =
   begin match t with
   (* ------------------------ *)
-  | Leaf (MVar (_,_)) -> failwith
+  | Leaf (MVar i) -> failwith
     "ERROR: infer not defined for schematic variables!";
   (* ------------------------ *)
   | Leaf (Literal l) -> failwith
@@ -268,14 +262,14 @@ let rec unify (xs : mvmap) : eq list -> mvmap =
     let (t1',t2') = (mvmap_subst xs t1, mvmap_subst xs t2) in
     begin match (t1',t2') with
     (* ---------------- *)
-    | (Leaf MVar (s,i), Leaf MVar (s',j))
-      when s = s' && i = j -> unify xs es
-    | (Leaf MVar (s,i), _) ->
-      let ys = mvmap_update xs ((s,i), t2') in
+    | (Leaf MVar i, Leaf MVar j)
+      when i = j -> unify xs es
+    | (Leaf MVar i, _) ->
+      let ys = mvmap_update xs (i, t2') in
       let fs = eqs_update xs es in
       unify ys fs
-    | (_, Leaf MVar (s,i)) ->
-      let ys = mvmap_update xs ((s,i), t1') in
+    | (_, Leaf MVar i) ->
+      let ys = mvmap_update xs (i, t1') in
       let fs = eqs_update xs es in
       unify ys fs
     (* ---------------- *)
@@ -292,8 +286,8 @@ let rec unify (xs : mvmap) : eq list -> mvmap =
 
 (* pretty print a metavariable map. *)
 let mvmap_str (xs : mvmap) : string =
-  let f ((s,i),t) =
-    (term_str (Leaf (MVar (s,i)))) ^ " ↦ " ^ term_str t
+  let f (i,t) =
+    (term_str (Leaf (MVar i))) ^ " ↦ " ^ term_str t
   in
     String.concat ", " (List.map f xs)
 
@@ -354,7 +348,7 @@ let resolve_case (ctx : context) (lhs,rhs : case) =
       (term_str lhs_ty')
       (term_str rhs_ty');
 
-    (mvmap_subst mvm lhs, mvmap_subst mvm rhs)
+  (lhs', rhs')
 
 (* let resolve_term ctx trm = fst (resolve ctx ctx' trm) *)
 (* let resolve_type ctx trm = snd (resolve ctx ctx' trm) *)
