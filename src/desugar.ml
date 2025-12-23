@@ -72,10 +72,10 @@ type context = signature * param list
 
 
 (* --------- pretty printing ---------- *)
-let mvar_str : string * int -> string =
+let is_leaf : term -> bool =
   function
-    | (s,0) -> s
-    | (s,i) -> s ^ (string_of_int i)
+  | Leaf l -> true
+  | _ -> false
 
 let rec term_str : term -> string =
   function
@@ -87,13 +87,18 @@ let rec term_str : term -> string =
   | Leaf (Const (s, xs)) ->
     if xs = [] then s else
     Printf.sprintf "%s⟨%s⟩" s (pmap_str xs)
-  | App (O, t1,t2) ->
-    Printf.sprintf "(%s ⋅ %s)"
-      (term_str t1)
-      (term_str t2)
-  | App (M, t1,t2) ->
-    Printf.sprintf "(%s %s)"
-      (term_str t1) (term_str t2)
+  | App (lv,t1,t2) ->
+    if is_leaf t2 then
+      Printf.sprintf "%s%s%s"
+        (term_str t1)
+        (if lv = O then " ⋅ " else " ")
+        (term_str t2)
+    else
+      Printf.sprintf "%s%s(%s)"
+        (term_str t1)
+        (if lv = O then " ⋅ " else " ")
+        (term_str t2)
+
   | Arrow (lv, ts) ->
     Printf.sprintf "(%s %s)"
       (if lv = O then "~>" else "->")
@@ -216,6 +221,20 @@ let mk_const_app
 let mk_let (ws : var list) (t : term) =
   List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
 
+let find_def_opt (s : string) (sgn : signature)
+  : term option =
+  begin match M.find_opt s sgn with
+  | Some info -> info.def
+  | None -> None
+  end
+
+let find_att_opt (s : string) (sgn : signature)
+  : const_attr option =
+  begin match M.find_opt s sgn with
+  | Some info -> info.att
+  | None -> None
+  end
+
 let rec desugar (sgn,ps as ctx : context) (iref : int ref)
   : EO.term -> term =
   function
@@ -247,12 +266,11 @@ let rec desugar (sgn,ps as ctx : context) (iref : int ref)
       | Some (Binder t_cons) ->
         let ws_tm = desugar ctx iref (Apply (t_cons, ws)) in
         mk_binop_app (f, ws_tm, t')
-      | None -> Printf.ksprintf failwith
-        "ERROR: symbol `%s` used as binder without :binder attribute." s
+      | None -> Printf.ksprintf failwith "ERROR:
+        symbol `%s` doesn't have :binder attribute." s
       end
-
     | None -> Printf.ksprintf failwith
-      "ERROR: unregistered symbol `%s` used as binder." s
+      "ERROR: symbol `%s` not in signature." s
     end
   (* ------------------------ *)
   | Apply ("->", ts) ->
@@ -263,15 +281,24 @@ let rec desugar (sgn,ps as ctx : context) (iref : int ref)
       Arrow (O, ts')
   (* ------------------------ *)
   | Apply (s, ts) ->
-    let ts' = List.map (desugar ctx iref) ts in
-    begin match M.find_opt s sgn with
-    | Some info ->
-      let f = mk_const s info.prm iref in
-      if EO.is_prog s || Option.is_some info.def then
-        mk_app M f ts'
-      else
-        mk_const_app (f, info.att) (ts', ps)
-    | None -> mk_app O (mk_var s) ts'
+  (* if the symbol at the head of the application is a macro
+     for an attributed constant, then get that constant. *)
+    begin match find_def_opt s sgn with
+    | Some (Leaf (Const (s', _)))
+      when Option.is_some (find_att_opt s' sgn) ->
+      desugar ctx iref (Apply (s', ts))
+  (* otherwise, desugar as normal. *)
+    | _ ->
+      let ts' = List.map (desugar ctx iref) ts in
+      begin match M.find_opt s sgn with
+      | Some info ->
+        let f = mk_const s info.prm iref in
+        if EO.is_meta s then
+          mk_app M f ts'
+        else
+          mk_const_app (f, info.att) (ts', ps)
+      | None -> mk_app O (mk_var s) ts'
+    end
     end
 
 let desugar_term (ctx : context) (t : EO.term) =

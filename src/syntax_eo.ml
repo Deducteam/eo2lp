@@ -122,9 +122,11 @@ let mk_proof (t : term) : term =
 let is_builtin (str : string) : bool =
   String.starts_with ~prefix:"eo::" str
 
-let is_prog (str : string) : bool =
-  String.starts_with ~prefix:"$" str
-  || String.starts_with ~prefix:"eo::" str
+let is_meta (str : string) : bool =
+  not (str = "eo::List::cons" || str = "eo::List::nil")
+  &&
+  (is_builtin str || String.starts_with ~prefix:"$" str)
+
 
 let is_def (s : string) (sgn : signature) =
   match M.find_opt s sgn with

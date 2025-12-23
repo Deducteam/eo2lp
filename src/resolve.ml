@@ -106,7 +106,7 @@ let rec pmap_subst (pm : pmap) (t : term) : term =
 type mvmap = (int * term) list
 
 (* perform substitution given by a metavar map.*)
-let rec mvmap_subst (mvm : mvmap) (t : term) =
+let rec mvsubst (mvm : mvmap) (t : term) =
   let f : leaf -> term =
     function
     | MVar i ->
@@ -117,14 +117,14 @@ let rec mvmap_subst (mvm : mvmap) (t : term) =
     | Const (s, pm) ->
       let g (p, it) =
         let it' = match it with
-        | This t -> This (mvmap_subst mvm t)
+        | This t -> This (mvsubst mvm t)
         | Null i ->
           begin match List.assoc_opt i mvm with
           | Some t -> This t
           | None   -> Null i
           end
         in
-          (map_param (mvmap_subst mvm) p, it')
+          (map_param (mvsubst mvm) p, it')
       in
         Leaf (Const (s, List.map g pm))
     | _ as l -> Leaf l
@@ -173,7 +173,7 @@ let mvmap_update
         (term_str (Leaf (MVar i)))
         (term_str t)
     else
-      (i, mvmap_subst [x] t)
+      (i, mvsubst [x] t)
   in
     (x :: List.map f xs)
 
@@ -182,7 +182,7 @@ let mvmap_update
   equality in `es`.*)
 let eqs_update (xs : mvmap) (es : eq list) : eq list =
   let f (Eq (t,t')) =
-    Eq (mvmap_subst xs t, mvmap_subst xs t')
+    Eq (mvsubst xs t, mvsubst xs t')
   in
     List.map f es
 
@@ -252,36 +252,64 @@ let rec infer
     (t_ty, List.append es fs)
   end
 
-(* given a metavariable map `mm` (init; MMap []),
-  and constraints `es`, calculate the appropriate
-  metavariable map by unification.*)
-let rec unify (xs : mvmap) : eq list -> mvmap =
+let unfold_leaves (sgn : signature) (t : term) =
+  let f : leaf -> term =
+    function
+    | Const (s,pm) as l ->
+    (* TODO. contemplate params in definitions. *)
+      begin match find_def_opt s sgn with
+      | Some t -> t
+      | None -> Leaf l
+      end
+    | l -> Leaf l
+  in
+    map_leaves f t
+
+let rec nf (sgn : signature) (t : term) =
+  let t' = unfold_leaves sgn t in
+  if t' = t then t else nf sgn t'
+
+let rec unify (sgn : signature) (mvm : mvmap)
+  : eq list -> mvmap
+=
   begin function
-  | [] -> xs
+  | [] -> mvm
   | Eq (t1,t2) :: es ->
-    let (t1',t2') = (mvmap_subst xs t1, mvmap_subst xs t2) in
-    begin match (t1',t2') with
-    (* ---------------- *)
-    | (Leaf MVar i, Leaf MVar j)
-      when i = j -> unify xs es
-    | (Leaf MVar i, _) ->
-      let ys = mvmap_update xs (i, t2') in
-      let fs = eqs_update xs es in
-      unify ys fs
-    | (_, Leaf MVar i) ->
-      let ys = mvmap_update xs (i, t1') in
-      let fs = eqs_update xs es in
-      unify ys fs
-    (* ---------------- *)
-    | (App (lv, f, x), App (lv',g,y)) when lv = lv' ->
-      unify xs (Eq (f,g) :: Eq (x,y) :: es)
-    (* ---------------- *)
-    | (Let ((x,xd), t), Let ((y,yd), t')) ->
-      unify xs (Eq (xd,yd) :: Eq (t,t') :: es)
-    (* ---------------- *)
-    | ((_ as t), (_ as t')) when t = t' ->
-      unify xs es
-    end
+    let (t1',t2') =
+      (nf sgn (mvsubst mvm t1),
+       nf sgn (mvsubst mvm t2))
+    in
+      begin match (t1',t2') with
+      (* ---------------- *)
+      | (Leaf MVar i, Leaf MVar j)
+        when i = j -> unify sgn mvm es
+      | (Leaf MVar i, _) ->
+        let ys = mvmap_update mvm (i, t2') in
+        let fs = eqs_update mvm es in
+        unify sgn ys fs
+      (* ---------------- *)
+      | (_, Leaf MVar i) ->
+        let ys = mvmap_update mvm (i, t1') in
+        let fs = eqs_update mvm es in
+        unify sgn ys fs
+      (* ---------------- *)
+      | (Arrow (lv,ts), Arrow (lv',ts')) when lv = lv' ->
+        let fs = List.map2 (fun t t' -> Eq (t,t')) ts ts' in
+        unify sgn mvm (List.append fs es)
+      (* ---------------- *)
+      | (App (lv, f, x), App (lv',g,y)) when lv = lv' ->
+        unify sgn mvm (Eq (f,g) :: Eq (x,y) :: es)
+      (* ---------------- *)
+      | (Let ((x,xd), t), Let ((y,yd), t')) ->
+        unify sgn mvm (Eq (xd,yd) :: Eq (t,t') :: es)
+      (* ---------------- *)
+      | ((_ as t), (_ as t')) when t = t' ->
+        unify sgn mvm es
+      (* ---------------- *)
+      | _ -> Printf.ksprintf failwith
+        "ERROR: couldn't unify `%s` with `%s`"
+        (term_str t1') (term_str t2');
+      end
   end
 
 (* pretty print a metavariable map. *)
@@ -299,48 +327,44 @@ let eq_list_str (es : eq list) : string =
     String.concat ", " (List.map f es)
 
 
-let is_leaf : term -> bool =
-  function
-    | Leaf l -> true
-    | _ -> false
-
 (* given a term `t` and context `sgn,ps`.
    return the resolved form of `t` and its type.    *)
 let resolve
   (sgn,ps as ctx : context)
   (t : term) : term * term
 =
-  if not (is_leaf t) then
-    Printf.printf "Begin resolving `%s`\n" (term_str t);
+  (* if not (is_leaf t) then
+    Printf.printf "Begin resolving `%s`\n"
+    (term_str t); *)
 
   let (ty, es) = infer ctx t in
     (* Printf.printf
       "Type of `%s` was `%s` with constraints [%s]\n"
       (term_str t) (term_str ty) (eq_list_str es); *)
 
-  let xs = unify [] es in
+  let xs = unify sgn [] es in
   (* Printf.printf "Solution found: [%s]\n"
     (mvmap_str xs); *)
 
-  let (t',ty') = (mvmap_subst xs t, mvmap_subst xs ty) in
-  if not (is_leaf t) then
+  let (t',ty') = (mvsubst xs t, mvsubst xs ty) in
+  (* if not (is_leaf t) then
     Printf.printf "Resolved: `%s` with type `%s`\n"
-    (term_str t') (term_str ty');
+    (term_str t') (term_str ty'); *)
 
   (t',ty')
 
-let resolve_case (ctx : context) (lhs,rhs : case) =
-  Printf.printf "Begin resolving `%s ↪ %s`\n"
-    (term_str lhs) (term_str rhs);
+let resolve_case (sgn,ps as ctx: context) (lhs,rhs : case) =
+  (* Printf.printf "Begin resolving `%s ↪ %s`\n"
+    (term_str lhs) (term_str rhs); *)
 
   let (lhs_ty, es) = infer ctx lhs in
   let (rhs_ty, fs) = infer ctx rhs in
-  let mvm = unify [] (List.append es fs) in
+  let mvm = unify sgn [] (List.append es fs) in
 
   let (lhs', rhs') =
-    (mvmap_subst mvm lhs, mvmap_subst mvm rhs) in
+    (mvsubst mvm lhs, mvsubst mvm rhs) in
   let (lhs_ty', rhs_ty') =
-    (mvmap_subst mvm lhs_ty, mvmap_subst mvm rhs_ty) in
+    (mvsubst mvm lhs_ty, mvsubst mvm rhs_ty) in
 
   if not (lhs_ty' = rhs_ty') then
     Printf.printf
