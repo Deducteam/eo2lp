@@ -4,14 +4,32 @@
 (declare-const false Bool)
 
 (declare-parameterized-const eo::eq
+  ((U Type :implicit))
+  (-> U U Bool)
+)
+
+(declare-parameterized-const eo::ite
   ((T Type :implicit))
-  (-> T T Bool)
+  (-> Bool T T T)
+)
+
+
+
+(declare-parameterized-const eo::is_var
+  ((T Type :implicit))
+  (-> T Bool)
 )
 
 (declare-parameterized-const eo::cons
   ((U Type :implicit) (T Type :implicit))
   (-> (-> U T T) U T T)
 )
+
+(declare-parameterized-const eo::list_concat
+  ((U Type :implicit) (T Type :implicit))
+  (-> (-> U T T) T T T)
+)
+
 
 (declare-const eo::List Type)
 (declare-const eo::List::nil eo::List)
@@ -72,23 +90,20 @@
   )
 )
 
-; define: $get_arg_list
-; args:
-; - t T: The term to inspect.
-; return: >
-;   The list of arguments provided to the function at the head of t, or the nil
-;   list if t is not a function application.
 (define $get_arg_list ((T Type :implicit) (t T)) ($get_arg_list_rec t @list.nil))
 
-; program: $is_app
-; args:
-; - f (-> T U): The function.
-; - t S: The term to inspect.
-; return: True if and only if t is an application of f.
-(program $is_app ((T Type) (S Type) (U Type) (f (-> T U)) (g (-> T S)) (x T) (y S))
+(program $is_app ((T Type) (S Type) (U Type) (f (-> T U)) (g (-> T S)) (h (-> T U)) (x T))
   :signature ((-> T U) S) Bool
   (
     (($is_app f (g x))  ($is_app f g))
-    (($is_app f x)      (eo::eq f x))
+    (($is_app f h)      (eo::eq f h))
+  )
+)
+
+(program $is_var_list ((U Type) (x U) (xs @List :list))
+  :signature (@List) Bool
+  (
+    (($is_var_list (@list x xs))  (eo::ite (eo::is_var x) ($is_var_list xs) false))
+    (($is_var_list @list.nil)     true)
   )
 )

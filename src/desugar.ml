@@ -175,48 +175,13 @@ let is_list_param (s : string) (ps : param list) =
 
 let mk_const
   (str : string) (ps : param list)
-  (iref : int ref)
+  (mvs : int ref)
 =
   let f ((s,_,_) as p) =
-    incr iref;
-    (p, Null !iref)
+    incr mvs;
+    (p, Null !mvs)
   in
     Leaf (Const (str, List.map f ps))
-
-(* used for desugaring 'f-lists'. *)
-let glue (ps : param list)
-  (f,t1,t2 : term * term * term) : term
-=
-  match t1 with
-  | Leaf (Var s) when is_list_param s ps ->
-    mk_app M (mk_var "eo::list_concat") [f;t1;t2]
-  | _ -> mk_binop_app (f,t1,t2)
-
-let mk_const_app
-  (f, att_opt : term * const_attr option)
-  (ts, ps : term list * param list) : term
-=
-  let
-    g x y = glue ps (f, x, y)  and
-    h y x = glue ps (f, y, x)
-  in
-    begin match att_opt with
-    | None -> mk_app O f ts
-    | Some (RightAssocNil t_nil) ->
-      List.fold_right g ts t_nil
-    | Some (LeftAssocNil t_nil) ->
-      List.fold_left h t_nil ts
-    | Some (RightAssoc) ->
-      let (xs, x) = split_last ts in
-      List.fold_right g xs x
-    | Some (LeftAssoc) ->
-      List.fold_left h (List.hd ts) (List.tl ts)
-    | Some (att) ->
-      Printf.printf
-        "WARNING: naive app; constant %s, attribute %s.\n"
-        (term_str f) (const_attr_str att);
-      mk_app O f ts
-    end
 
 let mk_let (ws : var list) (t : term) =
   List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
@@ -235,7 +200,7 @@ let find_att_opt (s : string) (sgn : signature)
   | None -> None
   end
 
-let rec desugar (sgn,ps as ctx : context) (iref : int ref)
+let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
   : EO.term -> term =
   function
   (* ------------------------ *)
@@ -246,25 +211,25 @@ let rec desugar (sgn,ps as ctx : context) (iref : int ref)
       Leaf (Type)
     else
       begin match M.find_opt s sgn with
-      | Some info -> mk_const s info.prm iref
+      | Some info -> mk_const s info.prm mvs
       | None -> Leaf (Var s)
       end
   (* ------------------------ *)
   | Bind ("eo::define", vs, t) ->
     let ws =
-      List.map (fun (s,t') -> (s, desugar ctx iref t')) vs
+      List.map (fun (s,t') -> (s, desugar ctx mvs t')) vs
     in
-      mk_let ws (desugar ctx iref t)
+      mk_let ws (desugar ctx mvs t)
   (* ------------------------ *)
   | Bind (s, vs, t) ->
     begin match M.find_opt s sgn with
     | Some info ->
-      let f = mk_const s info.prm iref in
+      let f = mk_const s info.prm mvs in
       let ws = List.map EO.mk_eo_var vs in
-      let t' = desugar ctx iref t in
+      let t' = desugar ctx mvs t in
       begin match info.att with
       | Some (Binder t_cons) ->
-        let ws_tm = desugar ctx iref (Apply (t_cons, ws)) in
+        let ws_tm = desugar ctx mvs (Apply (t_cons, ws)) in
         mk_binop_app (f, ws_tm, t')
       | None -> Printf.ksprintf failwith "ERROR:
         symbol `%s` doesn't have :binder attribute." s
@@ -274,7 +239,7 @@ let rec desugar (sgn,ps as ctx : context) (iref : int ref)
     end
   (* ------------------------ *)
   | Apply ("->", ts) ->
-    let ts' = List.map (desugar ctx iref) ts in
+    let ts' = List.map (desugar ctx mvs) ts in
     if List.mem (Leaf Type) ts' then
       Arrow (M, ts')
     else
@@ -286,19 +251,60 @@ let rec desugar (sgn,ps as ctx : context) (iref : int ref)
     begin match find_def_opt s sgn with
     | Some (Leaf (Const (s', _)))
       when Option.is_some (find_att_opt s' sgn) ->
-      desugar ctx iref (Apply (s', ts))
+      desugar ctx mvs (Apply (s', ts))
   (* otherwise, desugar as normal. *)
     | _ ->
-      let ts' = List.map (desugar ctx iref) ts in
+      let ts' = List.map (desugar ctx mvs) ts in
       begin match M.find_opt s sgn with
       | Some info ->
-        let f = mk_const s info.prm iref in
+        let f = mk_const s info.prm mvs in
         if EO.is_meta s then
           mk_app M f ts'
         else
-          mk_const_app (f, info.att) (ts', ps)
+          mk_const_app ctx mvs (f, info.att) (ts', ps)
       | None -> mk_app O (mk_var s) ts'
     end
+  end
+(* used for desugaring 'f-lists'. *)
+and
+  glue (sgn, ps as ctx : context)
+    (mvs : int ref)
+    (f,t1,t2 : term * term * term)
+  : term
+=
+  match t1 with
+  | Leaf (Var s) when is_list_param s ps ->
+    let eo_concat =
+      desugar ctx mvs (Symbol "eo::list_concat")
+    in
+      mk_app M eo_concat [f;t1;t2]
+  | _ -> mk_binop_app (f,t1,t2)
+and
+  mk_const_app
+  (ctx : context) (mvs : int ref)
+  (f, att_opt : term * const_attr option)
+  (ts, ps : term list * param list) : term
+=
+  let
+    g x y = glue ctx mvs (f, x, y)  and
+    h y x = glue ctx mvs (f, y, x)
+  in
+    begin match att_opt with
+    | None -> mk_app O f ts
+    | Some (RightAssocNil t_nil) ->
+      List.fold_right g ts t_nil
+    | Some (LeftAssocNil t_nil) ->
+      List.fold_left h t_nil ts
+    | Some (RightAssoc) ->
+      let (xs, x) = split_last ts in
+      List.fold_right g xs x
+    | Some (LeftAssoc) ->
+      List.fold_left h (List.hd ts) (List.tl ts)
+    | Some (att) ->
+      Printf.printf
+        "WARNING: naive app; constant %s, attribute %s.\n"
+        (term_str f) (const_attr_str att);
+      mk_app O f ts
     end
 
 let desugar_term (ctx : context) (t : EO.term) =
