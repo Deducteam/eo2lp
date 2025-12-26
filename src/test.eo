@@ -3,6 +3,16 @@
 (declare-const true Bool)
 (declare-const false Bool)
 
+(declare-parameterized-const eo::requires
+  ((T Type :implicit) (U Type :implicit))
+  (-> T T U U)
+)
+
+(declare-parameterized-const eo::typeof
+  ((T Type :implicit))
+  (-> T Type)
+)
+
 (declare-parameterized-const eo::eq
   ((U Type :implicit))
   (-> U U Bool)
@@ -13,11 +23,19 @@
   (-> Bool T T T)
 )
 
-
+(declare-parameterized-const eo::cmp
+  ((T Type :implicit) (U Type :implicit))
+  (-> T U Bool)
+)
 
 (declare-parameterized-const eo::is_var
   ((T Type :implicit))
   (-> T Bool)
+)
+
+(declare-parameterized-const eo::nil
+  ((U Type :implicit) (T Type :implicit))
+  (-> (-> U T T) Type T)
 )
 
 (declare-parameterized-const eo::cons
@@ -41,7 +59,8 @@
 
 (declare-const @@Pair (-> Type Type Type))
 (define @Pair () @@Pair)
-(declare-parameterized-const @@pair ((U Type :implicit) (T Type :implicit)) (-> U T (@Pair U T)))
+(declare-parameterized-const @@pair
+  ((U Type :implicit) (T Type :implicit)) (-> U T (@Pair U T)))
 (define @pair () @@pair)
 
 ; program: $pair_first
@@ -106,4 +125,98 @@
     (($is_var_list (@list x xs))  (eo::ite (eo::is_var x) ($is_var_list xs) false))
     (($is_var_list @list.nil)     true)
   )
+)
+
+(define $compare_var ((T Type :implicit) (U Type :implicit) (a T) (b U))
+  (eo::cmp b a))
+
+(declare-const @@result.null Bool)
+(define @result.null () @@result.null)
+(declare-const @@result.invalid Bool)
+(define @result.invalid () @@result.invalid)
+
+(program $result_combine ((b1 Bool) (b2 Bool))
+  :signature (Bool Bool) Bool
+  (
+    (($result_combine b1 @result.null) b1)
+    (($result_combine b1 b1)           b1)
+    (($result_combine b1 b2)           @result.invalid)
+  )
+)
+
+(program $is_pairwise ((T Type) (U Type) (f (-> T T U)) (op (-> U U U)) (a T) (b T) (bs @List :list) (B U :list) (nil U) (rem @List :list))
+  :signature ((-> T T U) (-> U U U) T @List U @List) Bool
+  (
+  (($is_pairwise f op a (@list b bs) (op (f a b) B) rem) ($is_pairwise f op a bs B rem))
+  (($is_pairwise f op a @list.nil B (@list b rem))       ($is_pairwise f op b rem B rem))
+  (($is_pairwise f op a @list.nil nil @list.nil)         (eo::requires nil (eo::nil op (eo::typeof a)) true))
+  )
+)
+
+(program $extract_pairwise_args_rec ((T Type) (U Type) (f (-> T T U)) (op (-> U U U)) (a T) (b T) (c T) (B U :list))
+  :signature ((-> T T U) (-> U U U) T U) @List
+  (
+  (($extract_pairwise_args_rec f op a (op (f a c) B)) (eo::cons @list c ($extract_pairwise_args_rec f op a B)))
+  (($extract_pairwise_args_rec f op a B)              @list.nil)  ; no further elements
+  )
+)
+
+(program $extract_pairwise_args ((T Type) (U Type) (f (-> T T U)) (op (-> U U U)) (a T) (b T) (B U :list))
+  :signature ((-> T T U) (-> U U U) U) @List
+  (
+  (($extract_pairwise_args f op (op (f a b) B)) (eo::define ((D (op (f a b) B)))
+                                                (eo::define ((elems ($extract_pairwise_args_rec f op a D)))
+                                                  (eo::requires ($is_pairwise f op a elems D elems) true (eo::cons @list a elems)))))
+  (($extract_pairwise_args f op (f a b))        (@list a b)) ; binary case, trivial
+  )
+)
+
+(declare-parameterized-const ite ((A Type :implicit)) (-> Bool A A A))
+(declare-const not (-> Bool Bool))
+(declare-const or (-> Bool Bool Bool) :right-assoc-nil false)
+(declare-const and (-> Bool Bool Bool) :right-assoc-nil true)
+(declare-const => (-> Bool Bool Bool) :right-assoc)
+(declare-const xor (-> Bool Bool Bool) :left-assoc)
+(declare-parameterized-const = ((A Type :implicit)) (-> A A Bool) :chainable and)
+
+(program $get_lambda_type ((x @List) (xs @List :list) (B Type))
+  :signature (@List Type) Type
+  (
+    (($get_lambda_type (@list x xs) B) (-> (eo::typeof x) ($get_lambda_type xs B)))
+    (($get_lambda_type @list.nil B)    B)
+  )
+)
+
+(declare-parameterized-const lambda ((B Type :implicit) (L @List))
+  (-> B ($get_lambda_type L B)) :binder @list)
+
+(declare-parameterized-const distinct ((A Type :implicit)) (-> A A Bool) :pairwise and)
+
+(declare-parameterized-const @purify ((A Type :implicit) (t A :opaque)) A)
+
+(program $extract_antec_rec
+   ((C Bool) (F1 Bool) (F2 Bool))
+   :signature (Bool Bool) Bool
+   (
+   (($extract_antec_rec C C)          true)
+   (($extract_antec_rec (=> F1 F2) C) (eo::cons and F1 ($extract_antec_rec F2 C)))
+   )
+)
+
+(program $extract_antec
+   ((C Bool) (F Bool))
+   :signature (Bool Bool) Bool
+   (
+   (($extract_antec (=> F C) C) F)
+   (($extract_antec F C)        ($extract_antec_rec F C))
+   )
+)
+
+(program $run_process_scope
+   ((C Bool) (F Bool))
+   :signature (Bool Bool) Bool
+   (
+   (($run_process_scope F false)  (not ($extract_antec F false)))
+   (($run_process_scope F C)      (=> ($extract_antec F C) C))
+   )
 )
