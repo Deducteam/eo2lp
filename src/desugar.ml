@@ -98,7 +98,6 @@ let rec term_str : term -> string =
         (term_str t1)
         (if lv = O then " ⋅ " else " ")
         (term_str t2)
-
   | Arrow (lv, ts) ->
   let f t =
     if is_leaf t then term_str t
@@ -212,6 +211,12 @@ let find_att_opt (s : string) (sgn : signature)
   | None -> None
   end
 
+let is_kind : term -> bool =
+  function
+  | Leaf Type -> true
+  | Arrow (M, ts) -> true
+  | _ -> false
+
 let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
   : EO.term -> term =
   function
@@ -262,24 +267,13 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       Arrow (O, ts')
   (* ------------------------ *)
   | Apply (s, ts) ->
-  (* TODO. only unfold definitions when desugaring patterns? *)
     let f = desugar ctx mvs (Symbol s) in
     let ts' = List.map (desugar ctx mvs) ts in
-    begin match M.find_opt s sgn with
-    | Some info ->
-      if EO.is_meta s then
-        mk_app M f ts'
-      else
-        mk_list_app ctx mvs f ts'
-    | None ->
-      mk_app O (mk_var s) ts'
-  end
-(* used for desugaring 'f-lists'. *)
+    mk_list_app ctx mvs f ts'
 and
   glue
     (sgn, ps as ctx : context) (mvs : int ref)
-    (f,t1,t2 : term * term * term)
-  : term
+    (f,t1,t2 : term * term * term) : term
 =
   match t1 with
   | Leaf (Var s) when is_list_param s ps ->
@@ -294,42 +288,49 @@ and
   (f : term) (ts : term list) : term
 =
   begin match f with
-  | Leaf (Const (s, _))
-    when Option.is_some (find_att_opt s sgn) ->
-    let
-      g x y = glue ctx mvs (f, x, y)  and
-      h y x = glue ctx mvs (f, y, x)  and
-      att = Option.get (find_att_opt s sgn)
-    in
-    begin match att with
-    | RightAssocNil t_nil ->
-      begin match ts with
-      | [t1; Leaf Var xs] when is_list_param xs ps ->
-        mk_binop_app (f,t1,Leaf(Var xs))
-      | _ ->
-        List.fold_right g ts t_nil
+  | Leaf (Const (s, _)) ->
+    begin match find_typ_opt s sgn with
+    | None -> Printf.ksprintf failwith
+      "ERROR: unregistered constant %s" s
+    | Some t when is_kind t -> mk_app M f ts
+    | Some _ ->
+      begin match find_att_opt s sgn with
+      | None -> mk_app O f ts
+      | Some att ->
+        let
+          g x y = glue ctx mvs (f, x, y)  and
+          h y x = glue ctx mvs (f, y, x)
+        in
+        begin match att with
+        | RightAssocNil t_nil ->
+          begin match ts with
+          | [t1; Leaf Var xs] when is_list_param xs ps ->
+            mk_binop_app (f,t1,Leaf(Var xs))
+          | _ ->
+            List.fold_right g ts t_nil
+          end
+        | LeftAssocNil t_nil ->
+          begin match ts with
+          | [t1; Leaf Var xs] when is_list_param xs ps ->
+            mk_binop_app (f,t1,Leaf(Var xs))
+          | _ ->
+            List.fold_left h t_nil ts
+          end
+        | RightAssoc ->
+          let (xs, x) = split_last ts in
+          List.fold_right g xs x
+        | LeftAssoc ->
+          List.fold_left h (List.hd ts) (List.tl ts)
+        | _ ->
+          Printf.printf
+            "WARNING: naive app; constant %s, attribute %s.\n"
+            (term_str f) (const_attr_str att);
+          mk_app O f ts
+        end
       end
-    | LeftAssocNil t_nil ->
-      begin match ts with
-      | [t1; Leaf Var xs] when is_list_param xs ps ->
-        mk_binop_app (f,t1,Leaf(Var xs))
-      | _ ->
-        List.fold_left h t_nil ts
-      end
-    | RightAssoc ->
-      let (xs, x) = split_last ts in
-      List.fold_right g xs x
-    | LeftAssoc ->
-      List.fold_left h (List.hd ts) (List.tl ts)
-    | _ ->
-      Printf.printf
-        "WARNING: naive app; constant %s, attribute %s.\n"
-        (term_str f) (const_attr_str att);
-      mk_app O f ts
     end
-  | _ -> mk_app O f ts
+    | _ -> mk_app O f ts
   end
-
 
 let desugar_term (ctx : context) (t : EO.term) =
   let mvs = ref 0 in

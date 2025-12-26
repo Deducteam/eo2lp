@@ -52,6 +52,40 @@ let test_lp : LP.command list =
   in
     List.concat_map f test_elab
 
+let requires_lp : LP.command list =
+  [
+    LP.Require ["Logic.U.Arrow"];
+    LP.Symbol (
+      Some Constant,
+      "▫",
+      [ LP.Implicit ("a", Leaf Set);
+        LP.Implicit ("b", Leaf Set)
+      ],
+      Some (
+        LP.El (
+          LP.Arrow (O,
+            [
+              LP.Arrow (O, [Leaf (Var "a"); Leaf (Var "b")]);
+              Leaf (Var "a");
+              Leaf (Var "b")
+            ]
+          )
+        )
+      ),
+      None
+    )
+  ]
+
+let out () : unit =
+  let ch = open_out "lp/out.lp" in
+  let f lp =
+    output_string ch (LP.lp_command_str lp);
+    output_char ch '\n'
+  in
+    List.iter f (List.append requires_lp test_lp);
+    close_out ch
+
+
 let tctx = (!Elab._sig, [])
 let tt : EO.term =
   Apply ("@Pair", [Symbol "Bool"; Symbol "Bool"])

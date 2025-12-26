@@ -15,52 +15,31 @@ let is_forbidden (s : string) : bool =
     String.contains s ':'
   )
 
+let app_list (t : term) (ts : term list) : term =
+  List.fold_left
+    (fun t_acc t -> App (M, t_acc, t))
+    t ts
+
 let translate_symbol (s : string) : string =
   if is_forbidden s then
     Printf.sprintf "{|%s|}" s
   else
     s
 
-let app_list (t : term) (ts : term list) : term =
-  List.fold_left
-    (fun t_acc t -> App (t_acc, t))
-    t ts
-
-let mk_arrow_typ ((t,t') : term * term) : term =
-  Bind (Pi, [Explicit ("_",t)], t')
-
-let mk_arrow_typ_list (ts : term list) : term =
-  let (init, last) = EO.split_last ts in
-  List.fold_right
-    (fun t_acc t -> mk_arrow_typ (t_acc, t))
-    init last
-
-let mk_set_arrow_typ ((t,t') : term * term) : term =
-  App (App (Leaf (Const "⤳"), t), t')
-
-let mk_set_arrow_typ_list (ts : term list) : term =
-  let (init, last) = EO.split_last ts in
-  List.fold_right
-    (fun t_acc t -> mk_set_arrow_typ (t_acc, t))
-    init last
-
-let mk_sqapp (t,t' : term * term) : term =
-  App (App (Leaf (Const "▫"), t),t')
-
 let rec translate_term : EO.term -> term =
   begin function
   | Leaf l ->
     translate_leaf l
   (* ------------ *)
-  | App (O, t,t') ->
-    mk_sqapp (translate_term t, translate_term t')
+  | App (O,t,t') ->
+    App (O, translate_term t, translate_term t')
   (* ------------ *)
   | App (M,t,t') ->
-    App (translate_term t, translate_term t')
+    App (M, translate_term t, translate_term t')
   (* ------------ *)
   | Arrow (O, ts) ->
     let ts' = List.map translate_term ts in
-    mk_set_arrow_typ_list ts'
+    Arrow (O, ts')
   | Arrow (M,ts) ->
     failwith "Type level arrow found at term level."
   | Let ((s,t), t') ->
@@ -89,13 +68,12 @@ and translate_leaf : EO.leaf -> term =
 and translate_type : EO.term -> term =
   begin function
   | Leaf Kind -> Leaf Type
-  | Leaf Type -> Leaf (Const "Set")
+  | Leaf Type -> Leaf Set
   | Arrow (M, ts) ->
-    let ts' = List.map translate_type ts in
-    mk_arrow_typ_list ts'
+    Arrow (M, List.map translate_type ts)
   | Let ((s,t),t') ->
     failwith "Can't translate Let as a type."
-  | _ as t -> App (Leaf (Const "El"), translate_term t)
+  | _ as t -> El (translate_term t)
   end
 
 let translate_param (s,t,att : EO.param) : param =

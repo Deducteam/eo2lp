@@ -4,15 +4,18 @@ type binder =
   | Pi
 
 type leaf =
-  | Type
+  | Type | Set
   | Const of string
   | Var of string
 and term =
   | Leaf of leaf
-  | App of term * term
+  | App of level * term * term
   | Wrap of term
+  | El of term
+  | Arrow of level * (term list)
   | Bind of binder * param list * term
   | Let of (string * term) * term
+and level = O | M
 and param =
   | Implicit of string * term
   | Explicit of string * term
@@ -60,45 +63,36 @@ let in_params (s : string) (ps : param list) : bool =
 let rec leaf_str : leaf -> string =
   function
   | Type -> "TYPE"
+  | Set -> "Set"
   | Const s -> s
   | Var s -> s
 and term_str : term -> string =
   function
   | Leaf l -> leaf_str l
-  | Wrap t -> Printf.sprintf "[%s]" (term_str t)
-  | App (App (Leaf Const "⤳", t1), t2) when is_leaf_or_wrap t2 ->
-    Printf.sprintf "%s ⤳ %s"
-      (term_str t1)
-      (term_str t2)
-  | App (App (Leaf Const "⤳", t1), t2) ->
-    Printf.sprintf "%s ⤳ (%s)"
-      (term_str t1)
-      (term_str t2)
-  | App (App (Leaf Const "▫", t1), t2) when is_leaf_or_wrap t2 ->
-    Printf.sprintf "%s ▫ %s"
-      (term_str t1)
-      (term_str t2)
-  | App (App (Leaf Const "▫", t1), t2) ->
-    Printf.sprintf "%s ▫ (%s)"
-      (term_str t1)
-      (term_str t2)
-  | App (t1,t2) when is_leaf_or_wrap t2 ->
-    Printf.sprintf "%s %s"
-      (term_str t1)
-      (term_str t2)
-  | App (t1,t2) ->
-    Printf.sprintf "%s (%s)"
-      (term_str t1)
-      (term_str t2)
-  | Bind (Pi,[Explicit ("_",t)],t')->
-    if is_pi t then
-      Printf.sprintf "(%s) → %s"
-        (term_str t)
-        (term_str t')
-    else
-      Printf.sprintf "%s → %s"
-        (term_str t)
-        (term_str t')
+  | Arrow (lv, ts) ->
+    let strs = List.map
+      (fun t ->
+        if is_leaf_or_wrap t then term_str t
+        else "(" ^ term_str t ^ ")"
+      ) ts
+    in
+      String.concat
+        (if lv = O then " ⤳ " else " → ")
+        strs
+  | El t ->
+    Printf.sprintf
+      (if is_leaf_or_wrap t then "El %s" else "El (%s)")
+      (term_str t)
+  | Wrap t ->
+    Printf.sprintf
+      "[%s]"
+      (term_str t)
+  | App (lv,t,t') ->
+    Printf.sprintf
+      (if is_leaf_or_wrap t' then "%s%s%s" else "%s%s(%s)")
+      (term_str t)
+      (if lv = O then " ▫ " else " ")
+      (term_str t')
   | Bind (b,xs,t)->
     Printf.sprintf "%s %s, %s"
       (binder_str b)
@@ -107,7 +101,6 @@ and term_str : term -> string =
   | Let ((s,t),t') ->
     Printf.sprintf "let %s ≔ %s in %s"
       s (term_str t) (term_str t')
-
 and param_str : param -> string =
   function
   | Implicit (s,t) ->
