@@ -63,8 +63,8 @@ and rule_dec =
 (* post elaboration signature. *)
 type info = {
     prm : param list;
-    typ : term;
-    def : term option;
+    typ : term option;
+    def : EO.term option;
     att : const_attr option;
   }
 type signature = info M.t
@@ -100,9 +100,13 @@ let rec term_str : term -> string =
         (term_str t2)
 
   | Arrow (lv, ts) ->
+  let f t =
+    if is_leaf t then term_str t
+    else  "(" ^ term_str t ^ ")"
+  in
     Printf.sprintf "(%s %s)"
       (if lv = O then "~>" else "->")
-      (String.concat " " (List.map term_str ts))
+      (String.concat " " (List.map f ts))
   | Let ((s,t), t') ->
     Printf.sprintf
       "let (%s := %s) in %s"
@@ -186,8 +190,16 @@ let mk_const
 let mk_let (ws : var list) (t : term) =
   List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
 
-let find_def_opt (s : string) (sgn : signature)
+
+let find_typ_opt (s : string) (sgn : signature)
   : term option =
+  begin match M.find_opt s sgn with
+  | Some info -> info.typ
+  | None -> None
+  end
+
+let find_def_opt (s : string) (sgn : signature)
+  : EO.term option =
   begin match M.find_opt s sgn with
   | Some info -> info.def
   | None -> None
@@ -211,7 +223,11 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       Leaf (Type)
     else
       begin match M.find_opt s sgn with
-      | Some info -> mk_const s info.prm mvs
+      | Some info ->
+        begin match info.def with
+        | Some t -> desugar ctx mvs t
+        | None -> mk_const s info.prm mvs
+        end
       | None -> Leaf (Var s)
       end
   (* ------------------------ *)
@@ -246,29 +262,22 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       Arrow (O, ts')
   (* ------------------------ *)
   | Apply (s, ts) ->
-  (* if the symbol at the head of the application is a macro
-     for an attributed constant, then get that constant. *)
-    begin match find_def_opt s sgn with
-    | Some (Leaf (Const (s', _)))
-      when Option.is_some (find_att_opt s' sgn) ->
-      desugar ctx mvs (Apply (s', ts))
-  (* otherwise, desugar as normal. *)
-    | _ ->
-      let ts' = List.map (desugar ctx mvs) ts in
-      begin match M.find_opt s sgn with
-      | Some info ->
-        let f = mk_const s info.prm mvs in
-        if EO.is_meta s then
-          mk_app M f ts'
-        else
-          mk_const_app ctx mvs (f, info.att) (ts', ps)
-      | None -> mk_app O (mk_var s) ts'
-    end
+  (* TODO. only unfold definitions when desugaring patterns? *)
+    let f = desugar ctx mvs (Symbol s) in
+    let ts' = List.map (desugar ctx mvs) ts in
+    begin match M.find_opt s sgn with
+    | Some info ->
+      if EO.is_meta s then
+        mk_app M f ts'
+      else
+        mk_list_app ctx mvs f ts'
+    | None ->
+      mk_app O (mk_var s) ts'
   end
 (* used for desugaring 'f-lists'. *)
 and
-  glue (sgn, ps as ctx : context)
-    (mvs : int ref)
+  glue
+    (sgn, ps as ctx : context) (mvs : int ref)
     (f,t1,t2 : term * term * term)
   : term
 =
@@ -280,32 +289,47 @@ and
       mk_app M eo_concat [f;t1;t2]
   | _ -> mk_binop_app (f,t1,t2)
 and
-  mk_const_app
-  (ctx : context) (mvs : int ref)
-  (f, att_opt : term * const_attr option)
-  (ts, ps : term list * param list) : term
+  mk_list_app
+  (sgn, ps as ctx : context) (mvs : int ref)
+  (f : term) (ts : term list) : term
 =
-  let
-    g x y = glue ctx mvs (f, x, y)  and
-    h y x = glue ctx mvs (f, y, x)
-  in
-    begin match att_opt with
-    | None -> mk_app O f ts
-    | Some (RightAssocNil t_nil) ->
-      List.fold_right g ts t_nil
-    | Some (LeftAssocNil t_nil) ->
-      List.fold_left h t_nil ts
-    | Some (RightAssoc) ->
+  begin match f with
+  | Leaf (Const (s, _))
+    when Option.is_some (find_att_opt s sgn) ->
+    let
+      g x y = glue ctx mvs (f, x, y)  and
+      h y x = glue ctx mvs (f, y, x)  and
+      att = Option.get (find_att_opt s sgn)
+    in
+    begin match att with
+    | RightAssocNil t_nil ->
+      begin match ts with
+      | [t1; Leaf Var xs] when is_list_param xs ps ->
+        mk_binop_app (f,t1,Leaf(Var xs))
+      | _ ->
+        List.fold_right g ts t_nil
+      end
+    | LeftAssocNil t_nil ->
+      begin match ts with
+      | [t1; Leaf Var xs] when is_list_param xs ps ->
+        mk_binop_app (f,t1,Leaf(Var xs))
+      | _ ->
+        List.fold_left h t_nil ts
+      end
+    | RightAssoc ->
       let (xs, x) = split_last ts in
       List.fold_right g xs x
-    | Some (LeftAssoc) ->
+    | LeftAssoc ->
       List.fold_left h (List.hd ts) (List.tl ts)
-    | Some (att) ->
+    | _ ->
       Printf.printf
         "WARNING: naive app; constant %s, attribute %s.\n"
         (term_str f) (const_attr_str att);
       mk_app O f ts
     end
+  | _ -> mk_app O f ts
+  end
+
 
 let desugar_term (ctx : context) (t : EO.term) =
   let mvs = ref 0 in
@@ -329,29 +353,6 @@ let desugar_case (ctx : context)
   (t,t' : EO.case) : case =
   let mvs = ref 0 in
   (desugar ctx mvs t, desugar ctx mvs t')
-
-let desugar_rdec
-  (sgn,ps as ctx : context)
-  (rd : EO.rule_dec) : rule_dec
-=
-  let e = desugar_term ctx in
-  {
-    assm = Option.map e rd.assm;
-    prem =
-      begin match rd.prem with
-      | Some (Simple ts) ->
-        Some (Simple (List.map e ts))
-      | Some (PremiseList (t,t')) ->
-        Some (PremiseList (e t, e t'))
-      end;
-    args = List.map e rd.args;
-    reqs = List.map (desugar_case ctx) rd.reqs;
-    conc =
-      begin match rd.conc with
-      | Conclusion t -> Conclusion (e t)
-      | ConclusionExplicit t -> ConclusionExplicit (e t)
-      end;
-  }
 
 let desugar_cattr (sgn : signature) (att : EO.const_attr)
   : const_attr

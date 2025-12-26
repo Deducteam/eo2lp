@@ -243,7 +243,7 @@ let param_attr_str = function
 
 let rec
   var_str = fun (str,t) ->
-    Printf.sprintf "%s ≔ %s"
+    Printf.sprintf "(%s %s)"
       str (term_str t)
 and
   const_attr_str = function
@@ -271,7 +271,7 @@ and
   | Literal l   -> literal_str l
   | Bind (str, xs, t) ->
       let xs' = List.map var_str xs in
-      Printf.sprintf "(%s %s in %s)"
+      Printf.sprintf "(%s (%s) %s)"
         str (String.concat ", " xs')
         (term_str t)
   | Apply (s, ts) ->
@@ -310,10 +310,14 @@ let dt_dec_str = function
         (String.concat " " (List.map cons_dec_str xs))
 
 let premises_str = function
-  | Simple sp -> term_list_str sp
+  | Simple ts ->
+      Printf.sprintf ":premises %s"
+      (term_list_str ts)
   | PremiseList (t, t') ->
       Printf.sprintf ":premsie-list %s %s"
       (term_str t) (term_str t')
+and assumption_str t =
+  Printf.sprintf ":assumption %s" (term_str t)
 and arguments_str ts =
   Printf.sprintf ":args %s" (term_list_str ts)
 and reqs_str cs =
@@ -324,9 +328,9 @@ and conclusion_str = function
   | ConclusionExplicit t ->
     Printf.sprintf ":conclusion-explicit %s" (term_str t)
 
-let rule_dec_str {assm; prem; args; reqs; conc} =
+let rule_dec_str ({assm; prem; args; reqs; conc} : rule_dec) : string =
   Printf.sprintf "%s%s%s%s%s"
-    (opt_newline term_str assm)
+    (opt_newline assumption_str assm)
     (opt_newline premises_str prem)
     (opt_newline arguments_str (Some args))
     (opt_newline reqs_str (Some reqs))

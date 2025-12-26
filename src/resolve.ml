@@ -217,8 +217,8 @@ let rec infer
     "ERROR: infer not defined for KIND!"
   (* ------------------------ *)
   | Leaf (Const (s,xs)) ->
-    begin match M.find_opt s sgn with
-    | Some info -> (pmap_subst xs info.typ, [])
+    begin match find_typ_opt s sgn with
+    | Some ty -> (pmap_subst xs ty, [])
     | None -> Printf.ksprintf failwith
       "ERROR: constant `%s` not given by signature." s
     end
@@ -252,13 +252,13 @@ let rec infer
     (t_ty, List.append es fs)
   end
 
-let unfold_leaves (sgn : signature) (t : term) =
+(* let unfold_leaves (sgn : signature) (t : term) =
   let f : leaf -> term =
     function
     | Const (s,pm) as l ->
     (* TODO. contemplate params in definitions. *)
       begin match find_def_opt s sgn with
-      | Some t -> t
+      | Some t -> desugar (sgn, []) t
       | None -> Leaf l
       end
     | l -> Leaf l
@@ -267,7 +267,7 @@ let unfold_leaves (sgn : signature) (t : term) =
 
 let rec nf (sgn : signature) (t : term) =
   let t' = unfold_leaves sgn t in
-  if t' = t then t else nf sgn t'
+  if t' = t then t else nf sgn t' *)
 
 let rec unify (sgn : signature) (mvm : mvmap)
   : eq list -> mvmap
@@ -276,8 +276,7 @@ let rec unify (sgn : signature) (mvm : mvmap)
   | [] -> mvm
   | Eq (t1,t2) :: es ->
     let (t1',t2') =
-      (nf sgn (mvsubst mvm t1),
-       nf sgn (mvsubst mvm t2))
+      (mvsubst mvm t1, mvsubst mvm t2)
     in
       begin match (t1',t2') with
       (* ---------------- *)
@@ -338,9 +337,9 @@ let resolve
     (term_str t); *)
 
   let (ty, es) = infer ctx t in
-    (* Printf.printf
-      "Type of `%s` was `%s` with constraints [%s]\n"
-      (term_str t) (term_str ty) (eq_list_str es); *)
+  (* Printf.printf
+    "Type of `%s` was `%s` with constraints [%s]\n"
+    (term_str t) (term_str ty) (eq_list_str es); *)
 
   let xs = unify sgn [] es in
   (* Printf.printf "Solution found: [%s]\n"
