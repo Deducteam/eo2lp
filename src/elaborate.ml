@@ -64,6 +64,35 @@ let elab (ctx : context) (t : EO.term) : term * term =
 let elab_cases (ctx : context) : EO.case list -> case list =
   List.map (fun c -> resolve_case ctx (desugar_case ctx c))
 
+let elab_rdec
+  (sgn,ps as ctx : context)
+  (rd : EO.rule_dec) : rule_dec
+=
+  let e t = fst (elab ctx t) in
+  {
+    assm =
+      begin match rd.assm with
+      | Some t -> Some (e t)
+      | None -> None
+      end;
+    prem =
+      begin match rd.prem with
+      | Some (Simple ts) ->
+          Some (Simple (List.map e ts))
+      | Some (PremiseList (t,t')) ->
+          Some (PremiseList (e t, e t'))
+      end;
+    args = List.map e rd.args;
+    reqs = List.map (desugar_case ctx) rd.reqs;
+    conc =
+      begin match rd.conc with
+      | Conclusion t ->
+          Conclusion (e t)
+      | ConclusionExplicit t ->
+          ConclusionExplicit (e t)
+      end;
+  }
+
 let _sig : signature ref = ref M.empty
 
 let mvars_in_params (ps : param list) : S.t =
@@ -89,7 +118,7 @@ let get_nulls_pmap (pm : pmap) : (term * int) list =
    then we obtain `ps == [(U0, Type, Explicit)]`
    and `[(MVar ?U0, Var U0)].
 *)
-let rec get_nulls_term : term -> (term * int) list =
+(* let rec get_nulls_term : term -> (term * int) list =
   function
   | Leaf (Const (s, pm)) -> get_nulls_pmap pm
   | Leaf l -> []
@@ -114,6 +143,7 @@ let bind_nulls (t : term) : (param list * mvmap) =
     )
   in
     List.split (List.mapi f xs)
+ *)
 
 let prog_params (ps : param list) (t : term) : param list =
   let f (s,ty,_) =
@@ -131,7 +161,8 @@ let rec elaborate_cmd : EO.command -> command option =
     let (ty, _) = elab (!_sig, []) (EO.mk_proof p) in
 
     _sig := M.add s
-      { prm = []; typ = ty; def = None; att = None; }
+      { prm = []; typ = Some ty;
+        def = None; att = None; }
       !_sig;
 
     Some (Decl (s, [], ty))
@@ -146,37 +177,32 @@ let rec elaborate_cmd : EO.command -> command option =
     let (ty',_) = elab (!_sig, qs) ty in
 
     _sig := M.add s
-      { prm = qs; typ = ty';
+      { prm = qs; typ = Some ty';
         def = None ; att = att'; } !_sig;
 
     Some (Decl (s, qs, ty'))
   (* ---------------- *)
   | DeclareRule (s,ps,rd) ->
     let qs = elab_param_list !_sig ps in
-    let r' = desugar_rdec (!_sig, qs) rd in
-    Printf.printf "WARNING:
-      resolution on rule declarations not implemented.\n";
+    let r' = elab_rdec (!_sig, qs) rd in
 
     _sig := M.add s
-      { prm = qs; typ = mk_var "NONE";
+      { prm = qs; typ = None;
         def = None; att = None } !_sig;
 
     Some (Rule (s, qs, r'))
   (* ---------------- *)
+  (* Define just binds `s` to an `EO.term`.
+    occurences unfolded during desugaring. *)
   | Define (s, ps, def, _) ->
     let qs = elab_param_list !_sig ps in
-    let (def', ty) = elab (!_sig, qs) def in
-
-    let (rs, mvm) = bind_nulls def' in
-    let (def'', ty') =
-      (mvsubst mvm def', mvsubst mvm ty)
-    in
 
     _sig := M.add s
-      { prm = List.append rs qs; typ = ty';
-        def = Some def''; att = None } !_sig;
+      { prm = qs; typ = None;
+        def = Some def; att = None } !_sig;
 
-    Some (Defn (s, List.append rs qs, def'', Some ty'))
+    None;
+    (* Some (Defn (s, List.append rs qs, def'', Some ty')) *)
   (* ---------------- *)
   | Include s -> None
   (* ---------------- *)
@@ -186,7 +212,7 @@ let rec elaborate_cmd : EO.command -> command option =
     let qs = prog_params ps' ty in
 
     _sig := M.add s
-      { prm = qs; typ = ty;
+      { prm = qs; typ = Some ty;
         def = None; att = None }
       !_sig;
 
@@ -208,7 +234,7 @@ and
     let (ty',_) = elab (!_sig, []) ty in
 
     _sig := M.add s
-      { prm = []; typ = ty';
+      { prm = []; typ = Some ty';
         def = None; att = None }
       !_sig;
     Some (Decl (s, [], ty'))
