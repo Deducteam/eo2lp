@@ -1,25 +1,23 @@
+
 type binder =
   | Lambda
   | Pi
 
-type term =
-  | PVar of string
-  | Wrap of term
+type leaf =
+  | Type
+  | Const of string
   | Var of string
+and term =
+  | Leaf of leaf
   | App of term * term
+  | Wrap of term
   | Bind of binder * param list * term
   | Let of (string * term) * term
 and param =
   | Implicit of string * term
   | Explicit of string * term
 
-(* type pattern =
-  | PVar of string
-  | PApp of string * pattern list
-
-type case =
-  | Case of (string * pattern list * pattern) *)
-type cases = (term * term) list
+type case = (term * term)
 
 type modifier =
   | Constant
@@ -30,7 +28,7 @@ type command =
       modifier option * string *
       param list * term option * term option
   | Rule of
-      cases
+      case list
   | Require of
       string list
 
@@ -40,10 +38,9 @@ let binder_str : binder -> string =
   | Lambda -> "λ"
   | Pi     -> "Π"
 
-let is_atom : term -> bool =
+let is_leaf_or_wrap : term -> bool =
   function
-  | Var _ -> true
-  | PVar _ -> true
+  | Leaf _ -> true
   | Wrap _ -> true
   | _ -> false
 
@@ -60,28 +57,32 @@ let in_params (s : string) (ps : param list) : bool =
       | _ -> false
     ) ps
 
-let rec term_str : term -> string =
+let rec leaf_str : leaf -> string =
   function
+  | Type -> "TYPE"
+  | Const s -> s
+  | Var s -> s
+and term_str : term -> string =
+  function
+  | Leaf l -> leaf_str l
   | Wrap t -> Printf.sprintf "[%s]" (term_str t)
-  | Var str -> str
-  | PVar str -> "$" ^ str
-  | App (App (Var "⤳", t1), t2) when is_atom t2 ->
+  | App (App (Leaf Const "⤳", t1), t2) when is_leaf_or_wrap t2 ->
     Printf.sprintf "%s ⤳ %s"
       (term_str t1)
       (term_str t2)
-  | App (App (Var "⤳", t1), t2) ->
+  | App (App (Leaf Const "⤳", t1), t2) ->
     Printf.sprintf "%s ⤳ (%s)"
       (term_str t1)
       (term_str t2)
-  | App (App (Var "▫", t1), t2) when is_atom t2 ->
+  | App (App (Leaf Const "▫", t1), t2) when is_leaf_or_wrap t2 ->
     Printf.sprintf "%s ▫ %s"
       (term_str t1)
       (term_str t2)
-  | App (App (Var "▫", t1), t2) ->
+  | App (App (Leaf Const "▫", t1), t2) ->
     Printf.sprintf "%s ▫ (%s)"
       (term_str t1)
       (term_str t2)
-  | App (t1,t2) when is_atom t2 ->
+  | App (t1,t2) when is_leaf_or_wrap t2 ->
     Printf.sprintf "%s %s"
       (term_str t1)
       (term_str t2)
@@ -118,15 +119,6 @@ and param_str : param -> string =
 
 and param_list_str (xs : param list) : string =
   String.concat " " (List.map param_str xs)
-
-(* let rec pattern_str : pattern -> string =
-  function
-  | PVar str       -> "%" ^ str
-  | PApp (str, ps) ->
-    let ps_str =
-      String.concat " " (List.map pattern_str ps)
-    in
-      str ^ " " ^ ps_str *)
 
 let case_str : (term * term) -> string =
   function

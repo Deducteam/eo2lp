@@ -4,6 +4,11 @@ module EO = struct
   include Parse_eo
 end
 
+module LP = struct
+  include Syntax_lp
+  include Translate
+end
+
 module Elab = Elaborate
 
 let cpc_root  = "../cvc5/proofs/eo/cpc"
@@ -18,7 +23,7 @@ let cpc_eos : EO.command list =
 let test_eo : EO.command list =
   EO.parse_eo_file "src/test.eo"
 
-let cpc_elab : Elab.command list =
+let test_elab : Elab.command list =
   let f eo =
     Printf.printf
       "Elaborating:\n%s\n"
@@ -32,6 +37,20 @@ let cpc_elab : Elab.command list =
     eo'
   in
     List.filter_map f test_eo
+
+let test_lp : LP.command list =
+  let f eo =
+    Printf.printf
+      "Translating:\n%s\n"
+      (Elab.command_str eo);
+
+    let lps = LP.translate_command eo in
+    Printf.printf
+      "Done:\n%s\n\n"
+      (String.concat "\n" (List.map LP.lp_command_str lps));
+    lps
+  in
+    List.concat_map f test_elab
 
 let tctx = (!Elab._sig, [])
 let tt : EO.term =
