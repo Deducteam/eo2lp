@@ -13,6 +13,7 @@
  (modules
    parser lexer parse_eo syntax_eo
    desugar resolve elaborate
+   syntax_lp translate
    main
  )
  (flags :standard -w -8 -w -27)
