@@ -111,11 +111,12 @@
 
 (define $get_arg_list ((T Type :implicit) (t T)) ($get_arg_list_rec t @list.nil))
 
-(program $is_app ((T Type) (S Type) (U Type) (f (-> T U)) (g (-> T S)) (h (-> T U)) (x T))
-  :signature ((-> T U) S) Bool
+(program $is_app ((T Type) (U Type) (V Type) (f (-> T U)) (g (-> T V)) (x T) (t V))
+  :signature ((-> T U) V) Bool
   (
+    (($is_app f (f x))  true)
     (($is_app f (g x))  ($is_app f g))
-    (($is_app f h)      (eo::eq f h))
+    (($is_app f t)      false)
   )
 )
 
