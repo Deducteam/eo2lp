@@ -113,6 +113,7 @@ let _app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
 ##########*)
 
+(* can probably destroy all of this???  *)
 let mk_eo_var (s,t : var) : term =
   Apply("eo::var", [Literal (String s); t])
 
@@ -199,6 +200,8 @@ let lcat_of : literal -> lit_category =
   | Hexadecimal _ -> HEX
   | String _      -> STR
 
+(* ------------------------------------------------*)
+
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
     match x_opt with
@@ -227,6 +230,8 @@ let literal_str =
   | Decimal d -> string_of_float d
   | Rational (n, d) -> string_of_int n ^ "/" ^ string_of_int d
   | String s -> "\"" ^ s ^ "\""
+  | Binary _ -> Printf.printf "WARNING: unhandled binary."; ""
+  | Hexadecimal _ -> Printf.printf "WARNING: unhandled hex."; ""
 
 let list_str (f : 'a -> string) =
   fun xs -> (String.concat " " (List.map f xs))
@@ -354,6 +359,7 @@ let common_command_str = function
   | Reset -> "(reset)"
   | SetOption x ->
       Printf.sprintf "(set-option %s)" (x)
+  | Exit -> "(exit)"
 
 let command_str = function
   | Assume (s,t) ->
@@ -410,64 +416,3 @@ let ty_of (t : term) : term =
   Symbol ("TY[" ^  term_str t ^ "]")
 
 (* ------------------------------------------------------ *)
-
-(* let mk_aux_jlist
-  (s : string) (ps : params)
-  (arg_tms : term list) (arg_tys : term list)
-  (conc_tm : term) : jlist
-=
-  let s'     = mk_aux_str s in
-  let aux_ty = mk_arrow_ty arg_tys (Symbol "Bool") in
-  let aux_cs = [(Apply (s',arg_tms), conc_tm)] in
-  [
-    TypeJ (s', ps, aux_ty);
-    DefnJ (s', ps, Cases aux_cs)
-  ] *)
-
-
-(* (* ---- pretty printing ----- *)
-let defn_str (d : defn) =
-  match d with
-  | Term t   -> term_str t
-  | Cases cs -> Printf.sprintf "CASES[%s]" (cases_str cs)
-
-let params_str (ps : params) : string =
-  (if ps = [] then "⋅" else (list_str param_str ps))
-
-let judgement_str (j : judgement) =
-  match j with
-  | LitJ (lc, t) ->
-    Printf.sprintf "(%s : %s)"
-      (lit_category_str lc)
-      (term_str t)
-  | TypeJ (s, ps, t) ->
-    Printf.sprintf "(%s[%s] : %s)"
-      s (params_str ps)
-      (term_str t)
-  | DefnJ (s, ps, d) ->
-    Printf.sprintf "(%s[%s] ≔ %s)"
-      s (params_str ps)
-      (defn_str d)
-  | AttrJ (s, ps, att) ->
-    Printf.sprintf "(%s[%s] ⋈ %s)"
-      s (params_str ps)
-      (attr_str att)
-
-let jlist_str js =
-  let js_str = String.concat "\n  " (List.map judgement_str js) in
-  Printf.sprintf "[\n  %s\n]" js_str
- *)
-
-(* deprecated stuff. *)
-(* type smt2_command =
-  | Assert           of term
-  | CheckSat
-  | CheckSatAssuming of term list
-  | DeclareFun       of string * typ list * typ * attr list
-  | DeclareSort      of string * int
-  | DefineConst      of string * term
-  | DefineFun        of string * params * typ * term
-  | DefineSort       of string * string list * typ
-  | SetInfo          of attr
-  | SetLogic         of string
-  | CommonSMT        of common_command *)

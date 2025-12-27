@@ -16,9 +16,9 @@ let cpc_mini  =
   let con fp = Filename.concat cpc_root fp in
   let fps = ["programs/Utils.eo"] in
   List.map con fps
-(*
+
 let cpc_eos : EO.command list =
-  List.concat_map EO.parse_eo_file cpc_mini *)
+  List.concat_map EO.parse_eo_file cpc_mini
 
 let test_eo : EO.command list =
   EO.parse_eo_file "src/test.eo"
@@ -54,26 +54,7 @@ let test_lp : LP.command list =
 
 let requires_lp : LP.command list =
   [
-    LP.Require ["Logic.U.Arrow"];
-    LP.Symbol (
-      Some Constant,
-      "▫",
-      [ LP.Implicit ("a", Leaf Set);
-        LP.Implicit ("b", Leaf Set)
-      ],
-      Some (
-        LP.El (
-          LP.Arrow (O,
-            [
-              LP.Arrow (O, [Leaf (Var "a"); Leaf (Var "b")]);
-              Leaf (Var "a");
-              Leaf (Var "b")
-            ]
-          )
-        )
-      ),
-      None
-    )
+    LP.Require ["Logic.U.Arrow"; "eo2lp.Core"];
   ]
 
 let out () : unit =

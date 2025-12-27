@@ -1,38 +1,5 @@
 open Desugar
 
-(* elaboration and resolution need to be intertwined.
-  if not, we get the following:
-
-declare @@pair⟨[U : Type];[T : Type]⟩
-  : (U ~> (T ~> ((@Pair⟨⟩ U) T)))
-
-define @pair⟨⟩ := @@pair⟨U ↦ ?U0, T ↦ ?T0⟩
-
-  i.e., `@pair` doesn't have any parameters according
-  to the signature, and so further occurences wont
-  be elaborated properly.
-
-  so, when elaborating the raw `define` command for @pair,
-  we need to elaborate and resolve the left hand side.
-  this reveals that we have 'free parameters' that `@pair`
-  must inherit.
-
-  but interestingly, elaboration uses EO.signature,
-  but elaboration uses Elab.signature. so we would need to
-  update the pre-elaboration signature to register the
-  parameters of `@pair`.
-
-  in this case, the parameters of @pair should be U and T.
-  but in general, we must use the 'fresh' names generated
-  during elaboration to avoid clashes.
-
-  tbh. we should reconsider how we deal with the signature
-  anyway.
-
-  so, really. elaboration has two parts:
-    desugaring and resolution.
-*)
-
 (* ---- some 'duplicate' definitions ----- *)
 (* find the type of `s` wrt. `ps`. *)
 let find_param_typ_opt
@@ -57,56 +24,29 @@ let is_opaque_param s ps =
   (find_param_attr_opt s ps) = (Some Opaque)
 (* ----------------- *)
 
-(* equations for constraints. *)
+(* type of term equalities. *)
 type eq = Eq of term * term
-
-let map_param (f : term -> term) : param -> param =
-  fun (s,ty,att) -> (s, f ty, att)
-
-let rec map_leaves (f : leaf -> term) : term -> term =
-  function
-  | Leaf l -> f l
-  | App (lv,t,t') ->
-    App (lv, map_leaves f t, map_leaves f t')
-  | Arrow (lv,ts) ->
-    Arrow (lv, List.map (map_leaves f) ts)
-  | Let ((s,t), t') ->
-    Let ((s, map_leaves f t), map_leaves f t')
-
-let pmap_find_opt
-  (s : string) : pmap -> (param * inst) option =
-  List.find_opt (fun ((s',_,_),_) -> s = s')
-
-let map_pmap (f : term -> term) (pm : pmap) : pmap =
-  let g (p, it) =
-    let it' = match it with
-    | This t -> This (f t)
-    | Null i -> Null i
-    in
-      (map_param f p, it')
-  in
-    List.map g pm
-
-let rec pmap_subst (pm : pmap) (t : term) : term =
-  let f : leaf -> term =
-    function
-    | Var s ->
-      begin match pmap_find_opt s pm with
-      | Some (p, Null i) -> Leaf (MVar i)
-      | Some (p, This t) -> t
-      | None -> Leaf (Var s)
-      end
-    | Const (s, qm) ->
-      Leaf (Const (s, map_pmap (pmap_subst pm) qm))
-    | _ as l -> Leaf l
-  in
-    map_leaves f t
 
 (* type of schematic variable maps. *)
 type mvmap = (int * term) list
 
+(* pretty print a metavariable map. *)
+let mvmap_str (xs : mvmap) : string =
+  let f (i,t) =
+    (term_str (Leaf (MVar i))) ^ " ↦ " ^ term_str t
+  in
+    String.concat ", " (List.map f xs)
+
+(* pretty print a metavariable map. *)
+let eq_list_str (es : eq list) : string =
+  let f (Eq (t,t')) =
+    (term_str t) ^ " ≡ " ^ (term_str t')
+  in
+    String.concat ", " (List.map f es)
+
+
 (* perform substitution given by a metavar map.*)
-let rec mvsubst (mvm : mvmap) (t : term) =
+let rec mv_subst (mvm : mvmap) (t : term) =
   let f : leaf -> term =
     function
     | MVar i ->
@@ -114,19 +54,9 @@ let rec mvsubst (mvm : mvmap) (t : term) =
       | Some t -> t
       | None -> Leaf (MVar i)
       end
-    | Const (s, pm) ->
-      let g (p, it) =
-        let it' = match it with
-        | This t -> This (mvsubst mvm t)
-        | Null i ->
-          begin match List.assoc_opt i mvm with
-          | Some t -> This t
-          | None   -> Null i
-          end
-        in
-          (map_param (mvsubst mvm) p, it')
-      in
-        Leaf (Const (s, List.map g pm))
+    | Const (s, pm) | Prog (s, pm) ->
+      let pm' = map_pmap (mv_subst mvm) pm in
+      Leaf (Const (s, pm'))
     | _ as l -> Leaf l
   in
     map_leaves f t
@@ -173,7 +103,7 @@ let mvmap_update
         (term_str (Leaf (MVar i)))
         (term_str t)
     else
-      (i, mvsubst [x] t)
+      (i, mv_subst [x] t)
   in
     (x :: List.map f xs)
 
@@ -182,7 +112,7 @@ let mvmap_update
   equality in `es`.*)
 let eqs_update (xs : mvmap) (es : eq list) : eq list =
   let f (Eq (t,t')) =
-    Eq (mvsubst xs t, mvsubst xs t')
+    Eq (mv_subst xs t, mv_subst xs t')
   in
     List.map f es
 
@@ -216,7 +146,7 @@ let rec infer
   | Leaf Kind -> failwith
     "ERROR: infer not defined for KIND!"
   (* ------------------------ *)
-  | Leaf (Const (s,xs)) ->
+  | Leaf (Const (s,xs)) | Leaf (Prog (s,xs)) ->
     begin match find_typ_opt s sgn with
     | Some ty -> (pmap_subst xs ty, [])
     | None -> Printf.ksprintf failwith
@@ -252,23 +182,6 @@ let rec infer
     (t_ty, List.append es fs)
   end
 
-(* let unfold_leaves (sgn : signature) (t : term) =
-  let f : leaf -> term =
-    function
-    | Const (s,pm) as l ->
-    (* TODO. contemplate params in definitions. *)
-      begin match find_def_opt s sgn with
-      | Some t -> desugar (sgn, []) t
-      | None -> Leaf l
-      end
-    | l -> Leaf l
-  in
-    map_leaves f t
-
-let rec nf (sgn : signature) (t : term) =
-  let t' = unfold_leaves sgn t in
-  if t' = t then t else nf sgn t' *)
-
 let rec unify (sgn : signature) (mvm : mvmap)
   : eq list -> mvmap
 =
@@ -276,7 +189,7 @@ let rec unify (sgn : signature) (mvm : mvmap)
   | [] -> mvm
   | Eq (t1,t2) :: es ->
     let (t1',t2') =
-      (mvsubst mvm t1, mvsubst mvm t2)
+      (mv_subst mvm t1, mv_subst mvm t2)
     in
       begin match (t1',t2') with
       (* ---------------- *)
@@ -311,21 +224,6 @@ let rec unify (sgn : signature) (mvm : mvmap)
       end
   end
 
-(* pretty print a metavariable map. *)
-let mvmap_str (xs : mvmap) : string =
-  let f (i,t) =
-    (term_str (Leaf (MVar i))) ^ " ↦ " ^ term_str t
-  in
-    String.concat ", " (List.map f xs)
-
-(* pretty print a metavariable map. *)
-let eq_list_str (es : eq list) : string =
-  let f (Eq (t,t')) =
-    (term_str t) ^ " ≡ " ^ (term_str t')
-  in
-    String.concat ", " (List.map f es)
-
-
 (* given a term `t` and context `sgn,ps`.
    return the resolved form of `t` and its type.    *)
 let resolve
@@ -345,7 +243,7 @@ let resolve
   (* Printf.printf "Solution found: [%s]\n"
     (mvmap_str xs); *)
 
-  let (t',ty') = (mvsubst xs t, mvsubst xs ty) in
+  let (t',ty') = (mv_subst xs t, mv_subst xs ty) in
   (* if not (is_leaf t) then
     Printf.printf "Resolved: `%s` with type `%s`\n"
     (term_str t') (term_str ty'); *)
@@ -361,9 +259,9 @@ let resolve_case (sgn,ps as ctx: context) (lhs,rhs : case) =
   let mvm = unify sgn [] (List.append es fs) in
 
   let (lhs', rhs') =
-    (mvsubst mvm lhs, mvsubst mvm rhs) in
+    (mv_subst mvm lhs, mv_subst mvm rhs) in
   let (lhs_ty', rhs_ty') =
-    (mvsubst mvm lhs_ty, mvsubst mvm rhs_ty) in
+    (mv_subst mvm lhs_ty, mv_subst mvm rhs_ty) in
 
   if not (lhs_ty' = rhs_ty') then
     Printf.printf

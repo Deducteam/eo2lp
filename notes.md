@@ -1,4 +1,62 @@
+-----------------
+# 2025-12-27
+-----------------
+Example of a program where we NEED to insert explicits
+on the left hand side:
+```lambdapi
+sequential symbol {|$evaluate_internal|} [T : Set] : El (T ⤳ {|eo::List|} ⤳ T);
+rule {|$evaluate_internal|} [$T] $t ({|eo::List::cons|} [$T] ▫ $tev ▫ {|eo::List::nil|}) ↪ $tev;
+```
+Suppose lambdapi generates two metavariables `?lhs`, `?rhs`
+for the types of the left-hand and right-hand sides of
+the rewrite rule.
 
+The first insertion `{|$evaluate_internal|} [$T]` tells us
+that `?lhs == $T`, and the second `{|eo::List::cons|} [$T]`
+tells us that `$tev : $T`, hence `?rhs == $T`.
+Thus `?lhs == ?rhs`.
+
+
+Example of a program where insertion on the rhs causes issues:
+```lambdapi
+sequential symbol {|$is_app|} [T : Set] [U : Set] [V : Set] : El ((T ⤳ U) ⤳ V ⤳ Bool);
+rule {|$is_app|} [$T] [$U] [$U] $f ($f ▫ $x) ↪ true
+with {|$is_app|} [$T] [$U] [$V] $f ($g ▫ $x) ↪ {|$is_app|} [$T] [$U] [$T ⤳ $V] $f $g;
+```
+I think the issue here is with `g`.
+The insertion of `[$V]` on the lhs forces `($g ▫ $x) : El $V`,
+which leaves `$g` to have some type `El (?n ⤳ $V)`.
+Then, on the rhs, we try to force `$g : El ($T ⤳ $V)`,
+but lambdapi can't prove that `?n == $V`, so we fail.
+
+However, if don't insert any explicits on the rhs,
+we never generate any constraints for `?n`, and we are fine.
+
+
+An easier example of a program with faulty rhs inserts:
+```lambdapi
+sequential symbol {|$get_arg_list_rec|} [S : Set] : El (S ⤳ {|eo::List|} ⤳ {|eo::List|});
+rule {|$get_arg_list_rec|} [$S] ($f ▫ $x) $acc ↪ {|$get_arg_list_rec|} [$T ⤳ $S] $f ({|eo::cons|} [$T] [{|eo::List|}] ({|eo::List::cons|} [$T]) $x $acc)
+with {|$get_arg_list_rec|} [$S] $y $acc ↪ $acc;
+```
+The pattern variable `$T` doesn't appear on the lhs,
+so we can't insert it.
+
+All of these problems arise from the fact that Eunoia's
+programs have a context that give the types for all
+"pattern variables" appearing in the rules.
+  In LambdaPi, we don't, but we still need to prove type
+preservation. So we perform resolution on the terms to
+insert explicits, which forces the types of most pattern
+variables.
+
+The current solution for this is to not insert explicits
+on the right-hand side of rules during translation.
+
+
+-----------------
+# 2025-12-19
+-----------------
 We need to implement a mechanism for binding free schematic
 variables in post-elaboration commands. e.g.;
 ```
