@@ -16,6 +16,6 @@
    syntax_lp translate
    main
  )
- (flags :standard -w -8 -w -27)
+ (flags :standard -w -27)
  (libraries str)
 )

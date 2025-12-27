@@ -15,9 +15,9 @@ let is_forbidden (s : string) : bool =
     String.contains s ':'
   )
 
-let app_list (t : term) (ts : term list) : term =
+let app_list (lv : level) (t : term) (ts : term list) : term =
   List.fold_left
-    (fun t_acc t -> App (M, t_acc, t))
+    (fun t_acc t -> App (lv, t_acc, t))
     t ts
 
 let translate_symbol (s : string) : string =
@@ -26,29 +26,29 @@ let translate_symbol (s : string) : string =
   else
     s
 
-let rec translate_term : EO.term -> term =
+let rec translate_term (exp : bool) : EO.term -> term =
   begin function
-  | Leaf l ->
-    translate_leaf l
+  | Leaf l -> translate_leaf exp l
   (* ------------ *)
   | App (O,t,t') ->
-    App (O, translate_term t, translate_term t')
+    App (O, translate_term exp t, translate_term exp t')
   (* ------------ *)
   | App (M,t,t') ->
-    App (M, translate_term t, translate_term t')
+    App (M, translate_term exp t, translate_term exp t')
   (* ------------ *)
   | Arrow (O, ts) ->
-    let ts' = List.map translate_term ts in
+    let ts' = List.map (translate_term exp) ts in
     Arrow (O, ts')
   | Arrow (M,ts) ->
     failwith "Type level arrow found at term level."
   | Let ((s,t), t') ->
     Let (
-      (translate_symbol s, translate_term t),
-      translate_term t'
+      translate_symbol s,
+      translate_term exp t,
+      translate_term exp t'
     )
   end
-and translate_leaf : EO.leaf -> term =
+and translate_leaf (exp : bool) : EO.leaf -> term =
   begin function
   | Literal l ->
     failwith "literal translation not yet implemented."
@@ -58,41 +58,60 @@ and translate_leaf : EO.leaf -> term =
     failwith "can't translate TYPE at term level."
   | Kind ->
     failwith "can't translate KIND at term level."
-  | Const (s,qs) ->
+  | Const (s,pm) | Prog (s,pm) ->
     let f = Leaf (Const (translate_symbol s)) in
-    let ts = List.map
-      (fun (_, EO.This t) -> Wrap (translate_term t)) qs in
-    app_list f ts
+    let ts = if exp then translate_pmap pm else [] in
+    app_list M f ts
   | Var s -> Leaf (Var (translate_symbol s))
   end
+and translate_pmap (pm : EO.pmap) : term list =
+  List.map (fun (_, t) -> Wrap (translate_term true t)) pm
 and translate_type : EO.term -> term =
   begin function
   | Leaf Kind -> Leaf Type
   | Leaf Type -> Leaf Set
   | Arrow (M, ts) ->
-    Arrow (M, List.map translate_type ts)
+      Arrow (M, List.map translate_type ts)
   | Let ((s,t),t') ->
-    failwith "Can't translate Let as a type."
-  | _ as t -> El (translate_term t)
+      failwith "Can't translate Let as a type."
+  | _ as t -> El (translate_term true t)
   end
 
 let translate_param (s,t,att : EO.param) : param =
   let (s',t') = (translate_symbol s, translate_type t) in
   match att with
-  | Explicit -> Explicit (s',t')
-  | Implicit -> Implicit (s',t')
-  | Opaque   ->
-      Printf.printf "WARNING: unhandled :opaque attribute";
-      Explicit (s',t')
+  | Explicit -> (s', t', Explicit)
+  | Implicit -> (s', t', Implicit)
+  | Opaque ->
+    Printf.printf "WARNING: unhandled :opaque attribute\n";
+    (s', t', Explicit)
+  | List ->
+    Printf.printf "WARNING: unhandled :list attribute\n";
+    (s', t', Explicit)
 
 let translate_params (ps : EO.param list) : param list =
   List.map translate_param ps
 
-let translate_cases (cs : EO.case list) : case list =
-  let
-    f (t,t') = (translate_term t, translate_term t')
+let bind_pvars (ps : param list) : term -> term =
+  let f : leaf -> term =
+    function
+    | Var s ->
+      if in_params s ps then
+        Leaf (PVar s)
+      else
+        Leaf (Var s)
+    | _ as l -> Leaf l
   in
-    List.map f cs
+    map_leaves f
+
+let translate_cases
+  (ps : EO.param list) (cs : EO.case list) : case list =
+  let f (t,t') =
+    (translate_term true t, translate_term false t')
+  in
+  let ds = List.map f cs in
+  let qs = List.map translate_param ps in
+  map_cases (bind_pvars qs) ds
 
 let translate_command : EO.command -> command list =
   function
@@ -106,7 +125,8 @@ let translate_command : EO.command -> command list =
         None
       )
     ]
-  | Prog (s,ps,t,cs) ->
+  | Prog (s,(ps,t),(qs,cs)) ->
+    List.append
     [
       Symbol (
         Some Sequential,
@@ -115,8 +135,8 @@ let translate_command : EO.command -> command list =
         Some (translate_type t),
         None
       );
-      Rule (translate_cases cs)
     ]
+    (if cs = [] then [] else [Rule (translate_cases qs cs)])
   | Defn _ -> failwith "can't translate definition."
   | Rule _ -> failwith "can't translate rule declaration."
 

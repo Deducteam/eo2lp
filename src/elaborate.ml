@@ -4,7 +4,7 @@ open Resolve
 (* post-elaboration command structure.  *)
 type command =
   | Decl of string * param list * term
-  | Prog of string * param list * term * case list
+  | Prog of string * (param list * term) * (param list * case list)
   | Defn of string * param list * term * term option
   | Rule of string * param list * rule_dec
 
@@ -19,7 +19,7 @@ let command_str : command -> string =
     Printf.sprintf
       "declare %s : %s"
       (const_str s ps) (term_str t)
-  | Prog (s,ps,t,cs) ->
+  | Prog (s,(ps,t),(qs, cs)) ->
     let cs_str = String.concat "\n" (List.map
       (fun (l,r) -> term_str l ^ " ↪ " ^ term_str r) cs)
     in
@@ -81,6 +81,8 @@ let elab_rdec
           Some (Simple (List.map e ts))
       | Some (PremiseList (t,t')) ->
           Some (PremiseList (e t, e t'))
+      | None ->
+          None
       end;
     args = List.map e rd.args;
     reqs = List.map (desugar_case ctx) rd.reqs;
@@ -99,51 +101,6 @@ let mvars_in_params (ps : param list) : S.t =
   List.fold_left
     (fun x (s,t,att) -> S.union x (mvars_in t))
     S.empty ps
-
-(* our 'goal' is to generate a list of parameters that
-  will be used in place of the the lingering mvars.
-  generate mvmap and param list, then substitute. *)
-let get_nulls_pmap (pm : pmap) : (term * int) list =
-  let f = function
-    | ((_,ty,_), Null i) -> Some (ty, i)
-    | (p, This t) -> None
-  in
-    List.filter_map f pm
-
-(* for a term `t`, generate a list of parameters `ps`
-   and a metavariable map `mv` such that `mv` assigns
-   every null parameter in `t` to some parameter in `ps`.
-
-   e.g., if `t == bar<U -> ?U0, T -> Bool>`,
-   then we obtain `ps == [(U0, Type, Explicit)]`
-   and `[(MVar ?U0, Var U0)].
-*)
-(* let rec get_nulls_term : term -> (term * int) list =
-  function
-  | Leaf (Const (s, pm)) -> get_nulls_pmap pm
-  | Leaf l -> []
-  | App (lv,t1,t2) ->
-    let xs = get_nulls_term t1 in
-    let ys = get_nulls_term t2 in
-    List.append xs ys
-  | Arrow (lv,ts) ->
-    List.concat_map get_nulls_term ts
-  | Let ((s,def), t) ->
-    let xs = get_nulls_term def in
-    let def = get_nulls_term t in
-    List.append xs def
-
-let bind_nulls (t : term) : (param list * mvmap) =
-  let xs = get_nulls_term t in
-  let f j (ty, i) =
-    let s' = "x_" ^ string_of_int j in
-    (
-      (s', ty, Implicit),
-      (i, Leaf (Var s'))
-    )
-  in
-    List.split (List.mapi f xs)
- *)
 
 let prog_params (ps : param list) (t : term) : param list =
   let f (s,ty,_) =
@@ -216,8 +173,8 @@ let rec elaborate_cmd : EO.command -> command option =
         def = None; att = None }
       !_sig;
 
-    let ds = elab_cases (!_sig, ps') cs in
-    Some (Prog (s, qs, ty, ds))
+    let cs' = elab_cases (!_sig, ps') cs in
+    Some (Prog (s, (qs,ty), (ps', cs')))
     (* ---------------- *)
   | Reference (_, _) -> None
   (* ---------------- *)

@@ -8,6 +8,7 @@ type literal = EO.literal
 type leaf =
   | Type | Kind
   | Literal of literal
+  | Prog of string * pmap
   | Const of string * pmap
   | Var of string
   | MVar of int
@@ -19,10 +20,7 @@ and term =
 and level = O | M
 and var = (string * term)
 and param = string * term * param_attr
-and pmap = (param * inst) list
-and inst =
-  | Null of int
-  | This of term
+and pmap = (param * term) list
 and param_attr =
   | Explicit
   | Implicit
@@ -84,7 +82,7 @@ let rec term_str : term -> string =
   | Leaf (Kind) -> "KIND"
   | Leaf (MVar i) -> Printf.sprintf "?%d" i
   | Leaf (Var s) -> s
-  | Leaf (Const (s, xs)) ->
+  | Leaf (Prog (s,xs)) | Leaf (Const (s, xs)) ->
     if xs = [] then s else
     Printf.sprintf "%s⟨%s⟩" s (pmap_str xs)
   | App (lv,t1,t2) ->
@@ -110,15 +108,12 @@ let rec term_str : term -> string =
     Printf.sprintf
       "let (%s := %s) in %s"
       s (term_str t) (term_str t')
-and inst_str : inst -> string =
-  function
-  | Null i -> term_str (Leaf (MVar i))
-  | This t -> term_str t
 and pmap_str (xs : pmap) : string =
-  let f ((s,_,_),i) = inst_str i in
+  let f ((s,_,_),t) = term_str t in
   String.concat ", " (List.map f xs)
 
 let param_attr_str = function
+  | Explicit -> ""
   | Implicit -> ":implicit"
   | Opaque -> ":opaque"
   | List -> ":list"
@@ -170,6 +165,16 @@ let mk_app (lv : level) (t : term) (ts : term list) : term =
 let mk_binop_app (f,t1,t2 : term * term * term) : term =
   App (O, App (O, f, t1), t2)
 
+let rec map_leaves (f : leaf -> term) : term -> term =
+  function
+  | Leaf l -> f l
+  | App (lv,t,t') ->
+    App (lv, map_leaves f t, map_leaves f t')
+  | Arrow (lv,ts) ->
+    Arrow (lv, List.map (map_leaves f) ts)
+  | Let ((s,t), t') ->
+    Let ((s, map_leaves f t), map_leaves f t')
+
 let is_list_param (s : string) (ps : param list) =
   let f (s',_,att_opt) =
     (s = s' && att_opt = List)
@@ -181,14 +186,15 @@ let mk_const
   (mvs : int ref)
 =
   let f ((s,_,_) as p) =
-    incr mvs;
-    (p, Null !mvs)
+    incr mvs; (p, Leaf (MVar !mvs))
   in
-    Leaf (Const (str, List.map f ps))
+    if EO.is_meta str then
+      Leaf (Prog (str, List.map f ps))
+    else
+      Leaf (Const (str, List.map f ps))
 
 let mk_let (ws : var list) (t : term) =
   List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
-
 
 let find_typ_opt (s : string) (sgn : signature)
   : term option =
@@ -211,6 +217,31 @@ let find_att_opt (s : string) (sgn : signature)
   | None -> None
   end
 
+let pmap_find_opt
+  (s : string) : pmap -> (param * term) option =
+  List.find_opt (fun ((s',_,_),_) -> s = s')
+
+let map_param (f : term -> term) : param -> param =
+  fun (s,ty,att) -> (s, f ty, att)
+
+let map_pmap (f : term -> term) (pm : pmap) : pmap =
+  let g (p, t) = (map_param f p, f t) in
+  List.map g pm
+
+let rec pmap_subst (pm : pmap) (t : term) : term =
+  let f : leaf -> term =
+    function
+    | Var s ->
+      begin match pmap_find_opt s pm with
+      | Some (p, t) -> t
+      | None -> Leaf (Var s)
+      end
+    | Const (s, qm) ->
+      Leaf (Const (s, map_pmap (pmap_subst pm) qm))
+    | _ as l -> Leaf l
+  in
+    map_leaves f t
+
 let is_kind : term -> bool =
   function
   | Leaf Type -> true
@@ -219,7 +250,7 @@ let is_kind : term -> bool =
 
 let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
   : EO.term -> term =
-  function
+  begin function
   (* ------------------------ *)
   | Literal l -> Leaf (Literal l)
   (* ------------------------ *)
@@ -228,11 +259,13 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       Leaf (Type)
     else
       begin match M.find_opt s sgn with
+      (* ---- *)
       | Some info ->
         begin match info.def with
         | Some t -> desugar ctx mvs t
         | None -> mk_const s info.prm mvs
         end
+      (* ---- *)
       | None -> Leaf (Var s)
       end
   (* ------------------------ *)
@@ -252,7 +285,7 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       | Some (Binder t_cons) ->
         let ws_tm = desugar ctx mvs (Apply (t_cons, ws)) in
         mk_binop_app (f, ws_tm, t')
-      | None -> Printf.ksprintf failwith "ERROR:
+      | _ -> Printf.ksprintf failwith "ERROR:
         symbol `%s` doesn't have :binder attribute." s
       end
     | None -> Printf.ksprintf failwith
@@ -267,9 +300,29 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       Arrow (O, ts')
   (* ------------------------ *)
   | Apply (s, ts) ->
-    let f = desugar ctx mvs (Symbol s) in
     let ts' = List.map (desugar ctx mvs) ts in
-    mk_list_app ctx mvs f ts'
+    (* is `s` registered in the signature? *)
+    begin match M.find_opt s sgn with
+    | Some info ->
+      (* is `s` a defined symbol? *)
+      begin match info.def with
+      | Some t ->
+        (* if so, desugar body and subst. *)
+        let t' = desugar ctx mvs t in
+        let vs = List.take (List.length info.prm) ts' in
+        let ws = List.drop (List.length info.prm) ts' in
+        let pm = List.combine info.prm vs in
+        mk_list_app ctx mvs (pmap_subst pm t') ws
+      (* ----- *)
+      | None ->
+        (* if not, make constant and gen n-ary application.*)
+        let f = mk_const s info.prm mvs in
+        mk_list_app ctx mvs f ts'
+      end
+    (* ---- *)
+    | None -> mk_app O (mk_var s) ts'
+    end
+  end
 and
   glue
     (sgn, ps as ctx : context) (mvs : int ref)
@@ -288,6 +341,7 @@ and
   (f : term) (ts : term list) : term
 =
   begin match f with
+  | Leaf (Prog (s, _)) -> mk_app M f ts
   | Leaf (Const (s, _)) ->
     begin match find_typ_opt s sgn with
     | None -> Printf.ksprintf failwith
@@ -297,10 +351,8 @@ and
       begin match find_att_opt s sgn with
       | None -> mk_app O f ts
       | Some att ->
-        let
-          g x y = glue ctx mvs (f, x, y)  and
-          h y x = glue ctx mvs (f, y, x)
-        in
+        let g x y = glue ctx mvs (f, x, y) in
+        let h y x = glue ctx mvs (f, y, x) in
         begin match att with
         | RightAssocNil t_nil ->
           begin match ts with
@@ -350,12 +402,14 @@ let desugar_param
   in
     (s, desugar ctx mvs t, att')
 
-let desugar_case (ctx : context)
+let desugar_case
+  (ctx : context)
   (t,t' : EO.case) : case =
   let mvs = ref 0 in
   (desugar ctx mvs t, desugar ctx mvs t')
 
-let desugar_cattr (sgn : signature) (att : EO.const_attr)
+let desugar_cattr
+  (sgn : signature) (att : EO.const_attr)
   : const_attr
 =
   let mvs = ref 0 in

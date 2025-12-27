@@ -5,6 +5,7 @@ type binder =
 
 type leaf =
   | Type | Set
+  | PVar of string
   | Const of string
   | Var of string
 and term =
@@ -14,11 +15,11 @@ and term =
   | El of term
   | Arrow of level * (term list)
   | Bind of binder * param list * term
-  | Let of (string * term) * term
+  | Let of string * term * term
 and level = O | M
-and param =
-  | Implicit of string * term
-  | Explicit of string * term
+and attr = Explicit | Implicit
+and param = string * term * attr
+
 
 type case = (term * term)
 
@@ -45,7 +46,7 @@ let is_leaf_or_wrap : term -> bool =
   function
   | Leaf _ -> true
   | Wrap _ -> true
-  | _ -> false
+  | _      -> false
 
 let is_pi : term -> bool =
   function
@@ -53,17 +54,37 @@ let is_pi : term -> bool =
   | _ -> false
 
 let in_params (s : string) (ps : param list) : bool =
-  List.exists
-    (function
-      | (Explicit (s',_) | Implicit (s', _))
-        when s = s' -> true
-      | _ -> false
-    ) ps
+  List.exists (fun (s',_,_) -> s = s') ps
+
+let map_param (f : term -> term) : param -> param =
+  function (s,t,att) -> (s,f t,att)
+
+let rec map_leaves (f : leaf -> term) : term -> term =
+  function
+  | Leaf l -> f l
+  | Wrap t -> Wrap (map_leaves f t)
+  | El t -> El (map_leaves f t)
+  | App (lv,t,t') ->
+    App (lv, map_leaves f t, map_leaves f t')
+  | Arrow (lv,ts) ->
+    Arrow (lv, List.map (map_leaves f) ts)
+  | Let (s,t,t') ->
+    Let (s,map_leaves f t, map_leaves f t')
+  | Bind (b,ps,t) ->
+    Bind (b,
+      List.map (map_param (map_leaves f)) ps,
+      map_leaves f t
+    )
+
+let map_cases (f : term -> term) (cs : case list) : case list =
+  let g (t,t') = (f t, f t') in
+  List.map g cs
 
 let rec leaf_str : leaf -> string =
   function
   | Type -> "TYPE"
   | Set -> "Set"
+  | PVar s -> "$" ^ s
   | Const s -> s
   | Var s -> s
 and term_str : term -> string =
@@ -77,8 +98,7 @@ and term_str : term -> string =
       ) ts
     in
       String.concat
-        (if lv = O then " ⤳ " else " → ")
-        strs
+        (if lv = O then " ⤳ " else " → ") strs
   | El t ->
     Printf.sprintf
       (if is_leaf_or_wrap t then "El %s" else "El (%s)")
@@ -98,15 +118,15 @@ and term_str : term -> string =
       (binder_str b)
       (param_list_str xs)
       (term_str t)
-  | Let ((s,t),t') ->
+  | Let (s,t,t') ->
     Printf.sprintf "let %s ≔ %s in %s"
       s (term_str t) (term_str t')
 and param_str : param -> string =
   function
-  | Implicit (s,t) ->
+  | (s,t,Implicit) ->
     Printf.sprintf "[%s : %s]"
       s (term_str t)
-  | Explicit (s,t) ->
+  | (s,t,Explicit) ->
     Printf.sprintf "(%s : %s)"
       s (term_str t)
 
@@ -127,7 +147,6 @@ let modifier_str =
 
 let lp_command_str =
   function
-  (*  printing <m>? symbol <s> <p>* : t <:= t'>? *)
   | Symbol (m_opt, str, xs, ty_opt, def_opt) ->
     let m_str = match m_opt with
       | None -> ""
