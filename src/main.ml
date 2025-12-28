@@ -11,19 +11,7 @@ end
 
 module Elab = Elaborate
 
-let cpc_root  = "../cvc5/proofs/eo/cpc"
-let cpc_mini  =
-  let con fp = Filename.concat cpc_root fp in
-  let fps = ["programs/Utils.eo"] in
-  List.map con fps
-
-let cpc_eos : EO.command list =
-  List.concat_map EO.parse_eo_file cpc_mini
-
-let test_eo : EO.command list =
-  EO.parse_eo_file "src/test.eo"
-
-let test_elab : Elab.command list =
+let elaborate (cs : EO.command list) : Elab.command list =
   let f eo =
     Printf.printf
       "Elaborating:\n%s\n"
@@ -36,10 +24,10 @@ let test_elab : Elab.command list =
         (Elab.command_str (Option.get eo'));
     eo'
   in
-    List.filter_map f test_eo
+    List.filter_map f cs
 
-let test_lp : LP.command list =
-  let f eo =
+let translate (eos : Elab.command list) : LP.command list =
+  List.concat_map (fun eo ->
     Printf.printf
       "Translating:\n%s\n"
       (Elab.command_str eo);
@@ -49,27 +37,38 @@ let test_lp : LP.command list =
       "Done:\n%s\n\n"
       (String.concat "\n" (List.map LP.lp_command_str lps));
     lps
-  in
-    List.concat_map f test_elab
+  ) eos
 
-let requires_lp : LP.command list =
-  [
-    LP.Require ["Logic.U.Arrow"; "eo2lp.Core"];
-  ]
-
-let out () : unit =
+let write (lps : LP.command list) : unit =
   let ch = open_out "lp/out.lp" in
   let f lp =
     output_string ch (LP.lp_command_str lp);
     output_char ch '\n'
   in
-    List.iter f (List.append requires_lp test_lp);
+    List.iter f lps;
     close_out ch
 
 
-let tctx = (!Elab._sig, [])
-let tt : EO.term =
-  Apply ("@Pair", [Symbol "Bool"; Symbol "Bool"])
+let cpc_root  = "../cvc5/proofs/eo/cpc"
+let cpc_paths : string list  =
+  let con = Filename.concat cpc_root in
+  let fps = ["programs/Utils.eo"] in
+  List.map con fps
+
+let cpc_eo : EO.command list =
+  List.concat_map EO.parse_eo_file cpc_paths
+
+let cpc_elab : Elab.command list =
+  elaborate cpc_eo
+
+let cpc_lp : LP.command list =
+  translate cpc_elab
+
+let main () =
+  let rq = LP.Require ["Logic.U.Arrow"; "eo2lp.Core"] in
+  write (rq :: cpc_lp)
+
+
 (*
 let proc_eo_file (fp : string) : (Elab.command list) =
   let eos = Parse_eo.parse_eo_file fp in
