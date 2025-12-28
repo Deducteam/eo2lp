@@ -1,8 +1,6 @@
 <!-- do this before rule elaboration -->
-- implement :chainable and :pairwise application strategies.
-- support multi-file Eunoia signatures by recursively
-  handling `include` to generate a DAG.
-
+<!--- implement :chainable and :pairwise application strategies.-->
+- implement elaboration for `include`.
 - handle :assumption and :requires in rule declarations.
 <!---->
 
