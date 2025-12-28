@@ -354,6 +354,7 @@ and
         let g x y = glue ctx mvs (f, x, y) in
         let h y x = glue ctx mvs (f, y, x) in
         begin match att with
+        (* ---- *)
         | RightAssocNil t_nil ->
           begin match ts with
           | [t1; Leaf Var xs] when is_list_param xs ps ->
@@ -361,6 +362,7 @@ and
           | _ ->
             List.fold_right g ts t_nil
           end
+        (* ---- *)
         | LeftAssocNil t_nil ->
           begin match ts with
           | [t1; Leaf Var xs] when is_list_param xs ps ->
@@ -368,16 +370,39 @@ and
           | _ ->
             List.fold_left h t_nil ts
           end
+        (* ---- *)
         | RightAssoc ->
           let (xs, x) = split_last ts in
           List.fold_right g xs x
+        (* ---- *)
         | LeftAssoc ->
           List.fold_left h (List.hd ts) (List.tl ts)
-        | _ ->
+        | Chainable op ->
+          let f' = desugar ctx mvs (Symbol op) in
+          let rec aux = function
+            | v :: w :: vs -> mk_app O f [v;w] :: aux vs
+            | _ -> []
+          in
+            mk_list_app ctx mvs f' (aux ts)
+        | Pairwise op ->
+          let f' = desugar ctx mvs (Symbol op) in
+          let rec aux = function
+            | v :: vs ->
+              List.append
+                (List.map (fun w -> mk_app O f [v;w]) vs)
+                (aux vs)
+            | [] -> []
+          in
+            mk_list_app ctx mvs f' (aux ts)
+        | RightAssocNilNSN _
+        | LeftAssocNilNSN _
+        | ArgList _ | Binder _ ->
+          failwith "unimplemented strategy"
+        (* | _ ->
           Printf.printf
             "WARNING: naive app; constant %s, attribute %s.\n"
             (term_str f) (const_attr_str att);
-          mk_app O f ts
+          mk_app O f ts *)
         end
       end
     end
