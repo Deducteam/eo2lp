@@ -15,7 +15,7 @@ let is_forbidden (s : string) : bool =
     String.contains s ':'
   )
 
-let app_list (lv : level) (t : term) (ts : term list) : term =
+let app_list (lv : level) (t,ts : term * term list) : term =
   List.fold_left
     (fun t_acc t -> App (lv, t_acc, t))
     t ts
@@ -41,7 +41,7 @@ let rec translate_term (exp : bool) : EO.term -> term =
     Arrow (O, ts')
   | Arrow (M,ts) ->
     failwith "Type level arrow found at term level."
-  | Let ((s,t), t') ->
+  | Let (s,t,t') ->
     Let (
       translate_symbol s,
       translate_term exp t,
@@ -52,19 +52,26 @@ and translate_leaf (exp : bool) : EO.leaf -> term =
   begin function
   | Literal l ->
     failwith "literal translation not yet implemented."
-  | MVar i -> Leaf (Var "_")
+  | MVar i ->
+    failwith "cannot translate Eunoia metavariable."
   | Type ->
     failwith "can't translate TYPE at term level."
   | Kind ->
     failwith "can't translate KIND at term level."
   | Prog ("eo::requires", p1 :: (_, Leaf Type) :: pm) ->
-    translate_leaf exp (Prog ("eo::requires_type_out", p1 :: pm))
+    (
+      Prog ("eo::requires_type_out", p1 :: pm)
+      |> translate_leaf exp
+    )
   | Prog ("eo::requires", (_, Leaf Type) :: pm) ->
-    translate_leaf exp (Prog ("eo::requires_type_in", pm))
-  | Const (s,pm) | Prog (s,pm) ->
-    let f = Leaf (Const (translate_symbol s)) in
-    let ts = if exp then translate_pmap pm else [] in
-    app_list M f ts
+    (
+      Prog ("eo::requires_type_in", pm)
+      |> translate_leaf exp
+    )
+  | Const (s,pm) | Prog (s,pm) -> (
+      Leaf (Const (translate_symbol s)),
+      if exp then translate_pmap pm else []
+    ) |> app_list M
   | Var s -> Leaf (Var (translate_symbol s))
   end
 and translate_pmap (pm : EO.pmap) : term list =
@@ -75,7 +82,7 @@ and translate_type : EO.term -> term =
   | Leaf Type -> Leaf Set
   | Arrow (M, ts) ->
       Arrow (M, List.map translate_type ts)
-  | Let ((s,t),t') ->
+  | Let (s,t,t') ->
       failwith "Can't translate Let as a type."
   | _ as t -> El (translate_term true t)
   end
@@ -119,12 +126,13 @@ let translate_cases
 let translate_command : EO.command -> command list =
   function
   | Decl (s,ps,t) ->
+    let (qs,t') = EO.bind_mvars (ps,t) in
     [
       Symbol (
         Some Constant,
         translate_symbol s,
-        translate_params ps,
-        Some (translate_type t),
+        translate_params qs,
+        Some (translate_type t'),
         None
       )
     ]
