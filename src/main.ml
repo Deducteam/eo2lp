@@ -54,16 +54,19 @@ let proc (env : EO.environment) (p : EO.path) : LP.command list =
   | Some eos -> translate (elaborate env eos)
   | None -> failwith "Can't find path in environment."
 
-let core_eo : EO.command list =
-  EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
+let core : LP.command list =
+  let eos =
+    EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
+  in
+    translate (elaborate [] eos)
+
+let env : EO.environment =
+  Parse_eo.parse_eo_dir "./cpc-mini"
 
 let main () =
-  let core_lps = translate (elaborate [] core_eo) in
-
   let rq = LP.Require ["Logic.U.Arrow"; "eo2lp.Core"] in
-  let env = Parse_eo.parse_eo_dir "./cpc-mini" in
   let lps = proc env ["theories";"Builtin"] in
-  write (rq :: List.append core_lps lps)
+  write (rq :: List.append core lps)
 
 
 (* let gen_const (sgn : signature)
