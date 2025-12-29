@@ -16,9 +16,9 @@ and term =
   | Leaf of leaf
   | App of level * term * term
   | Arrow of level * term list
-  | Let of var * term
+  | Let of string * term * term
 and level = O | M
-and var = (string * term)
+
 and param = string * term * param_attr
 and pmap = (param * term) list
 and param_attr =
@@ -104,7 +104,7 @@ let rec term_str : term -> string =
     Printf.sprintf "(%s %s)"
       (if lv = O then "~>" else "->")
       (String.concat " " (List.map f ts))
-  | Let ((s,t), t') ->
+  | Let (s,t,t') ->
     Printf.sprintf
       "let (%s := %s) in %s"
       s (term_str t) (term_str t')
@@ -172,8 +172,8 @@ let rec map_leaves (f : leaf -> term) : term -> term =
     App (lv, map_leaves f t, map_leaves f t')
   | Arrow (lv,ts) ->
     Arrow (lv, List.map (map_leaves f) ts)
-  | Let ((s,t), t') ->
-    Let ((s, map_leaves f t), map_leaves f t')
+  | Let (s,t,t') ->
+    Let (s, map_leaves f t, map_leaves f t')
 
 let is_list_param (s : string) (ps : param list) =
   let f (s',_,att_opt) =
@@ -211,8 +211,9 @@ let app_opaques (f : term) (ts : term list)
       (Leaf (Const (s, pm')), ts')
     | _ -> (f,ts)
     end
-let mk_let (ws : var list) (t : term) =
-  List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
+
+let mk_let (ws : (string * term) list) (t : term) =
+  List.fold_right (fun (s,def) t_acc -> Let (s,def,t_acc)) ws t
 
 let find_typ_opt (s : string) (sgn : signature)
   : term option =
@@ -256,6 +257,8 @@ let rec pmap_subst (pm : pmap) (t : term) : term =
       end
     | Const (s, qm) ->
       Leaf (Const (s, map_pmap (pmap_subst pm) qm))
+    | Prog (s, qm) ->
+      Leaf (Prog (s, map_pmap (pmap_subst pm) qm))
     | _ as l -> Leaf l
   in
     map_leaves f t
