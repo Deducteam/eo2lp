@@ -55,5 +55,5 @@ sequential symbol {|$get_lambda_type|} : (El {|eo::List|}) → Set → Set;
 rule {|$get_lambda_type|} ({|eo::List::cons|} [{|eo::List|}] ▫ $x ▫ $xs) $B ↪ ({|eo::typeof|} $x) ⤳ ({|$get_lambda_type|} $xs $B)
 with {|$get_lambda_type|} {|eo::List::nil|} $B ↪ $B;
 constant symbol lambda [B : Set] (L : El {|eo::List|}) : El (B ⤳ ({|$get_lambda_type|} L B));
-constant symbol distinct (xs : El {|eo::List|}) : El ({|eo::requires_type_out|} [Bool] ({|$assoc_nil_same_type|} [_] [{|eo::List|}] ({|eo::List::cons|} [_]) xs) true Bool);
+constant symbol distinct [x0 : Set] (xs : El {|eo::List|}) : El ({|eo::requires_type_out|} [Bool] ({|$assoc_nil_same_type|} [x0] [{|eo::List|}] ({|eo::List::cons|} [x0]) xs) true Bool);
 constant symbol {|@purify|} [A : Set] (t : El A) : El A;
