@@ -193,6 +193,24 @@ let mk_const
     else
       Leaf (Const (str, List.map f ps))
 
+
+let app_opaques (f : term) (ts : term list)
+  : (term * term list) =
+  let rec aux pm ts =
+    begin match (pm,ts) with
+    | (_,[]) -> (pm,[])
+    | ([],_) -> ([],ts)
+    | (((_,_,Opaque) as p, _) :: qm, t :: ts) ->
+      let (qm', ts') = aux qm ts in
+      ((p, t) :: qm', ts')
+    end
+  in
+    begin match f with
+    | Leaf Const (s,pm) ->
+      let (pm',ts') = aux pm ts in
+      (Leaf (Const (s, pm')), ts')
+    | _ -> (f,ts)
+    end
 let mk_let (ws : var list) (t : term) =
   List.fold_right (fun v t_acc -> Let (v, t_acc)) ws t
 
@@ -309,15 +327,25 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
       | Some t ->
         (* if so, desugar body and subst. *)
         let t' = desugar ctx mvs t in
-        let vs = List.take (List.length info.prm) ts' in
-        let ws = List.drop (List.length info.prm) ts' in
-        let pm = List.combine info.prm vs in
-        mk_list_app ctx mvs (pmap_subst pm t') ws
+        (* get non-implicit params. *)
+        let qs = List.drop_while
+          (fun (_,_,att) -> att = Implicit)
+          info.prm
+        in
+        (* get terms to be substituted. *)
+        let vs = List.take (List.length qs) ts' in
+        let pm = List.combine qs vs in
+        (* perform substitution, get rest of the terms. *)
+        let f' = pmap_subst pm t' in
+        let ws = List.drop (List.length qs) ts' in
+        (* continue desugaring. *)
+        mk_list_app ctx mvs f' ws
       (* ----- *)
       | None ->
         (* if not, make constant and gen n-ary application.*)
         let f = mk_const s info.prm mvs in
-        mk_list_app ctx mvs f ts'
+        let (f', ts'') = app_opaques f ts' in
+        mk_list_app ctx mvs f ts''
       end
     (* ---- *)
     | None -> mk_app O (mk_var s) ts'
@@ -330,10 +358,10 @@ and
 =
   match t1 with
   | Leaf (Var s) when is_list_param s ps ->
-    let eo_concat =
+    let con =
       desugar ctx mvs (Symbol "eo::list_concat")
     in
-      mk_app M eo_concat [f;t1;t2]
+      mk_app M con [f;t1;t2]
   | _ -> mk_binop_app (f,t1,t2)
 and
   mk_list_app
@@ -342,10 +370,8 @@ and
 =
   begin match f with
   | Leaf (Prog (s, _)) -> mk_app M f ts
-  | Leaf (Const (s, _)) ->
+  | Leaf (Const (s, pm)) ->
     begin match find_typ_opt s sgn with
-    | None -> Printf.ksprintf failwith
-      "ERROR: unregistered constant %s" s
     | Some t when is_kind t -> mk_app M f ts
     | Some _ ->
       begin match find_att_opt s sgn with
@@ -377,6 +403,7 @@ and
         (* ---- *)
         | LeftAssoc ->
           List.fold_left h (List.hd ts) (List.tl ts)
+        (* ---- *)
         | Chainable op ->
           let f' = desugar ctx mvs (Symbol op) in
           let rec aux = function
@@ -384,6 +411,7 @@ and
             | _ -> []
           in
             mk_list_app ctx mvs f' (aux ts)
+        (* ---- *)
         | Pairwise op ->
           let f' = desugar ctx mvs (Symbol op) in
           let rec aux = function
@@ -394,19 +422,18 @@ and
             | [] -> []
           in
             mk_list_app ctx mvs f' (aux ts)
+        (* ---- *)
         | RightAssocNilNSN _
         | LeftAssocNilNSN _
         | ArgList _ | Binder _ ->
           failwith "unimplemented strategy"
-        (* | _ ->
-          Printf.printf
-            "WARNING: naive app; constant %s, attribute %s.\n"
-            (term_str f) (const_attr_str att);
-          mk_app O f ts *)
+        (* ---- *)
         end
       end
+    | None -> Printf.ksprintf failwith
+      "ERROR: unregistered constant %s" s
     end
-    | _ -> mk_app O f ts
+  | _ -> mk_app O f ts
   end
 
 let desugar_term (ctx : context) (t : EO.term) =

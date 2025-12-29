@@ -31,6 +31,8 @@ and param_attr =
   | Implicit
   | Opaque
   | List
+and sorry =
+  Sorry
 
 type param = string * term * (param_attr option)
 
@@ -88,16 +90,17 @@ type command =
   | AssumePush        of string * term
   | DeclareConsts     of lit_category * term
   | DeclareParamConst of string * param list * term * (const_attr option)
-  | DeclareRule       of string * param list * rule_dec
+  | DeclareRule       of string * param list * rule_dec * (sorry option)
   | Define            of string * param list * term * (term option)
-  | Include           of string
+  | Include           of path
   | Program           of string * param list * (term list * term) * case list
   | Reference         of string * string option
   | Step              of string * term option * string * term list * term list
   | StepPop           of string * term option * string * term list * term list
   | Common            of common_command
+and path = string list
 
-
+type environment = (path * command list) list
 (* ---- helpers -------- *)
 (* ##########
   deprecated?
@@ -378,17 +381,18 @@ let command_str = function
         s (list_str param_str ps)
         (term_str t)
         (opt_suffix_str const_attr_str att_opt)
-  | DeclareRule (s,xs,rdec) ->
-      Printf.sprintf "(declare-rule %s (%s)\n%s)"
+  | DeclareRule (s,xs,rdec,sorry_opt) ->
+      Printf.sprintf "(declare-rule %s (%s)\n%s\n%s)"
         s (list_str param_str xs)
         (rule_dec_str rdec)
+        (opt_newline (fun _ -> ":sorry") sorry_opt)
   | Define (s,xs,t,t_opt) ->
       Printf.sprintf "(define %s (%s) %s%s)"
         s (list_str param_str xs)
         (term_str t)
         (opt_suffix_str term_str t_opt)
-  | Include s ->
-      Printf.sprintf "(include '%s')" s
+  | Include p ->
+      Printf.sprintf "(include %s)" (String.concat "." p)
   | Program (s,xs,(ts,t),cs) ->
       Printf.sprintf
         "(program %s (%s) :signature (%s) %s (...))"

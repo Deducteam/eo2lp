@@ -8,23 +8,24 @@ module LP = struct
   include Syntax_lp
   include Translate
 end
-
 module Elab = Elaborate
+module M = EO.M
 
-let elaborate (cs : EO.command list) : Elab.command list =
+let elaborate (env : EO.environment) (cs : EO.command list)
+  : Elab.command list =
   let f eo =
     Printf.printf
       "Elaborating:\n%s\n"
       (EO.command_str eo);
 
-    let eo' = Elab.elaborate_cmd eo in
-    if Option.is_some eo' then
+    let eo' = Elab.elaborate_cmd env eo in
+    if eo' != [] then
       Printf.printf
         "Done:\n%s\n\n"
-        (Elab.command_str (Option.get eo'));
+        (List.map Elab.command_str eo' |> String.concat "\n");
     eo'
   in
-    List.filter_map f cs
+    List.concat_map f cs
 
 let translate (eos : Elab.command list) : LP.command list =
   List.concat_map (fun eo ->
@@ -48,52 +49,21 @@ let write (lps : LP.command list) : unit =
     List.iter f lps;
     close_out ch
 
+let proc (env : EO.environment) (p : EO.path) : LP.command list =
+  match List.assoc_opt p env with
+  | Some eos -> translate (elaborate env eos)
+  | None -> failwith "Can't find path in environment."
 
-let cpc_root  = "../cvc5/proofs/eo/cpc"
-let cpc_paths : string list  =
-  let con = Filename.concat cpc_root in
-  let fps = ["programs/Utils.eo"] in
-  List.map con fps
-
-let cpc_eo : EO.command list =
-  List.concat_map EO.parse_eo_file cpc_paths
-
-let cpc_elab : Elab.command list =
-  elaborate cpc_eo
-
-let cpc_lp : LP.command list =
-  translate cpc_elab
+let core_eo : EO.command list =
+  EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
 
 let main () =
+  let core_lps = translate (elaborate [] core_eo) in
+
   let rq = LP.Require ["Logic.U.Arrow"; "eo2lp.Core"] in
-  write (rq :: cpc_lp)
-
-
-(*
-let proc_eo_file (fp : string) : (Elab.command list) =
-  let eos = Parse_eo.parse_eo_file fp in
-  let (_sig', eos') = Elab.elab_eo_file !EO._sig eos in
-  eos'
-
-let proc_cpc_mini : Elab.command list =
-  List.concat_map proc_eo_file cpc_mini *)
-
-
-(* let builtin_tys =
-  let tm = Parse_eo.parse_eo_term in
-  [
-    ("eo::List", tm "Type");
-    ("eo::List::cons", tm "(-> T eo::List eo::List)")
-  ]
-(* open Elaborate *)
-let _sig : signature =
-  {
-    prm = M.empty;
-    typ = M.of_list builtin_tys;
-    def = M.empty;
-    att = M.empty;
-    lit = [];
-  } *)
+  let env = Parse_eo.parse_eo_dir "./cpc-mini" in
+  let lps = proc env ["theories";"Builtin"] in
+  write (rq :: List.append core_lps lps)
 
 
 (* let gen_const (sgn : signature)

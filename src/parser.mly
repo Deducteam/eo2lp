@@ -45,7 +45,7 @@ let flatten =
   IMPLICIT OPAQUE LIST
 
 %token
-  TYPE
+  TYPE SORRY
 
 %token
   ASSUMPTION
@@ -164,6 +164,7 @@ command:
       args_opt  = option(arguments);
       reqs_opt  = option(reqs);
       conc = conclusion;
+      att_opt = option(rule_attr);
     RPAREN
   { let r =
       {
@@ -181,7 +182,8 @@ command:
       _sig := M.add s
         { prm = []; att = None; typ = None; def = None }
        !_sig;
-      DeclareRule (s, xs, r)
+
+      DeclareRule (s, xs, r, att_opt)
   }
   | LPAREN; DEFINE;
       s = symbol ;
@@ -198,7 +200,7 @@ command:
   | LPAREN; INCLUDE;
       str = STRING;
     RPAREN
-  { Include str }
+  { Include [str] }
   | LPAREN; PROGRAM;
       s = symbol ;
       LPAREN; xs = list(param); RPAREN;
@@ -276,6 +278,10 @@ param_attr:
 defn_attr:
   | TYPE; t = term
   { t }
+
+rule_attr:
+  | SORRY
+  { Sorry }
 
 term:
   | l = literal
@@ -367,7 +373,7 @@ arguments:
   | ARGS; LPAREN; ts = list(term); RPAREN;
   { ts }
 reqs:
-  | REQUIRES; LPAREN; cs = cases; RPAREN
+  | REQUIRES; cs = cases
   { cs }
 conclusion:
   | CONCLUSION; t = term

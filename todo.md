@@ -1,6 +1,7 @@
 <!-- do this before rule elaboration -->
 <!--- implement :chainable and :pairwise application strategies.-->
 - implement elaboration for `include`.
+- implement `:opaque`.
 - handle :assumption and :requires in rule declarations.
 <!---->
 
