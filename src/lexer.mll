@@ -23,6 +23,12 @@ rule token = parse
   | ';' [^'\n']* '\n' { Lexing.new_line lexbuf; token lexbuf }  (* Ignore comments *)
   | ';' [^'\n']* eof  { token lexbuf }   (* Ignore comments at end of file *)
   | '\n' { Lexing.new_line lexbuf; token lexbuf }
+  | '"' [^ '"']* '"' as s
+    {
+      (* Remove the first and last character *)
+      let content = String.sub s 1 (String.length s - 2) in
+      STRING content
+    }
   | eof             { EOF }
   | '('             { LPAREN }
   | ')'             { RPAREN }
@@ -59,6 +65,8 @@ rule token = parse
   | ":list"            { LIST }
   (* type attribute for `define` command *)
   | ":type" { TYPE }
+  (* sorry attribute for `declare-rule` command *)
+  | ":sorry" { SORRY }
   (* eunoia proof script commands *)
   | "assume"         { ASSUME }
   | "assume-push"    { ASSUME_PUSH }
@@ -81,7 +89,6 @@ rule token = parse
   | "<binary>"       { BIN }
   | "<hexadecimal>"  { HEX }
   (* syntactic literals *)
-  | string as s      { STRING s }
   | numeral as x     { NUMERAL (int_of_string x) }
   | decimal as x     { DECIMAL (float_of_string x) }
   | rational as x    { RATIONAL

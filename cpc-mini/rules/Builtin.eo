@@ -1,5 +1,6 @@
 (include "../theories/Builtin.eo")
 
+
 ; rule: scope
 ; assumption:
 ; - F: The formula we have assumed.
@@ -33,7 +34,7 @@
 ;   (=> G1 (=> G2 C)), or true if F is C. Otherwise, it does not evaluate.
 (program $extract_antec_rec
    ((C Bool) (F1 Bool) (F2 Bool))
-   (Bool Bool) Bool
+   :signature (Bool Bool) Bool
    (
    (($extract_antec_rec C C)          true)
    (($extract_antec_rec (=> F1 F2) C) (eo::cons and F1 ($extract_antec_rec F2 C)))
@@ -50,7 +51,7 @@
 ;   single child.
 (program $extract_antec
    ((C Bool) (F Bool))
-   (Bool Bool) Bool
+   :signature (Bool Bool) Bool
    (
    (($extract_antec (=> F C) C) F)
    (($extract_antec F C)        ($extract_antec_rec F C))
@@ -65,7 +66,7 @@
 ;   The expected conclusion of a ProofRule::SCOPE.
 (program $run_process_scope
    ((C Bool) (F Bool))
-   (Bool Bool) Bool
+   :signature (Bool Bool) Bool
    (
    (($run_process_scope F false)  (not ($extract_antec F false)))
    (($run_process_scope F C)      (=> ($extract_antec F C) C))
@@ -91,16 +92,16 @@
   :conclusion ($run_process_scope F C)
 )
 
-; ; rule: ite_eq
-; ; implements: ProofRule::ITE_EQ
-; ; args:
-; ; - t T: The ite term.
-; ; conclusion: >
-; ;   The axiom defining the behavior of the ite term, namely that it is equal
-; ;   to its then branch when its condition is true, or its else branch when its
-; ;   condition is false.
-; (declare-rule ite_eq ((T Type) (b Bool) (t1 T) (t2 T))
-;   :args ((ite b t1 t2))
-;   :conclusion
-;     (eo::define ((k (ite b t1 t2))) (ite b (= k t1) (= k t2)))
-; )
+; rule: ite_eq
+; implements: ProofRule::ITE_EQ
+; args:
+; - t T: The ite term.
+; conclusion: >
+;   The axiom defining the behavior of the ite term, namely that it is equal
+;   to its then branch when its condition is true, or its else branch when its
+;   condition is false.
+(declare-rule ite_eq ((T Type) (b Bool) (t1 T) (t2 T))
+  :args ((ite b t1 t2))
+  :conclusion
+    (eo::define ((k (ite b t1 t2))) (ite b (= k t1) (= k t2)))
+)

@@ -54,9 +54,12 @@ let rec mv_subst (mvm : mvmap) (t : term) =
       | Some t -> t
       | None -> Leaf (MVar i)
       end
-    | Const (s, pm) | Prog (s, pm) ->
+    | Const (s, pm) ->
       let pm' = map_pmap (mv_subst mvm) pm in
       Leaf (Const (s, pm'))
+    | Prog (s, pm) ->
+      let pm' = map_pmap (mv_subst mvm) pm in
+      Leaf (Prog (s, pm'))
     | _ as l -> Leaf l
   in
     map_leaves f t

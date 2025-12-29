@@ -52,12 +52,15 @@ and translate_leaf (exp : bool) : EO.leaf -> term =
   begin function
   | Literal l ->
     failwith "literal translation not yet implemented."
-  | MVar i ->
-    failwith "can't translate a term with an mvar."
+  | MVar i -> Leaf (Var "_")
   | Type ->
     failwith "can't translate TYPE at term level."
   | Kind ->
     failwith "can't translate KIND at term level."
+  | Prog ("eo::requires", p1 :: (_, Leaf Type) :: pm) ->
+    translate_leaf exp (Prog ("eo::requires_type_out", p1 :: pm))
+  | Prog ("eo::requires", (_, Leaf Type) :: pm) ->
+    translate_leaf exp (Prog ("eo::requires_type_in", pm))
   | Const (s,pm) | Prog (s,pm) ->
     let f = Leaf (Const (translate_symbol s)) in
     let ts = if exp then translate_pmap pm else [] in

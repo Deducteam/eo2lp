@@ -39,16 +39,11 @@ sequential symbol {|$result_combine|} : El (Bool ⤳ Bool ⤳ Bool);
 rule {|$result_combine|} $b1 {|@@result.null|} ↪ $b1
 with {|$result_combine|} $b1 $b1 ↪ $b1
 with {|$result_combine|} $b1 $b2 ↪ {|@@result.invalid|};
-sequential symbol {|$is_pairwise|} [T : Set] [U : Set] : El ((T ⤳ T ⤳ U) ⤳ (U ⤳ U ⤳ U) ⤳ T ⤳ {|eo::List|} ⤳ U ⤳ {|eo::List|} ⤳ Bool);
-rule {|$is_pairwise|} [$T] [$U] $f $op $a ({|eo::List::cons|} [$T] ▫ $b ▫ $bs) ($op ▫ ($f ▫ $a ▫ $b) ▫ $B) $rem ↪ {|$is_pairwise|} $f $op $a $bs $B $rem
-with {|$is_pairwise|} [$T] [$U] $f $op $a {|eo::List::nil|} $B ({|eo::List::cons|} [$T] ▫ $b ▫ $rem) ↪ {|$is_pairwise|} $f $op $b $rem $B $rem
-with {|$is_pairwise|} [$T] [$U] $f $op $a {|eo::List::nil|} $nil {|eo::List::nil|} ↪ {|eo::requires|} $nil ({|eo::nil|} $op ({|eo::typeof|} $a)) true;
-sequential symbol {|$extract_pairwise_args_rec|} [T : Set] [U : Set] : El ((T ⤳ T ⤳ U) ⤳ (U ⤳ U ⤳ U) ⤳ T ⤳ U ⤳ {|eo::List|});
-rule {|$extract_pairwise_args_rec|} [$T] [$U] $f $op $a ($op ▫ ($f ▫ $a ▫ $c) ▫ $B) ↪ {|eo::cons|} {|eo::List::cons|} $c ({|$extract_pairwise_args_rec|} $f $op $a $B)
-with {|$extract_pairwise_args_rec|} [$T] [$U] $f $op $a $B ↪ {|eo::List::nil|};
-sequential symbol {|$extract_pairwise_args|} [T : Set] [U : Set] : El ((T ⤳ T ⤳ U) ⤳ (U ⤳ U ⤳ U) ⤳ U ⤳ {|eo::List|});
-rule {|$extract_pairwise_args|} [$T] [$U] $f $op ($op ▫ ($f ▫ $a ▫ $b) ▫ $B) ↪ let D ≔ $op ▫ ($f ▫ $a ▫ $b) ▫ $B in let elems ≔ {|$extract_pairwise_args_rec|} $f $op $a D in {|eo::requires|} ({|$is_pairwise|} $f $op $a elems D elems) true ({|eo::cons|} {|eo::List::cons|} $a elems)
-with {|$extract_pairwise_args|} [$T] [$U] $f $op ($f ▫ $a ▫ $b) ↪ {|eo::List::cons|} ▫ $a ▫ ({|eo::List::cons|} ▫ $b ▫ {|eo::List::nil|});
+sequential symbol {|$assoc_nil_has_type_rec|} [T : Set] [U : Set] : (El (T ⤳ U ⤳ U)) → (El U) → Set → (El Bool);
+rule {|$assoc_nil_has_type_rec|} [$T] [$U] $f ($f ▫ $x1 ▫ $x2) $W ↪ {|eo::requires_type_in|} ({|eo::typeof|} $x1) $W ({|$assoc_nil_has_type_rec|} $f $x2 $W)
+with {|$assoc_nil_has_type_rec|} [$T] [$U] $f $nil $W ↪ true;
+sequential symbol {|$assoc_nil_same_type|} [T : Set] [U : Set] : El ((T ⤳ U ⤳ U) ⤳ U ⤳ Bool);
+rule {|$assoc_nil_same_type|} [$T] [$U] $f ($f ▫ $x1 ▫ $x2) ↪ {|$assoc_nil_has_type_rec|} $f $x2 ({|eo::typeof|} $x1);
 constant symbol ite [A : Set] : El (Bool ⤳ A ⤳ A ⤳ A);
 constant symbol not : El (Bool ⤳ Bool);
 constant symbol or : El (Bool ⤳ Bool ⤳ Bool);
@@ -60,14 +55,5 @@ sequential symbol {|$get_lambda_type|} : (El {|eo::List|}) → Set → Set;
 rule {|$get_lambda_type|} ({|eo::List::cons|} [{|eo::List|}] ▫ $x ▫ $xs) $B ↪ ({|eo::typeof|} $x) ⤳ ({|$get_lambda_type|} $xs $B)
 with {|$get_lambda_type|} {|eo::List::nil|} $B ↪ $B;
 constant symbol lambda [B : Set] (L : El {|eo::List|}) : El (B ⤳ ({|$get_lambda_type|} L B));
-constant symbol distinct [A : Set] : El (A ⤳ A ⤳ Bool);
+constant symbol distinct (xs : El {|eo::List|}) : El ({|eo::requires_type_out|} [Bool] ({|$assoc_nil_same_type|} [_] [{|eo::List|}] ({|eo::List::cons|} [_]) xs) true Bool);
 constant symbol {|@purify|} [A : Set] (t : El A) : El A;
-sequential symbol {|$extract_antec_rec|} : El (Bool ⤳ Bool ⤳ Bool);
-rule {|$extract_antec_rec|} $C $C ↪ true
-with {|$extract_antec_rec|} (=> ▫ $F1 ▫ $F2) $C ↪ {|eo::cons|} and $F1 ({|$extract_antec_rec|} $F2 $C);
-sequential symbol {|$extract_antec|} : El (Bool ⤳ Bool ⤳ Bool);
-rule {|$extract_antec|} (=> ▫ $F ▫ $C) $C ↪ $F
-with {|$extract_antec|} $F $C ↪ {|$extract_antec_rec|} $F $C;
-sequential symbol {|$run_process_scope|} : El (Bool ⤳ Bool ⤳ Bool);
-rule {|$run_process_scope|} $F false ↪ not ▫ ({|$extract_antec|} $F false)
-with {|$run_process_scope|} $F $C ↪ => ▫ ({|$extract_antec|} $F $C) ▫ $C;

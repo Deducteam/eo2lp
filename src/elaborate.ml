@@ -110,8 +110,9 @@ let prog_params (ps : param list) (t : term) : param list =
       None
   in
     List.filter_map f ps
-
-let rec elaborate_cmd : EO.command -> command option =
+(* (cwd,env : string * EO.environment) *)
+let rec elaborate_cmd (env : EO.environment)
+  : EO.command -> command list =
   function
   (* ---------------- *)
   | Assume (s,p) ->
@@ -122,11 +123,11 @@ let rec elaborate_cmd : EO.command -> command option =
         def = None; att = None; }
       !_sig;
 
-    Some (Decl (s, [], ty))
+    [ Decl (s, [], ty) ]
   (* ---------------- *)
-  | AssumePush (_,_)      -> None
+  | AssumePush (_,_)      -> []
   (* ---------------- *)
-  | DeclareConsts (lc,t)  -> None
+  | DeclareConsts (lc,t)  -> []
   (* ---------------- *)
   | DeclareParamConst (s,ps,ty,att) ->
     let qs = elab_param_list !_sig ps in
@@ -137,9 +138,9 @@ let rec elaborate_cmd : EO.command -> command option =
       { prm = qs; typ = Some ty';
         def = None ; att = att'; } !_sig;
 
-    Some (Decl (s, qs, ty'))
+    [ Decl (s, qs, ty') ]
   (* ---------------- *)
-  | DeclareRule (s,ps,rd) ->
+  | DeclareRule (s,ps,rd,_) ->
     let qs = elab_param_list !_sig ps in
     let r' = elab_rdec (!_sig, qs) rd in
 
@@ -147,7 +148,7 @@ let rec elaborate_cmd : EO.command -> command option =
       { prm = qs; typ = None;
         def = None; att = None } !_sig;
 
-    Some (Rule (s, qs, r'))
+    [ Rule (s, qs, r') ]
   (* ---------------- *)
   (* Define just binds `s` to an `EO.term`.
     occurences unfolded during desugaring. *)
@@ -158,10 +159,15 @@ let rec elaborate_cmd : EO.command -> command option =
       { prm = qs; typ = None;
         def = Some def; att = None } !_sig;
 
-    None;
-    (* Some (Defn (s, List.append rs qs, def'', Some ty')) *)
+    []
   (* ---------------- *)
-  | Include s -> None
+  | Include p ->
+    begin match List.assoc_opt p env with
+    | Some eos -> List.concat_map (elaborate_cmd env) eos
+    | None -> Printf.printf
+      "WARNING: %s not in environment.\n"
+      (String.concat "." p); []
+    end
   (* ---------------- *)
   | Program (s, ps, (ts,t), cs) ->
     let ps' = elab_param_list !_sig ps in
@@ -174,43 +180,45 @@ let rec elaborate_cmd : EO.command -> command option =
       !_sig;
 
     let cs' = elab_cases (!_sig, ps') cs in
-    Some (Prog (s, (qs,ty), (ps', cs')))
+    [ Prog (s, (qs,ty), (ps', cs')) ]
     (* ---------------- *)
-  | Reference (_, _) -> None
+  | Reference (_, _) -> []
   (* ---------------- *)
-  | Step (s_step, conc_opt, s_rule, t_args, t_prems) ->
-    None
+  | Step (s_step, conc_opt, s_rule, t_args, t_prems) -> []
   (* ---------------- *)
-  | StepPop (_,_,_,_,_) -> None
+  | StepPop (_,_,_,_,_) -> []
   (* ---------------- *)
   | Common c -> elab_common c
 and
-  elab_common : EO.common_command -> command option =
+  elab_common : EO.common_command -> command list =
   function
   | DeclareConst (s,ty,att)  ->
+
     let (ty',_) = elab (!_sig, []) ty in
 
     _sig := M.add s
       { prm = []; typ = Some ty';
         def = None; att = None }
       !_sig;
-    Some (Decl (s, [], ty'))
-  | DeclareDatatype  (_s,_dt)    -> None
-  | DeclareDatatypes (_sts,_dts) -> None
-  | Echo             (_str_opt)  -> None
-  | Exit                         -> None
-  | Reset                        -> None
-  | SetOption        (_a)        -> None
+
+    [ Decl (s, [], ty') ]
+
+  | DeclareDatatype  (_s,_dt)    -> []
+  | DeclareDatatypes (_sts,_dts) -> []
+  | Echo             (_str_opt)  -> []
+  | Exit                         -> []
+  | Reset                        -> []
+  | SetOption        (_a)        -> []
 
  (* let elaborate_eo_file
-  (sgn : EO.signature)
-  (eos : EO.command list) : (signature * command list)
+  (sgn : EO.signature) (fp : EO.command list)
+  : (signature * command list)
 =
   let f eo =
     Printf.printf "desugaring:\n  %s\n"
       (EO.command_str eo);
 
-    let eo' = desugar_cmd sgn eo in
+    let eo' = des sgn eo in
     if Option.is_some eo' then
       Printf.printf "Done!:\n  %s\n\n"
       (command_str (Option.get eo')); eo'
