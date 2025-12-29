@@ -1,6 +1,8 @@
 open Desugar
 open Resolve
 
+module L = List
+
 (* post-elaboration command structure.  *)
 type command =
   | Decl of string * param list * term
@@ -20,7 +22,7 @@ let command_str : command -> string =
       "declare %s : %s"
       (const_str s ps) (term_str t)
   | Prog (s,(ps,t),(qs, cs)) ->
-    let cs_str = String.concat "\n" (List.map
+    let cs_str = String.concat "\n" (L.map
       (fun (l,r) -> term_str l ^ " ↪ " ^ term_str r) cs)
     in
       Printf.sprintf
@@ -47,8 +49,7 @@ let elab_param (ctx : context)
   (s,ty',att)
 
 let elab_param_list (sgn : signature)
-  : EO.param list -> param list
-=
+  : EO.param list -> param list =
   let rec aux sgn ps =
     function
     | [] -> []
@@ -62,7 +63,7 @@ let elab (ctx : context) (t : EO.term) : term * term =
   resolve ctx (desugar_term ctx t)
 
 let elab_cases (ctx : context) : EO.case list -> case list =
-  List.map (fun c -> resolve_case ctx (desugar_case ctx c))
+  L.map (fun c -> resolve_case ctx (desugar_case ctx c))
 
 let elab_rdec
   (sgn,ps as ctx : context)
@@ -78,14 +79,14 @@ let elab_rdec
     prem =
       begin match rd.prem with
       | Some (Simple ts) ->
-          Some (Simple (List.map e ts))
+          Some (Simple (L.map e ts))
       | Some (PremiseList (t,t')) ->
           Some (PremiseList (e t, e t'))
       | None ->
           None
       end;
-    args = List.map e rd.args;
-    reqs = List.map (desugar_case ctx) rd.reqs;
+    args = L.map e rd.args;
+    reqs = L.map (desugar_case ctx) rd.reqs;
     conc =
       begin match rd.conc with
       | Conclusion t ->
@@ -98,9 +99,37 @@ let elab_rdec
 let _sig : signature ref = ref M.empty
 
 let mvars_in_params (ps : param list) : S.t =
-  List.fold_left
+  L.fold_left
     (fun x (s,t,att) -> S.union x (mvars_in t))
     S.empty ps
+
+let bind_mvars (ps, t : param list * term)
+  : param list * term =
+  (* ---- *)
+  let bind =
+    fun i ((_,ty,_), j) ->
+    let rec
+      s = "x" ^ string_of_int i and
+      q = (s,ty,Implicit) and
+      tq = Leaf (Var s)
+    in
+      Some (q, (j, tq))
+  in
+  (* ---- *)
+  let (qs, mvm) = mvars_in t
+    |> S.to_list
+    |> L.mapi bind
+    |> L.filter_map (fun x -> x)
+    |> L.split
+  in
+  (* ---- *)
+  let
+    ps' = ps |> L.map (map_param (mv_subst mvm)) and
+    t' = mv_subst mvm t
+  in
+    (List.append qs ps', t')
+
+
 
 let prog_params (ps : param list) (t : term) : param list =
   let f (s,ty,_) =
@@ -109,7 +138,8 @@ let prog_params (ps : param list) (t : term) : param list =
     else
       None
   in
-    List.filter_map f ps
+    L.filter_map f ps
+
 (* (cwd,env : string * EO.environment) *)
 let rec elaborate_cmd (env : EO.environment)
   : EO.command -> command list =
@@ -162,8 +192,8 @@ let rec elaborate_cmd (env : EO.environment)
     []
   (* ---------------- *)
   | Include p ->
-    begin match List.assoc_opt p env with
-    | Some eos -> List.concat_map (elaborate_cmd env) eos
+    begin match L.assoc_opt p env with
+    | Some eos -> L.concat_map (elaborate_cmd env) eos
     | None -> Printf.printf
       "WARNING: %s not in environment.\n"
       (String.concat "." p); []
@@ -223,4 +253,4 @@ and
       Printf.printf "Done!:\n  %s\n\n"
       (command_str (Option.get eo')); eo'
   in
-    (desugar_signature sgn, List.filter_map f eos)  *)
+    (desugar_signature sgn, L.filter_map f eos)  *)

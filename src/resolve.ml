@@ -64,13 +64,6 @@ let rec mv_subst (mvm : mvmap) (t : term) =
   in
     map_leaves f t
 
-module MVar = struct
-  type t = int
-  let compare = compare
-end
-
-module S = Set.Make(MVar)
-
 (* set of variable ocurrences in a term. *)
 let rec free (s : string) : term -> bool =
   function
@@ -78,12 +71,24 @@ let rec free (s : string) : term -> bool =
   | Leaf _ -> false
   | App (lv,t1,t2) -> (free s t1) || (free s t2)
   | Arrow (lv,ts)  -> List.exists (free s) ts
-  | Let ((s,t),t') -> (free s t) || (free s t')
+  | Let (s,t,t') -> (free s t) || (free s t')
 
+(* used for collecting mvars *)
+module MVar = struct
+  type t = (param * int)
+  let compare = compare
+end
+module S = Set.Make(MVar)
 (* set of schematic variable ocurrences in a term. *)
 let rec mvars_in : term -> S.t =
   function
-  | Leaf (MVar i) -> S.singleton i
+  | Leaf (Const (s, pm)) | Leaf (Prog (s,pm)) ->
+    pm
+    |> List.filter_map
+      (function
+      | (p, Leaf MVar i) -> Some (p,i)
+      | _ -> None)
+    |> S.of_list
   | Leaf _ -> S.empty
   | App (lv,t1,t2) ->
     S.union (mvars_in t1) (mvars_in t2)
@@ -91,16 +96,14 @@ let rec mvars_in : term -> S.t =
     List.fold_left
       (fun vs t -> S.union vs (mvars_in t))
       S.empty ts
-  | Let ((s,t),t') ->
+  | Let (s,t,t') ->
     S.union (mvars_in t) (mvars_in t')
 
 (* given some mmap `mm` and maplet `(m ↦ t)`,
   propagate the substitution throughout `mm`. *)
-let mvmap_update
-  (xs : mvmap) (x : int * term) : mvmap
-=
+let mvmap_update (xs : mvmap) (x : int * term) : mvmap =
   let f (i, t) =
-    if S.mem i (mvars_in t) then
+    if S.exists (fun (_,j) -> i = j) (mvars_in t) then
       Printf.ksprintf failwith
         "ERROR: %s occurs in %s"
         (term_str (Leaf (MVar i)))
@@ -178,7 +181,7 @@ let rec infer
       (term_str t2) (term_str ty2)
     end
   (* ------------------------ *)
-  | Let ((s,def), t) ->
+  | Let (s,def,t) ->
     let (def_ty, es) = infer ctx def in
     let ctx' = (sgn, (s,def_ty,Explicit) :: ps) in
     let (t_ty,fs) = infer ctx' t in
@@ -215,7 +218,7 @@ let rec unify (sgn : signature) (mvm : mvmap)
       | (App (lv, f, x), App (lv',g,y)) when lv = lv' ->
         unify sgn mvm (Eq (f,g) :: Eq (x,y) :: es)
       (* ---------------- *)
-      | (Let ((x,xd), t), Let ((y,yd), t')) ->
+      | (Let (x,xd, t), Let (y,yd,t')) ->
         unify sgn mvm (Eq (xd,yd) :: Eq (t,t') :: es)
       (* ---------------- *)
       | ((_ as t), (_ as t')) when t = t' ->

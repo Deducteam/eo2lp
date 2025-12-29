@@ -4,6 +4,7 @@
 - implement `:opaque`.
 - handle :assumption and :requires in rule declarations.
 <!---->
+- deprecate `Prog` in leaves.
 
 <!--- DONE. implement `splice` for expanding macro applications.-->
 <!--- DONE. implement lambdapi code generation.-->
