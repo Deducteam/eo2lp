@@ -8,7 +8,6 @@ type literal = EO.literal
 type leaf =
   | Type | Kind
   | Literal of literal
-  | Prog of string * pmap
   | Const of string * pmap
   | Var of string
   | MVar of int
@@ -82,7 +81,7 @@ let rec term_str : term -> string =
   | Leaf (Kind) -> "KIND"
   | Leaf (MVar i) -> Printf.sprintf "?%d" i
   | Leaf (Var s) -> s
-  | Leaf (Prog (s,xs)) | Leaf (Const (s, xs)) ->
+  | Leaf (Const (s, xs)) ->
     if xs = [] then s else
     Printf.sprintf "%s⟨%s⟩" s (pmap_str xs)
   | App (lv,t1,t2) ->
@@ -188,11 +187,7 @@ let mk_const
   let f ((s,_,_) as p) =
     incr mvs; (p, Leaf (MVar !mvs))
   in
-    if EO.is_meta str then
-      Leaf (Prog (str, List.map f ps))
-    else
-      Leaf (Const (str, List.map f ps))
-
+    Leaf (Const (str, List.map f ps))
 
 let app_opaques (f : term) (ts : term list)
   : (term * term list) =
@@ -203,6 +198,8 @@ let app_opaques (f : term) (ts : term list)
     | (((_,_,Opaque) as p, _) :: qm, t :: ts) ->
       let (qm', ts') = aux qm ts in
       ((p, t) :: qm', ts')
+
+    | (p :: ps,_) -> (ps,ts)
     end
   in
     begin match f with
@@ -213,7 +210,9 @@ let app_opaques (f : term) (ts : term list)
     end
 
 let mk_let (ws : (string * term) list) (t : term) =
-  List.fold_right (fun (s,def) t_acc -> Let (s,def,t_acc)) ws t
+  List.fold_right
+    (fun (s,def) t_acc -> Let (s,def,t_acc))
+    ws t
 
 let find_typ_opt (s : string) (sgn : signature)
   : term option =
@@ -257,8 +256,6 @@ let rec pmap_subst (pm : pmap) (t : term) : term =
       end
     | Const (s, qm) ->
       Leaf (Const (s, map_pmap (pmap_subst pm) qm))
-    | Prog (s, qm) ->
-      Leaf (Prog (s, map_pmap (pmap_subst pm) qm))
     | _ as l -> Leaf l
   in
     map_leaves f t
@@ -277,7 +274,7 @@ let rec desugar (sgn,ps as ctx : context) (mvs : int ref)
   (* ------------------------ *)
   | Symbol s ->
     if s = "Type" then
-      Leaf (Type)
+      Leaf Type
     else
       begin match M.find_opt s sgn with
       (* ---- *)
@@ -372,11 +369,14 @@ and
   (f : term) (ts : term list) : term
 =
   begin match f with
-  | Leaf (Prog (s, _)) -> mk_app M f ts
   | Leaf (Const (s, pm)) ->
     begin match find_typ_opt s sgn with
-    | Some t when is_kind t -> mk_app M f ts
+    | Some t when is_kind t ->
+      mk_app M f ts
     | Some _ ->
+      if EO.is_meta s then
+        mk_app M f ts
+      else
       begin match find_att_opt s sgn with
       | None -> mk_app O f ts
       | Some att ->

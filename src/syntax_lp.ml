@@ -101,7 +101,7 @@ and term_str : term -> string =
         (if lv = O then " ⤳ " else " → ") strs
   | El t ->
     Printf.sprintf
-      (if is_leaf_or_wrap t then "El %s" else "El (%s)")
+      (if is_leaf_or_wrap t then "τ %s" else "τ (%s)")
       (term_str t)
   | Wrap t ->
     Printf.sprintf
