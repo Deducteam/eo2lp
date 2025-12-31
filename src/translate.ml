@@ -13,6 +13,8 @@ let is_forbidden (s : string) : bool =
     String.contains s '@'
   ||
     String.contains s ':'
+  ||
+    String.contains s '.'
   )
 
 let app_list (lv : level) (t,ts : term * term list) : term =
@@ -20,11 +22,19 @@ let app_list (lv : level) (t,ts : term * term list) : term =
     (fun t_acc t -> App (lv, t_acc, t))
     t ts
 
-let translate_symbol (s : string) : string =
-  if is_forbidden s then
+let rec translate_symbol : string -> string =
+  function
+  | "eo::List::nil" -> "eo.List⋅nil"
+  | "eo::List::cons" -> "eo.List⋅cons"
+  | s when String.starts_with ~prefix:"$" s ->
+    "!" ^ translate_symbol (String.sub s 1 (String.length s - 1))
+  | s when String.starts_with ~prefix:"@@" s ->
+    "_" ^ translate_symbol (String.sub s 2 (String.length s - 2))
+  | s when String.starts_with ~prefix:"eo::" s ->
+    "eo." ^ translate_symbol (String.sub s 4 (String.length s - 4))
+  | s when is_forbidden s ->
     Printf.sprintf "{|%s|}" s
-  else
-    s
+  | s -> s
 
 let rec translate_term (exp : bool) : EO.term -> term =
   begin function
@@ -36,11 +46,9 @@ let rec translate_term (exp : bool) : EO.term -> term =
   | App (M,t,t') ->
     App (M, translate_term exp t, translate_term exp t')
   (* ------------ *)
-  | Arrow (O, ts) ->
+  | Arrow (_, ts) ->
     let ts' = List.map (translate_term exp) ts in
     Arrow (O, ts')
-  | Arrow (M,ts) ->
-    failwith "Type level arrow found at term level."
   | Let (s,t,t') ->
     Let (
       translate_symbol s,
@@ -51,24 +59,15 @@ let rec translate_term (exp : bool) : EO.term -> term =
 and translate_leaf (exp : bool) : EO.leaf -> term =
   begin function
   | Literal l ->
-    failwith "literal translation not yet implemented."
-  | MVar i ->
-    failwith "cannot translate Eunoia metavariable."
-  | Type ->
-    failwith "can't translate TYPE at term level."
-  | Kind ->
-    failwith "can't translate KIND at term level."
-  | Prog ("eo::requires", p1 :: (_, Leaf Type) :: pm) ->
-    (
-      Prog ("eo::requires_type_out", p1 :: pm)
-      |> translate_leaf exp
-    )
-  | Prog ("eo::requires", (_, Leaf Type) :: pm) ->
-    (
-      Prog ("eo::requires_type_in", pm)
-      |> translate_leaf exp
-    )
-  | Const (s,pm) | Prog (s,pm) -> (
+    failwith "literal translation not implemented yet."
+  | MVar i -> failwith "can't translate Eunoia metavariable."
+  | Type -> failwith "can't translate TYPE at term level."
+  | Kind -> failwith "can't translate KIND at term level."
+  | Const ("eo::requires", p :: (_, Leaf Type) :: pm) ->
+    translate_leaf exp (Const ("eo::requires_type_out", pm))
+  | Const ("eo::requires", (_, Leaf Type) :: pm) ->
+    translate_leaf exp (Const ("eo::requires_type_in", pm))
+  | Const (s,pm) -> (
       Leaf (Const (translate_symbol s)),
       if exp then translate_pmap pm else []
     ) |> app_list M
@@ -81,9 +80,8 @@ and translate_type : EO.term -> term =
   | Leaf Kind -> Leaf Type
   | Leaf Type -> Leaf Set
   | Arrow (M, ts) ->
-      Arrow (M, List.map translate_type ts)
-  | Let (s,t,t') ->
-      failwith "Can't translate Let as a type."
+    let ts' = List.map (translate_type) ts in
+    Arrow (M, ts')
   | _ as t -> El (translate_term true t)
   end
 

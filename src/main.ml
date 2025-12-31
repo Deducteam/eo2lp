@@ -38,10 +38,19 @@ let translate (eos : Elab.command list) : LP.command list =
       "Done:\n%s\n\n"
       (String.concat "\n" (List.map LP.lp_command_str lps));
     lps
-  ) eos
+) eos
 
 let write (lps : LP.command list) : unit =
   let ch = open_out "lp/out.lp" in
+  output_string ch
+    "require Stdlib.Bool as B;\n
+     symbol Bool ≔ B.bool;
+     symbol true ≔ B.true;
+     symbol false ≔ B.false;\n\n";
+  output_string ch "require eo2lp.Core as eo;\n";
+  output_string ch "symbol ▫ [x y] ≔  eo.app [x] [y];\n";
+  output_string ch "notation ▫ infix left 5;\n\n";
+
   let f lp =
     output_string ch (LP.lp_command_str lp);
     output_char ch '\n'
@@ -54,19 +63,19 @@ let proc (env : EO.environment) (p : EO.path) : LP.command list =
   | Some eos -> translate (elaborate env eos)
   | None -> failwith "Can't find path in environment."
 
-let core : LP.command list =
+let core : Elab.command list =
   let eos =
     EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
   in
-    translate (elaborate [] eos)
+    (elaborate [] eos)
 
 let env : EO.environment =
   Parse_eo.parse_eo_dir "./cpc-mini"
 
 let main () =
-  let rq = LP.Require ["Logic.U.Arrow"; "eo2lp.Core"] in
+  let rq = LP.Require ["Stdlib.HOL"] in
   let lps = proc env ["theories";"Builtin"] in
-  write (rq :: List.append core lps)
+  write (rq :: lps)
 
 
 (* let gen_const (sgn : signature)

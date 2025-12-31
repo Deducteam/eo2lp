@@ -1,193 +1,192 @@
 require open Stdlib.HOL Stdlib.Bool Stdlib.Z Stdlib.String;
-require open Stdlib.List;
+
+require Stdlib.List as L;
 require open eo2lp.Q;
-
 // object-level application.
-constant symbol ▫ [a b]
+injective symbol app [a b]
   : τ (a ⤳ b) → τ a → τ b;
-notation ▫ infix left 5;
 
-injective symbol eo : Set → TYPE;
+symbol List : Set;
+symbol List⋅nil : τ List;
+symbol List⋅cons [a] : τ a → τ List → τ List;
 
 symbol Type : Set;
-rule eo Type ↪ Set;
+rule τ Type ↪ Set;
 
-
-symbol halt [a] : eo a;
-//If t is ground, this returns true if t is a value, and false otherwise. If t is not ground, it does not evaluate.
+// If t is ground, return true if t is a value,
+// and false otherwise. If t is not ground, it does not evaluate.
 sequential symbol is_okay
- [t] : eo t → eo bool;
+ [t] : τ t → τ bool;
 
-constant symbol true : eo bool;
-constant symbol false : eo bool;
-rule eo bool ↪ 𝔹;
-
-rule eo string ↪ String;
+rule τ bool ↪ 𝔹;
+rule τ string ↪ String;
 
 
-rule eo ($x ⤳ $y) ↪ eo $x → eo $y;
-
-symbol ifset : 𝔹 → Set → Set → Set;
-rule ifset true $x _ ↪ $x
-with ifset false _ $y ↪ $y;
-
-sequential symbol ite
-  [x y ] (p : eo bool) : eo (x ⤳ y ⤳ ifset p x y);
-
-rule ite  true $t1 _ ↪ $t1
+symbol ite [x] : τ (bool ⤳ x ⤳ x ⤳ x);
+rule ite true $t1 _  ↪ $t1
 with ite false _ $t2 ↪ $t2;
 
 sequential symbol eq
-  [x y] : eo (x ⤳ y ⤳ bool);
+  [x y] : τ (x ⤳ y ⤳ bool);
 
 sequential symbol is_eq
-  [x y] : eo (x ⤳ y ⤳ bool);
+  [x y] : τ (x ⤳ y ⤳ bool);
 
 sequential symbol cond
-  [x] : eo (bool ⤳ x ⤳ x);
+  [x] : τ (bool ⤳ x ⤳ x);
+
 rule cond true $t ↪ $t;
 
+// ---- eo::requires ----
+//
+
 sequential symbol requires
-  [x y z] : eo (x ⤳ y ⤳ z ⤳ z);
+  [x y z] : τ (x ⤳ y ⤳ z ⤳ z);
 rule requires $t1 $t2 $t3
   ↪ cond (is_eq $t1 $t2) $t3;
 
+symbol requires_type_in
+  [x] : Set → Set → τ x → τ x;
+
+symbol requires_type_out
+  [x] : τ x → τ x → Set → Set;
+
 sequential symbol hash
-  [x] : eo x → ℤ;
+  [x] : τ x → ℤ;
 
 sequential symbol typeof
-  [x] : eo x → eo Type;
-rule typeof [$x] $t ↪ $x;
+  [x] : τ x → τ Type;
+//rule typeof [$x] $t ↪ $x;constant
 
 sequential symbol nameof
-  [x] : eo x → eo string;
+  [x] : τ x → τ string;
 
-sequential symbol var
-  (_ : eo string) (t : eo Type) : eo t;
+//sequential symbol var
+  //(_ : τ string) (t : τ Type) : τ t;
 
-rule nameof (var $s _) ↪ $s;
-rule typeof (var _ $t) ↪ $t;
+//rule nameof (var $s _) ↪ $s;
+//rule typeof (var _ $t) ↪ $t;
 
 sequential symbol cmp
-  [x y] : eo (x ⤳ y ⤳ bool);
+  [x y] : τ (x ⤳ y ⤳ bool);
 
 sequential symbol is_z
-  [x] : eo (x ⤳ bool);
+  [x] : τ (x ⤳ bool);
 
 sequential symbol is_q
-  [x] : eo (x ⤳ bool);
+  [x] : τ (x ⤳ bool);
 
 sequential symbol is_bin
-  [x] : eo (x ⤳ bool);
+  [x] : τ (x ⤳ bool);
 
 sequential symbol is_str
-  [x] : eo (x ⤳ bool);
+  [x] : τ (x ⤳ bool);
 
 sequential symbol is_bool
-  [x] : eo (x ⤳ bool);
+  [x] : τ (x ⤳ bool);
 
 sequential symbol is_var
-  [x] : eo (x ⤳ bool);
+  [x] : τ (x ⤳ bool);
 
 
 // ---- boolean operators ----
-symbol and [x] : eo (x ⤳ x ⤳ x);
+symbol and [x] : τ (x ⤳ x ⤳ x);
 
 rule and true true ↪ true
 with and false _ ↪ false
 with and _ false ↪ false;
 
-symbol or [x] : eo (x ⤳ x ⤳ x);
+symbol or [x] : τ (x ⤳ x ⤳ x);
 
 rule or false false ↪ false
 with or true _ ↪ true
 with and _ true ↪ true;
 
-symbol xor [x] : eo (x ⤳ x ⤳ x);
+symbol xor [x] : τ (x ⤳ x ⤳ x);
 
 rule xor true false ↪ true
 with xor false true ↪ true
 with xor false false ↪ false
 with xor false false ↪ false;
 
-symbol not [x] : eo (x ⤳ x);
+symbol not [x] : τ (x ⤳ x);
 
 rule not true ↪ false
 with not false ↪ true;
 
 
 // --- arithmetic ---
-rule eo int ↪ ℤ;
+rule τ int ↪ ℤ;
 
-symbol neg [x] : eo (x ⤳ x);
+symbol neg [x] : τ (x ⤳ x);
 rule neg [int] $x ↪ — $x;
 
-symbol add [x] : eo (x ⤳ x ⤳ x);
+symbol add [x] : τ (x ⤳ x ⤳ x);
 rule add [int] $x $y ↪ $x + $y;
 
-symbol mul [x] : eo (x ⤳ x ⤳ x);
+symbol mul [x] : τ (x ⤳ x ⤳ x);
 rule mul [int] $x $y ↪ $x * $y;
 
-symbol qdiv [x] : eo (x ⤳ x ⤳ x);
-symbol zdiv [x] : eo (x ⤳ x ⤳ x);
+symbol qdiv [x] : τ (x ⤳ x ⤳ x);
+symbol zdiv [x] : τ (x ⤳ x ⤳ x);
 
-symbol zmod [x] : eo (x ⤳ x ⤳ x);
+symbol zmod [x] : τ (x ⤳ x ⤳ x);
 
-symbol is_neg [x] : eo (x ⤳ bool);
-symbol gt [x] : eo (x ⤳ x ⤳ bool);
+symbol is_neg [x] : τ (x ⤳ bool);
+symbol gt [x] : τ (x ⤳ x ⤳ bool);
 
 // --- strings ---
-symbol len [x] : eo (x ⤳ int);
-symbol concat [x] : eo (x ⤳ x ⤳ bool);
-symbol extract [x] : eo (x ⤳ int ⤳ int ⤳ x);
-symbol find : eo (string ⤳ string ⤳ int);
+symbol len [x] : τ (x ⤳ int);
+symbol concat [x] : τ (x ⤳ x ⤳ bool);
+symbol extract [x] : τ (x ⤳ int ⤳ int ⤳ x);
+symbol find : τ (string ⤳ string ⤳ int);
 
 // --- conversion ----
-symbol to_z [x] : eo (x ⤳ int);
-symbol to_q [x] : eo (x ⤳ rat);
-symbol to_bin [x] : eo (x ⤳ pos);
-symbol to_str [x] : eo (x ⤳ string);
+symbol to_z [x] : τ (x ⤳ int);
+symbol to_q [x] : τ (x ⤳ rat);
+symbol to_bin [x] : τ (x ⤳ pos);
+symbol to_str [x] : τ (x ⤳ string);
 
 // ---- list ops ----
-symbol nil [x y] (f : eo (x ⤳ y ⤳ y))
-  (t : eo Type) : eo t;
+symbol nil [x y] (f : τ (x ⤳ y ⤳ y))
+  (t : τ Type) : τ y;
 
-symbol cons [x y] (f : eo (x ⤳ y ⤳ y))
-  (t1 : eo x) (t2 : eo y) : eo y
+symbol cons [x y] (f : τ (x ⤳ y ⤳ y))
+  (t1 : τ x) (t2 : τ y) : τ y
   ≔ f t1 t2;
 
-symbol list_len [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ int);
+symbol list_len [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ int);
 
-symbol list_concat [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y ⤳ y);
+symbol list_concat [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y ⤳ y);
 
-symbol list_nth [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ int ⤳ x);
+symbol list_nth [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ int ⤳ x);
 
-symbol list_find [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ x ⤳ int);
+symbol list_find [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ x ⤳ int);
 
-symbol list_rev [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y);
+symbol list_rev [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y);
 
-symbol list_erase [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y);
+symbol list_erase [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y);
 
-symbol list_erase_all [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y);
+symbol list_erase_all [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y);
 
-symbol list_setof [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y);
+symbol list_setof [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y);
 
-symbol list_minclude [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y ⤳ bool);
+symbol list_minclude [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y ⤳ bool);
 
-symbol list_meq [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y ⤳ y);
+symbol list_meq [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y ⤳ y);
 
-symbol list_diff [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ y);
+symbol list_diff [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ y);
 
-symbol list_singleton_elim [x y] (f : eo (x ⤳ y ⤳ y))
-  : eo (y ⤳ x);
+symbol list_singleton_elim [x y] (f : τ (x ⤳ y ⤳ y))
+  : τ (y ⤳ x);

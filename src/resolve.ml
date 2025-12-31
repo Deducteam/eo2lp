@@ -57,9 +57,6 @@ let rec mv_subst (mvm : mvmap) (t : term) =
     | Const (s, pm) ->
       let pm' = map_pmap (mv_subst mvm) pm in
       Leaf (Const (s, pm'))
-    | Prog (s, pm) ->
-      let pm' = map_pmap (mv_subst mvm) pm in
-      Leaf (Prog (s, pm'))
     | _ as l -> Leaf l
   in
     map_leaves f t
@@ -82,10 +79,8 @@ module S = Set.Make(MVar)
 (* set of schematic variable ocurrences in a term. *)
 let rec mvars_in : term -> S.t =
   function
-  | Leaf (Const (s, pm)) | Leaf (Prog (s,pm)) ->
-    pm
-    |> List.filter_map
-      (function
+  | Leaf (Const (s, pm)) ->
+    pm |> List.filter_map (function
       | (p, Leaf MVar i) -> Some (p,i)
       | _ -> None)
     |> S.of_list
@@ -152,7 +147,7 @@ let rec infer
   | Leaf Kind -> failwith
     "ERROR: infer not defined for KIND!"
   (* ------------------------ *)
-  | Leaf (Const (s,xs)) | Leaf (Prog (s,xs)) ->
+  | Leaf (Const (s,xs)) ->
     begin match find_typ_opt s sgn with
     | Some ty -> (pmap_subst xs ty, [])
     | None -> Printf.ksprintf failwith
