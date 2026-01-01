@@ -445,8 +445,7 @@ let desugar_term (ctx : context) (t : EO.term) =
 
 let desugar_param
   (ctx : context)
-  (s,t,att_opt : EO.param) : param
-=
+  (s,t,att_opt : EO.param) : param =
   let mvs = ref 0 in
   let att' =
     match att_opt with
@@ -469,14 +468,10 @@ let desugar_cattr
 =
   let mvs = ref 0 in
   match att with
-  | RightAssocNil t ->
-    RightAssocNil (desugar (sgn,[]) mvs t)
-  | RightAssocNilNSN t ->
-    RightAssocNilNSN (desugar (sgn,[]) mvs t)
-  | LeftAssocNil t ->
-    LeftAssocNil (desugar (sgn,[]) mvs t)
-  | LeftAssocNilNSN t ->
-    LeftAssocNilNSN (desugar (sgn,[]) mvs t)
+  | RightAssocNil t -> RightAssocNil (desugar (sgn,[]) mvs t)
+  | RightAssocNilNSN t -> RightAssocNilNSN (desugar (sgn,[]) mvs t)
+  | LeftAssocNil t -> LeftAssocNil (desugar (sgn,[]) mvs t)
+  | LeftAssocNilNSN t -> LeftAssocNilNSN (desugar (sgn,[]) mvs t)
   | RightAssoc -> RightAssoc
   | LeftAssoc -> LeftAssoc
   | ArgList s -> ArgList s
