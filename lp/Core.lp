@@ -1,14 +1,18 @@
-require open Stdlib.HOL Stdlib.Bool Stdlib.Z Stdlib.String;
+require open Stdlib.HOL Stdlib.Bool Stdlib.Z eo2lp.Q Stdlib.String;
+
+symbol int ≔ int;
+symbol rat ≔ rat;
+symbol str ≔ string;
 
 require Stdlib.List as L;
-require open eo2lp.Q;
+
 // object-level application.
 injective symbol app [a b]
   : τ (a ⤳ b) → τ a → τ b;
 
 symbol List : Set;
-symbol List⋅nil : τ List;
-symbol List⋅cons [a] : τ a → τ List → τ List;
+symbol List⋅⋅nil : τ List;
+symbol List⋅⋅cons [a] : τ a → τ List → τ List;
 
 symbol Type : Set;
 rule τ Type ↪ Set;
@@ -38,8 +42,6 @@ sequential symbol cond
 rule cond true $t ↪ $t;
 
 // ---- eo::requires ----
-//
-
 sequential symbol requires
   [x y z] : τ (x ⤳ y ⤳ z ⤳ z);
 rule requires $t1 $t2 $t3
@@ -116,7 +118,7 @@ with not false ↪ true;
 
 
 // --- arithmetic ---
-rule τ int ↪ ℤ;
+//rule τ int ↪ ℤ;
 
 symbol neg [x] : τ (x ⤳ x);
 rule neg [int] $x ↪ — $x;

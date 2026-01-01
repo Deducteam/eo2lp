@@ -157,7 +157,33 @@ let rec elaborate_cmd (env : EO.environment)
   (* ---------------- *)
   | AssumePush (_,_)      -> []
   (* ---------------- *)
-  | DeclareConsts (lc,t)  -> []
+  | DeclareConsts (lc,t)  ->
+    let (ty,_) = elab (!_sig, []) t in
+    _sig := M.add (EO.lit_category_str lc)
+      { prm = []; typ = Some ty;
+        def = None ; att = None; } !_sig;
+    let ds =
+      match lc with
+      (* -- *)
+      | NUM ->
+        let ty' =
+          Arrow (O, [Leaf (Const ("eo::int", [])); ty])
+        in
+          [ Decl ("_Z", [], ty') ]
+      (* -- *)
+      | RAT ->
+        let ty' =
+          Arrow (O, [Leaf (Const ("eo::rat", [])); ty])
+        in
+          [ Decl ("_Q", [], ty') ]
+      (* -- *)
+      | STR ->
+        let ty' =
+          Arrow (O, [Leaf (Const ("eo::string", [])); ty])
+        in
+          [ Decl ("_S", [], ty') ]
+    in
+      ds
   (* ---------------- *)
   | DeclareParamConst (s,ps,ty,att) ->
     let qs = elab_param_list !_sig ps in
@@ -223,11 +249,9 @@ and
   elab_common : EO.common_command -> command list =
   function
   | DeclareConst (s,ty,att)  ->
-
     let (ty',_) = elab (!_sig, []) ty in
-
     _sig := M.add s
-      { prm = []; typ = Some ty';
+      { prm = [];   typ = Some ty';
         def = None; att = None }
       !_sig;
 

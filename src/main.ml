@@ -43,10 +43,13 @@ let translate (eos : Elab.command list) : LP.command list =
 let write (lps : LP.command list) : unit =
   let ch = open_out "lp/out.lp" in
   output_string ch
-    "require Stdlib.Bool as B;\n
-     symbol Bool ≔ B.bool;
-     symbol true ≔ B.true;
-     symbol false ≔ B.false;\n\n";
+    (String.concat "\n" [
+    "require Stdlib.Bool as B;";
+     "symbol Bool ≔ B.bool;";
+     "symbol true ≔ B.true;";
+     "symbol false ≔ B.false;\n\n";
+    ]);
+  output_string ch "require open Stdlib.HOL;\n";
   output_string ch "require eo2lp.Core as eo;\n";
   output_string ch "symbol ▫ [x y] ≔  eo.app [x] [y];\n";
   output_string ch "notation ▫ infix left 5;\n\n";
@@ -73,9 +76,8 @@ let env : EO.environment =
   Parse_eo.parse_eo_dir "./cpc-mini"
 
 let main () =
-  let rq = LP.Require ["Stdlib.HOL"] in
-  let lps = proc env ["theories";"Builtin"] in
-  write (rq :: lps)
+  let lps = proc env ["theories";"Arith"] in
+  write lps
 
 
 (* let gen_const (sgn : signature)

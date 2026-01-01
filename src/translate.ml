@@ -22,19 +22,31 @@ let app_list (lv : level) (t,ts : term * term list) : term =
     (fun t_acc t -> App (lv, t_acc, t))
     t ts
 
-let rec translate_symbol : string -> string =
+let splice (c, s : char * string) (str : string) : string =
+  let xs = String.split_on_char c str in
+  String.concat s xs
+
+let strip_prefix (str : string) (pre : string) : string =
+  let n = String.length pre in
+  let m = String.length str in
+  (String.sub str n (m - n))
+
+  let rec translate_symbol : string -> string =
   function
-  | "eo::List::nil" -> "eo.List⋅nil"
-  | "eo::List::cons" -> "eo.List⋅cons"
   | s when String.starts_with ~prefix:"$" s ->
-    "!" ^ translate_symbol (String.sub s 1 (String.length s - 1))
+    "!" ^ translate_symbol (strip_prefix s "$")
   | s when String.starts_with ~prefix:"@@" s ->
-    "_" ^ translate_symbol (String.sub s 2 (String.length s - 2))
+    "_" ^ translate_symbol (strip_prefix s "@@")
   | s when String.starts_with ~prefix:"eo::" s ->
-    "eo." ^ translate_symbol (String.sub s 4 (String.length s - 4))
-  | s when is_forbidden s ->
-    Printf.sprintf "{|%s|}" s
-  | s -> s
+    "eo." ^
+    translate_symbol (strip_prefix s "eo::")
+  | s ->
+    let s' = s |> splice ('.',"⋅") |> splice (':', "⋅") in
+    if is_forbidden s' then
+      Printf.sprintf "{|%s|}" s
+    else
+      s'
+
 
 let rec translate_term (exp : bool) : EO.term -> term =
   begin function
