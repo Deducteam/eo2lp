@@ -57,7 +57,7 @@ sequential symbol hash
   [x] : τ x → ℤ;
 
 sequential symbol typeof
-  [x] : τ x → τ Type;
+  [x] : τ (x ⤳ Type);
 //rule typeof [$x] $t ↪ $x;constant
 
 sequential symbol nameof

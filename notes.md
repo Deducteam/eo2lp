@@ -1,4 +1,32 @@
 -----------------
+# 2026-01-02
+-----------------
+Overloading. Ugh.
+`theories.Arith` declares the symbol `-` as a constant twice.
+First, binary subtraction.
+`constant symbol - [T : Set] [U : Set] : τ (T ⤳ U ⤳ (!arith_typeunion T U));`
+Then, unary negation.
+`constant symbol - [T : Set] : τ (T ⤳ (eo.requires_type_out (!is_arith_type T) true T));`
+
+We need to handle this somehow.
+Naive: during elaboration, if we encounter a duplicate symbol,
+we add some suffix. (e.g., `-` --> `-_1`)
+
+Final symbol chosen based on types of `k` and args.
+We choose the first symbol such that
+  `k t1 .. tn` is well-typed.
+But this is hard, because at resolution-time, we are only
+dealing with binary applications.... and at elaboration
+time, we don't have the machinery to check the types of
+everything.
+
+So perhaps, use list-wise application in elaborated
+terms and change our resolution algorithm... and allow
+symbols to have multiple types in signature.
+
+
+
+-----------------
 # 2025-12-27
 -----------------
 Example of a program where we NEED to insert explicits

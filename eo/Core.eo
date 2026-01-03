@@ -3,8 +3,8 @@
 (declare-const false Bool)
 
 (declare-parameterized-const eo::requires
-  ((T Type :implicit) (U Type :implicit))
-  (-> T T U U)
+  ((T Type :implicit) (U Type :implicit) (V Type :implicit))
+  (-> T U V V)
 )
 
 (declare-parameterized-const eo::typeof

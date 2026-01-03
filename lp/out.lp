@@ -34,7 +34,7 @@ rule !result_combine $b1 _result⋅null ↪ $b1
 with !result_combine $b1 $b1 ↪ $b1
 with !result_combine $b1 $b2 ↪ _result⋅invalid;
 sequential symbol !assoc_nil_has_type_rec [T : Set] [U : Set] : (τ (T ⤳ U ⤳ U)) → (τ U) → Set → (τ Bool);
-rule !assoc_nil_has_type_rec [$T] [$U] $f ($f ▫ $x1 ▫ $x2) $W ↪ eo.requires_type_in (eo.typeof $x1) $W (!assoc_nil_has_type_rec $f $x2 $W)
+rule !assoc_nil_has_type_rec [$T] [$U] $f ($f ▫ $x1 ▫ $x2) $W ↪ eo.requires (eo.typeof $x1) $W (!assoc_nil_has_type_rec $f $x2 $W)
 with !assoc_nil_has_type_rec [$T] [$U] $f $nil $W ↪ true;
 sequential symbol !assoc_nil_same_type [T : Set] [U : Set] : τ ((T ⤳ U ⤳ U) ⤳ U ⤳ Bool);
 rule !assoc_nil_same_type [$T] [$U] $f ($f ▫ $x1 ▫ $x2) ↪ !assoc_nil_has_type_rec $f $x2 (eo.typeof $x1);
@@ -49,7 +49,7 @@ sequential symbol !get_lambda_type : (τ eo.List) → Set → Set;
 rule !get_lambda_type (eo.List⋅⋅cons [eo.List] ▫ $x ▫ $xs) $B ↪ (eo.typeof $x) ⤳ (!get_lambda_type $xs $B)
 with !get_lambda_type eo.List⋅⋅nil $B ↪ $B;
 constant symbol lambda [B : Set] (L : τ eo.List) : τ (B ⤳ (!get_lambda_type L B));
-constant symbol distinct [x0 : Set] (xs : τ eo.List) : τ (eo.requires_type_out (!assoc_nil_same_type [x0] [eo.List] (eo.List⋅⋅cons [x0]) xs) true Bool);
+constant symbol distinct [x0 : Set] (xs : τ eo.List) : τ (eo.requires [Bool] [Bool] [eo.Type] (!assoc_nil_same_type [x0] [eo.List] (eo.List⋅⋅cons [x0]) xs) true Bool);
 constant symbol {|@purify|} [A : Set] (t : τ A) : τ A;
 constant symbol Int : Set;
 constant symbol Real : Set;
@@ -66,12 +66,12 @@ with !is_arith_type Real ↪ true;
 constant symbol + [T : Set] [U : Set] : τ (T ⤳ U ⤳ (!arith_typeunion T U));
 constant symbol - [T : Set] [U : Set] : τ (T ⤳ U ⤳ (!arith_typeunion T U));
 constant symbol * [T : Set] [U : Set] : τ (T ⤳ U ⤳ (!arith_typeunion T U));
-constant symbol < [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires_type_out (!is_arith_type T) true (eo.requires_type_out (!is_arith_type U) true Bool)));
-constant symbol <= [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires_type_out (!is_arith_type T) true (eo.requires_type_out (!is_arith_type U) true Bool)));
-constant symbol > [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires_type_out (!is_arith_type T) true (eo.requires_type_out (!is_arith_type U) true Bool)));
-constant symbol >= [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires_type_out (!is_arith_type T) true (eo.requires_type_out (!is_arith_type U) true Bool)));
-constant symbol to_real [T : Set] : τ (T ⤳ (eo.requires_type_out (!is_arith_type T) true Real));
-constant symbol to_int [T : Set] : τ (T ⤳ (eo.requires_type_out (!is_arith_type T) true Int));
-constant symbol is_int [T : Set] : τ (T ⤳ (eo.requires_type_out (!is_arith_type T) true Bool));
-constant symbol abs [T : Set] : τ (T ⤳ (eo.requires_type_out (!is_arith_type T) true T));
-constant symbol - [T : Set] : τ (T ⤳ (eo.requires_type_out (!is_arith_type T) true T));
+constant symbol < [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type U) true Bool)));
+constant symbol <= [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type U) true Bool)));
+constant symbol > [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type U) true Bool)));
+constant symbol >= [T : Set] [U : Set] : τ (T ⤳ U ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type U) true Bool)));
+constant symbol to_real [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true Real));
+constant symbol to_int [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true Int));
+constant symbol is_int [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true Bool));
+constant symbol abs [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true T));
+constant symbol - [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true T));
