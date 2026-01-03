@@ -73,12 +73,12 @@ and translate_leaf (exp : bool) : EO.leaf -> term =
   | Literal l ->
     failwith "literal translation not implemented yet."
   | MVar i -> failwith "can't translate Eunoia metavariable."
-  | Type -> failwith "can't translate TYPE at term level."
   | Kind -> failwith "can't translate KIND at term level."
-  | Const ("eo::requires", p :: (_, Leaf Type) :: pm) ->
+  | Type -> Leaf (Const ("eo.Type"))
+  (* | Const ("eo::requires", p :: (_, Leaf Type) :: pm) ->
     translate_leaf exp (Const ("eo::requires_type_out", pm))
   | Const ("eo::requires", (_, Leaf Type) :: pm) ->
-    translate_leaf exp (Const ("eo::requires_type_in", pm))
+    translate_leaf exp (Const ("eo::requires_type_in", pm)) *)
   | Const (s,pm) -> (
       Leaf (Const (translate_symbol s)),
       if exp then translate_pmap pm else []
