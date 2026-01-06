@@ -28,12 +28,12 @@ and const_attr =
   | Chainable of string
   | Pairwise of string
   | Binder of string
-  | None
+  | Regular
 
-and const = string * pmap * const_attr
+and const = string * pmap * term * const_attr
 and param = string * term * param_attr
 
-and pmap = (param * term) list
+and pmap = (param * term option) list
 and param_attr =
   | Explicit
   | Implicit
@@ -61,12 +61,10 @@ and rule_dec =
     conc : conclusion;
   }
 
-
-type const_spec =
-  param list * term * const_attr
 (* overloaded symbols have more than one type.*)
+type const_spec = param list * term * const_attr
 type info =
-  | Const of const_spec list
+  | Consts of const_spec list
   | Macro of (EO.param list * EO.term)
 type signature = info M.t
 type context = signature * param list
@@ -77,7 +75,7 @@ let find_param_opt (s : string) (ps : param list) : param option =
 let find_first_att_opt (s : string) (sgn :  signature) : const_attr option =
   match M.find_opt s sgn with
   | Some (Macro _) -> None
-  | Some (Const ((_,_,att) :: _)) -> Some att
+  | Some (Consts ((_,_,att) :: _)) -> Some att
 
 (* --------- pretty printing ---------- *)
 let is_leaf : term -> bool =
@@ -92,7 +90,7 @@ let rec term_str : term -> string =
   | Leaf (Kind) -> "KIND"
   | Leaf (MVar (i,_)) -> Printf.sprintf "?%d" i
   | Leaf (Var (s,_,_)) -> s
-  | Leaf (Const (s, pm, _)) ->
+  | Leaf (Const (s, pm, _, _)) ->
     Printf.sprintf "%s[%s]" s (pmap_str pm)
   | App (lv,t,ts) ->
     let ss = String.concat
@@ -112,7 +110,10 @@ let rec term_str : term -> string =
       "let (%s := %s) in %s"
       s (term_str t) (term_str t')
 and pmap_str (xs : pmap) : string =
-  let f ((s,_,_),t) = term_str t in
+  let f = function
+    | ((s,_,_), Some t) -> term_str t
+    | ((s,_,_), None)   -> "_"
+  in
   String.concat ", " (List.map f xs)
 
 let param_attr_str = function
@@ -190,30 +191,34 @@ let rec map_catt (f : term -> term) : const_attr -> const_attr =
   | ArgList s -> ArgList s
 
 let pmap_find_opt
-  (s : string) : pmap -> (param * term) option =
+  (s : string) : pmap -> (param * term option) option =
   List.find_opt (fun ((s',_,_),_) -> s = s')
 
 let map_param (f : term -> term) : param -> param =
   fun (s,ty,att) -> (s, f ty, att)
 
 let map_pmap (f : term -> term) (pm : pmap) : pmap =
-  let g (p, t) = (map_param f p, f t) in
+  let g (p, t_opt) = (map_param f p, Option.map f t_opt) in
   List.map g pm
+
+let find_pmap_opt (p : param) (pm : pmap) : term option =
+  Option.join (List.assoc_opt p pm)
 
 let rec subst_pmap (sub : pmap) (t : term) : term =
   let f : leaf -> term =
     function
     | Var p ->
-      begin match List.assoc_opt p sub with
+      begin match find_pmap_opt p sub with
       | Some t' -> t'
       | None -> Leaf (Var p)
       end
-    | Const (s,pm,att) ->
-      let (pm',att') =
+    | Const (s,pm,t,att) ->
+      let (pm',t',att') =
         (map_pmap (subst_pmap sub) pm,
-        map_catt (subst_pmap sub) att)
+         map_leaves (fun l -> subst_pmap sub (Leaf l)) t,
+         map_catt (subst_pmap sub) att)
       in
-        Leaf (Const (s, pm', att'))
+        Leaf (Const (s, pm',t',att'))
     | _ as l -> Leaf l
   in
     map_leaves f t
@@ -224,31 +229,26 @@ let is_list_param (s : string) (ps : param list) =
   in
     List.exists f ps
 
-let init_const
-  (mvs : int ref) (s : string)
-  (ps,ty,att : const_spec) (ts : term list)
-  : const * term list
+
+let mk_const (s : string) (ps,ty,att : const_spec) : const =
+  let pm : pmap = L.map (fun p -> (p, None)) ps in
+  (s,pm,ty,att)
+
+let init_implicits
+
+let init_const (k : const_spec) : const
 =
-  let rec f qs vs =
-    match qs with
-    | (x,ty',Implicit) as q :: qs' ->
-      incr mvs;
-      let q' = (q, Leaf (MVar (!mvs, ty'))) in
-      let ()
-    | (x,ty',Opaque) as p ->
-      (p, List.hd vs)
-    in
-  let pm = (L.map f ps) in
-  (s, pm, map_catt (subst_pmap pm) att)
-(*
-let app_opaques (f : term) (ts : term list)
-  : (term * term list) =
-  let rec aux pm ts =
-    begin match (pm,ts) with
-    | (_,[]) -> (pm,[])
+  let rec aux (ps : param list) (ts : term list)
+    : pmap * term list =
+    begin match (ps,ts) with
+    | (_,[]) -> (ps,[])
     | ([],_) -> ([],ts)
-    | (((_,_,Opaque) as p, _) :: qm, t :: ts) ->
-      let (qm', ts') = aux qm ts in
+    | (((_,ty',Implicit) as q) :: qs, _) ->
+      incr mvs; let q' = (q, Leaf (MVar (!mvs, ty'))) in
+      let (qs', ts') = aux qs ts in
+      (q' :: qs', ts)
+    | (((_,_,Opaque) as q) :: qs, t :: ts) ->
+      let (qm', ts') = aux qs ts in
       ((p, t) :: qm', ts')
 
     | (p :: ps,_) -> (ps,ts)
@@ -259,7 +259,7 @@ let app_opaques (f : term) (ts : term list)
       let (pm',ts') = aux pm ts in
       (Leaf (Const (s, pm')), ts')
     | _ -> (f,ts)
-    end *)
+    end
 
 let mk_let (ws : (string * term) list) (t : term) =
   let f = (fun (s,def) t_acc -> Let (s,def,t_acc)) in
