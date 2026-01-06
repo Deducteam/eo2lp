@@ -8,6 +8,8 @@ require eo2lp.Core as eo;
 symbol ▫ [x y] ≔  eo.app [x] [y];
 notation ▫ infix left 5;
 
+require open eo2lp.Q Stdlib.List;
+
 constant symbol _Pair : Set → Set → Set;
 constant symbol _pair [U : Set] [T : Set] : τ (U ⤳ T ⤳ (_Pair U T));
 sequential symbol !pair_first [T : Set] [S : Set] : τ ((_Pair T S) ⤳ T);
@@ -42,6 +44,11 @@ constant symbol ite [A : Set] : τ (Bool ⤳ A ⤳ A ⤳ A);
 constant symbol not : τ (Bool ⤳ Bool);
 constant symbol or : τ (Bool ⤳ Bool ⤳ Bool);
 constant symbol and : τ (Bool ⤳ Bool ⤳ Bool);
+
+
+symbol fold [a b] : τ (a ⤳ b ⤳ b) → τ (list a) → τ b;
+rule fold and ($x $xs) ↪
+
 constant symbol => : τ (Bool ⤳ Bool ⤳ Bool);
 constant symbol xor : τ (Bool ⤳ Bool ⤳ Bool);
 constant symbol = [A : Set] : τ (A ⤳ A ⤳ Bool);
@@ -74,4 +81,14 @@ constant symbol to_real [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Typ
 constant symbol to_int [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true Int));
 constant symbol is_int [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true Bool));
 constant symbol abs [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true T));
-constant symbol - [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true T));
+//constant symbol - [T : Set] : τ (T ⤳ (eo.requires [Bool] [Bool] [eo.Type] (!is_arith_type T) true T));
+
+compute !arith_typeunion Int Real;
+type + (_Z 1) (_Q (1 ⫽ 2));
+
+assert [x : τ Int] [y : τ Real] ⊢ + x y : τ Real;
+symbol f1 : τ (Int ⤳ Int ⤳ Int);
+symbol f2 : τ (Int ⤳ Real ⤳ Real);
+
+assert [x : τ Int] [y : τ Real] ⊢
+  (f2 (_Z 1) (+ x y)) : τ Real;

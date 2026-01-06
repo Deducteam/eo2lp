@@ -2,7 +2,6 @@
 type binder =
   | Lambda
   | Pi
-
 type leaf =
   | Type | Set
   | PVar of string

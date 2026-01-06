@@ -1,4 +1,65 @@
 -----------------
+# 2026-01-06
+-----------------
+Still thinking about overloading.
+We could just have a constructor
+  `const : string -> (a : set) -> el a`.
+But this defeats the need for actually declaring constants
+using `symbol` in the first place.
+
+Also, looking at the `ethos` tests, it seems like
+definitions (aka. macros) can be overloaded too.
+
+In general, we disambiguate whilst desugaring applications.
+  `(f t1 ... tn)`
+According to the documentation, we choose the first symbol
+that results in a well-typed term (which could be a partial
+application).
+  However, I can envision some scenarios in which we cannot
+tell that the resulting term is well-typed due to the
+presence of program applications in terms/types.
+  For example:
+
+  `(x Int) (y Real)`
+  `(+ x y) : $arith_typeunion Int Real`
+  `(+ x y) : Real`
+
+  f1:`f : Int -> Int -> Int`
+  f2:`f : Int -> Real -> Int`
+  t:`(f 1 (+ x y))`
+
+We want to choose `f2` because the type of `(+ x y)` is
+`Real` modulo rewriting, but we cannot know this in OCaml.
+So, we should use Dedukti/LambdaPi as our typechecker and
+rewriting engine during translation. We add to the signature
+as we go, making queries occasionally.
+
+So how do we build our signature? We can use lambdapi
+symbols, but we need to 'index' them in case there is
+more than one. So either every symbol needs to have an
+index on its name or in its type, e.g.,
+  `+_0 : t ` or `+ (n : Int) : t(n) `
+Name is probably easier, because otherwise each symbol's
+type/definition would be dependent on the `n : Int`.
+We just add primes to the names.
+
+Then, perhaps all of the 'stateful' information can be
+held in the lambdapi signature. i.e., types, attributes.
+No, forget about attributes right now. Also, we want to
+avoid parsing LambdaPi stuff, so we don't want to ask for
+complex information when querying LP. Just a yes/no.
+  "is `t` well-typed?" or "does `x` have type `t`?".
+
+Using LP to actually compute some result would require us
+to feed the result back into LambdaPi, which we don't want.
+
+
+
+
+
+
+
+-----------------
 # 2026-01-02
 -----------------
 Overloading. Ugh.
