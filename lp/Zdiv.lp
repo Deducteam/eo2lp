@@ -85,9 +85,3 @@ with zmod (Zneg $a) (Zpos $b) ↪ zmod_get_neg_pos (div_rem_pos $a $b) $b;
 
 symbol % ≔ zmod;
 notation % infix 5;
-
-
-
-compute 9 + 2;
-
-compute 9 % 3;

@@ -91,9 +91,9 @@ common_command:
       att_opt = option(const_attr);
     RPAREN
   {
-    _sig := M.add s
-      { prm = []; att = att_opt; typ = Some t; def = None }
-      !_sig;
+    let lv = (if is_kind t then Ty else Tm) in
+    let dec = Decl ([], t, att_opt, lv) in
+    _sig := M.add s dec !_sig;
     DeclareConst (s,t,att_opt)
   }
   | LPAREN; DECLARE_DATATYPE;
@@ -117,16 +117,15 @@ common_command:
   | LPAREN; SET_OPTION; s = symbol; RPAREN
   { SetOption (s) }
 
-
 command:
   | LPAREN; ASSUME;
       s = symbol ;
       t = term;
     RPAREN
   {
-    _sig := M.add s
-      { prm = []; att = None; typ = Some (mk_proof t); def = None }
-      !_sig;
+    let ty  = mk_proof t in
+    let dec = Decl ([], ty, None, Ty) in
+    _sig := M.add s dec !_sig;
     Assume (s,t)
   }
   | LPAREN; ASSUME_PUSH;
@@ -134,9 +133,9 @@ command:
       t = term;
     RPAREN
   {
-    _sig := M.add s
-      { prm = []; att = None; typ = Some (mk_proof t); def = None }
-      !_sig;
+    let ty  = mk_proof t in
+    let dec = Decl ([], ty, None, Ty) in
+    _sig := M.add s dec !_sig;
     AssumePush (s,t)
   }
   | LPAREN; DECLARE_CONSTS;

@@ -12,10 +12,8 @@
  (public_name eo2lp)
  (modules
    parser lexer parse_eo syntax_eo
-   desugar resolve elaborate
-   syntax_lp translate
-   main
+   syntax_lp api_lp
  )
  (flags :standard -w -8 -w -27)
- (libraries str fpath)
+ (libraries str unix fpath)
 )

@@ -19,7 +19,6 @@ and level = O | M
 and attr = Explicit | Implicit
 and param = string * term * attr
 
-
 type case = (term * term)
 
 type modifier =
