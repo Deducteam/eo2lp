@@ -44,11 +44,6 @@ constant symbol ite [A : Set] : τ (Bool ⤳ A ⤳ A ⤳ A);
 constant symbol not : τ (Bool ⤳ Bool);
 constant symbol or : τ (Bool ⤳ Bool ⤳ Bool);
 constant symbol and : τ (Bool ⤳ Bool ⤳ Bool);
-
-
-symbol fold [a b] : τ (a ⤳ b ⤳ b) → τ (list a) → τ b;
-rule fold and ($x $xs) ↪
-
 constant symbol => : τ (Bool ⤳ Bool ⤳ Bool);
 constant symbol xor : τ (Bool ⤳ Bool ⤳ Bool);
 constant symbol = [A : Set] : τ (A ⤳ A ⤳ Bool);

@@ -27,53 +27,10 @@ type const_attr =
   | Chainable of string
   | Pairwise of string
   | Binder of string
-and param_attr =
-  | Implicit
-  | Opaque
-  | List
-and sorry =
-  Sorry
+type param_attr =
+  Implicit | Opaque | List
 
 type param = string * term * (param_attr option)
-
-(* signature maps each symbol to its params/attr/type/def. *)
-module M = Map.Make(String)
-type info =
-  {
-    prm : param list;
-    att : const_attr option;
-    typ : term option;
-    def : term option
-  }
-and signature = info M.t
-
-type context = signature * param list
-
-(* types for inference rule declarations *)
-type premises =
-  | Simple of term list
-  | PremiseList of term * term
-and conclusion =
-  | Conclusion of term
-  | ConclusionExplicit of term
-and rule_dec =
-  {
-    assm : term option;
-    prem : premises option;
-    args : term list;
-    reqs : case list;
-    conc : conclusion;
-  }
-
-(* types for datatype declarations *)
-type sort_dec =
-  | SortDec of string * int
-and sel_dec =
-  | SelDec of string * term
-and cons_dec =
-  | ConsDec of string * (sel_dec list)
-and dt_dec =
-  | DatatypeDec of cons_dec list
 
 type common_command =
   | DeclareConst     of string * term * (const_attr option)
@@ -83,8 +40,17 @@ type common_command =
   | Exit
   | Reset
   | SetOption        of string
+and sort_dec =
+  | SortDec of string * int
+and sel_dec =
+  | SelDec of string * term
+and cons_dec =
+  | ConsDec of string * (sel_dec list)
+and dt_dec =
+  | DatatypeDec of cons_dec list
 
-(* commands exclusive to eunoia *)
+
+(* type for Eunoia-exclusive commands *)
 type command =
   | Assume            of string * term
   | AssumePush        of string * term
@@ -98,8 +64,34 @@ type command =
   | Step              of string * term option * string * term list * term list
   | StepPop           of string * term option * string * term list * term list
   | Common            of common_command
+(* types for `declare-rule` *)
+and premises =
+  | Simple of term list
+  | PremiseList of term * term
+and conclusion =
+  | Conclusion of term
+  | ConclusionExplicit of term
+and rule_dec =
+  {
+    assm : term option;
+    prem : premises option;
+    args : term list;
+    reqs : case list;
+    conc : conclusion;
+  }
+and sorry = Sorry
+(* type of paths for `include` *)
 and path = string list
 
+(* signature maps each symbol to its params/attr/type/def. *)
+module M = Map.Make(String)
+
+type level = Tm | Ty | Pg
+type symdecl =
+  | Decl of param list * term * const_attr option * level
+  | Defn of param list * term
+type signature = symdecl M.t
+type context = signature * param list
 type environment = (path * command list) list
 (* ---- helpers -------- *)
 (* ##########
@@ -115,6 +107,13 @@ let _app_bin (f : term) : term * term -> term =
 let _app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
 ##########*)
+module L = List
+
+let rec is_kind : term -> bool =
+  function
+  | Symbol "Type" -> true
+  | Apply ("->", ts) -> L.exists is_kind ts
+  | _ -> false
 
 (* can probably destroy all of this???  *)
 let mk_eo_var (s,t : var) : term =
@@ -126,27 +125,25 @@ let mk_proof (t : term) : term =
 let is_builtin (str : string) : bool =
   String.starts_with ~prefix:"eo::" str
 
-let is_meta (str : string) : bool =
+let is_prog (str : string) : bool =
   not (str = "eo::List::cons" || str = "eo::List::nil")
   &&
   (is_builtin str || String.starts_with ~prefix:"$" str)
 
-
 let is_def (s : string) (sgn : signature) =
   match M.find_opt s sgn with
-  | Some info -> Option.is_some info.def
+  | Some (Defn _) -> true
   | _ -> false
 
-let get_attr (s : string) (sgn : signature) =
+let get_att_opt (s : string) (sgn : signature) =
   match M.find_opt s sgn with
-  | Some info -> info.att
+  | Some (Decl (_,_,att_opt,_)) -> att_opt
   | None -> None
 
 (* save signature info at parse time *)
 let _sig : signature ref = ref (M.of_list
   [
-    ("Type",
-      { prm = []; att = None; typ = None; def = None })
+    ("Type", Decl ([], Symbol "Kind", None, Ty))
   ])
 
 let mk_arrow_ty (ts : term list) (t : term) : term =
@@ -207,9 +204,9 @@ let lcat_of : literal -> lit_category =
 
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
-    match x_opt with
-    | Some x -> Printf.sprintf "  %s\n" (f x)
-    | None -> ""
+  match x_opt with
+  | Some x -> Printf.sprintf "  %s\n" (f x)
+  | None -> ""
 
 let opt_str (f : 'a -> string) =
   Option.fold ~none:"" ~some:f
@@ -231,10 +228,13 @@ let literal_str =
   function
   | Numeral n -> string_of_int n
   | Decimal d -> string_of_float d
-  | Rational (n, d) -> string_of_int n ^ "/" ^ string_of_int d
+  | Rational (n, d) ->
+    string_of_int n ^ "/" ^ string_of_int d
   | String s -> "\"" ^ s ^ "\""
-  | Binary _ -> Printf.printf "WARNING: unhandled binary."; ""
-  | Hexadecimal _ -> Printf.printf "WARNING: unhandled hex."; ""
+  | Binary _ -> Printf.printf
+    "WARNING: unhandled binary."; ""
+  | Hexadecimal _ -> Printf.printf
+    "WARNING: unhandled hex."; ""
 
 let list_str (f : 'a -> string) =
   fun xs -> (String.concat " " (List.map f xs))

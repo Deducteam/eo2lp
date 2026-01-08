@@ -234,8 +234,6 @@ let mk_const (s : string) (ps,ty,att : const_spec) : const =
   let pm : pmap = L.map (fun p -> (p, None)) ps in
   (s,pm,ty,att)
 
-let init_implicits
-
 let init_const (k : const_spec) : const
 =
   let rec aux (ps : param list) (ts : term list)

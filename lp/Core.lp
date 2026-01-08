@@ -6,83 +6,33 @@ symbol str ≔ string;
 
 require open Stdlib.List;
 
-// object-level application.
-injective symbol app [a b]
-  : τ (a ⤳ b) → τ a → τ b;
-
-// --- fold right with nil terminator ---
-symbol foldr_nil [a acc]
-  : τ (a ⤳ acc ⤳ acc) → τ (list a) → τ acc → τ acc;
-
-rule foldr_nil $f □ $y ↪ $y
-with foldr_nil $f ($x ⸬ $xs) $y
-   ↪ $f $x (foldr_nil $f $xs $y);
-
-// --- fold left with nil terminator ---
-symbol foldl_nil [a acc]
-  : τ (acc ⤳ a ⤳ acc) → τ acc → τ (list a) → τ acc;
-
-rule foldl_nil $f $y □ ↪ $y
-with foldl_nil $f $y ($x ⸬ $xs)
-   ↪ foldl_nil $f ($f $y $x) $xs;
-
-// --- fold right. undefined for □! ---
-symbol foldr [a]
-  : τ (a ⤳ a ⤳ a) → τ (list a) → τ a;
-rule foldr $f ($x ⸬ $xs) ↪
-  foldr_nil $f (belast $x $xs) (last $x $xs);
-
-// --- fold left. undefined for □! ---
-symbol foldl [a]
-  : τ (a ⤳ a ⤳ a) → τ (list a) → τ a;
-rule foldl $f ($x ⸬ $xs) ↪
-  foldl_nil $f (last $x $xs) (belast $x $xs);
-
-(a : Set) inductive CONST_ATTR : TYPE ≔
-  | RightAssocNil : τ a → CONST_ATTR a
-  | LeftAssocNil : τ a → CONST_ATTR a
-  | RightAssocNilNSN : τ a → CONST_ATTR a
-  | LeftAssocNilNSN : τ a → CONST_ATTR a
-  | LeftAssoc : CONST_ATTR a
-  | RightAssoc : CONST_ATTR a
-  | ArgList : τ a → CONST_ATTR a
-  | Chainable : τ a → CONST_ATTR a
-  | Pairwise : τ a → CONST_ATTR a
-  | Binder : τ a → CONST_ATTR a;
-
-// -- generic fold. dispatch on const attribute ---
-// doesn't work because of types.
-// so we do desugaring in OCaml still.
-symbol fold [a b c d]
-  : τ (a ⤳ b ⤳ c) → τ (list d) → CONST_ATTR c → τ c;
-// it would work if we have a 'meta' file that just operates
-// on eos. then, we use these meta rules to rewrite things.
-
-
-
-rule fold $f $xs (RightAssocNil $t) ↪ foldr_nil $f $xs $t;
-rule fold [$a] [$b] $f $xs (LeftAssocNil $t) ↪ foldl_nil $f $t $xs;
-
-rule fold $f $xs LeftAssoc ↪ foldl $f $xs;
-
-symbol ite [a] : 𝔹 → τ a → τ a → τ a;
-
-symbol Type : Set;
-rule τ Type ↪ Set;
-
 symbol List : Set;
 symbol List⋅⋅nil : τ List;
 symbol List⋅⋅cons [a] : τ a → τ List → τ List;
 
+// object-level application.
+injective symbol app [a b]
+  : τ (a ⤳ b) → τ a → τ b;
 
-// If t is ground, return true if t is a value,
-// and false otherwise. If t is not ground, it does not evaluate.
+symbol Type : Set;
+rule τ Type ↪ Set;
+
+
+
+
+
+
+
+
+
+// If t is ground,
+//  return true if t is a value, and false otherwise.
+// If t is not ground, it does not evaluate.
 sequential symbol is_okay
  [t] : τ t → τ bool;
 
 rule τ bool ↪ 𝔹;
 rule τ string ↪ String;
-
 
 symbol ite [x] : τ (bool ⤳ x ⤳ x ⤳ x);
 rule ite true $t1 _  ↪ $t1
