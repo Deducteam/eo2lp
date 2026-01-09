@@ -59,10 +59,12 @@ type command =
   | DeclareRule       of string * param list * rule_dec * (sorry option)
   | Define            of string * param list * term * (term option)
   | Include           of path
-  | Program           of string * param list * (term list * term) * case list
+  | Program           of string
+                       * (param list * term)
+                       * (param list * case list)
   | Reference         of string * string option
-  | Step              of string * term option * string * term list * term list
-  | StepPop           of string * term option * string * term list * term list
+  | Step              of string * term * string * term list * term list
+  | StepPop           of string * term * string * term list * term list
   | Common            of common_command
 (* types for `declare-rule` *)
 and premises =
@@ -79,9 +81,8 @@ and rule_dec =
     reqs : case list;
     conc : conclusion;
   }
-and sorry = Sorry
-(* type of paths for `include` *)
-and path = string list
+and sorry = Sorry (* `:sorry` attribute for `declare-rule`.*)
+and path = string list (* type of paths for `include`. *)
 
 (* signature maps each symbol to its params/attr/type/def. *)
 module M = Map.Make(String)
@@ -109,11 +110,87 @@ let _app_list (f : term) (ts : term list) : term =
 ##########*)
 module L = List
 
+(* find the type of `s` wrt. `ps`. *)
+let find_param_typ_opt
+  (s : string) (ps : param list) : term option =
+  let f (s',t,_) =
+    if s = s' then Some t else None
+  in
+    L.find_map f ps
+
+(* find the attribute of `s` wrt. `ps`.  *)
+let find_param_attr_opt
+  (s : string) (ps : param list) : param_attr option =
+  let f (s',_,att_opt) =
+    if s = s' then att_opt else None
+  in
+    L.find_map f ps
+
+
 let rec is_kind : term -> bool =
   function
   | Symbol "Type" -> true
   | Apply ("->", ts) -> L.exists is_kind ts
   | _ -> false
+
+let rec is_free (s : string) : term -> bool =
+  function
+  | Symbol s' -> s = s'
+  | Apply (s',ts) -> (s = s') || L.exists (is_free s) ts
+  | Literal _ -> false
+  | Bind (s, vs, t) ->
+    let b1 = List.exists (fun (_,ty) -> is_free s ty) vs
+    and b2 = is_free s t in (b1 || b2)
+
+let is_param_attr_list
+  (s : string) (ps : param list) : bool =
+  (find_param_attr_opt s ps) = (Some List)
+
+let app : term * term list -> term =
+  function
+  | (Symbol s, []) -> Symbol s
+  | (Symbol s, ts) -> Apply (s, ts)
+  | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
+
+let glue
+  (ps,f : param list * term)
+  (t1,t2 : term * term) : term
+=
+  begin match t1 with
+  | Symbol s when is_param_attr_list s ps ->
+    Apply ("eo::list_concat",[f;t1;t2])
+  | _ ->
+    Apply ("_",[f;t1;t2])
+  end
+
+let prog_ty (doms,ran : term list * term) : term =
+  Apply ("->", List.append doms [ran])
+
+let prog_ty_params (t : term)
+  : param list -> param list =
+  let f (s,ty,_) =
+    if is_free s t then
+      Some (s, ty, Some Implicit)
+    else
+      None
+  in
+    L.filter_map f
+
+let prog_cs_params (cs : case list)
+  : param list -> param list =
+  let f ((s,_,_) as p) =
+    let g (t,t') = is_free s t || is_free s t' in
+    if L.exists g cs then (Some p) else None
+  in
+    L.filter_map f
+
+
+(* ---------------------------------------------- *)
+
+
+
+
+
 
 (* can probably destroy all of this???  *)
 let mk_eo_var (s,t : var) : term =
@@ -146,8 +223,7 @@ let _sig : signature ref = ref (M.of_list
     ("Type", Decl ([], Symbol "Kind", None, Ty))
   ])
 
-let mk_arrow_ty (ts : term list) (t : term) : term =
-  Apply ("->", List.append ts [t])
+
 
 let mk_aux_str (str : string) : string =
   (str ^ "_aux")
@@ -172,24 +248,9 @@ let mk_arg_vars (arg_tys : term list) : (string * term) list =
   in
     List.mapi arg_sym arg_tys
 
-(* find the type of `s` wrt. `ps`. *)
-let find_param_typ_opt
-  (s : string) (ps : param list) : term option =
-  let f (s',t,_) =
-    if s = s' then Some t else None
-  in
-    List.find_map f ps
 
-(* find the attribute of `s` wrt. `ps`.  *)
-let find_param_attr_opt
-  (s : string) (ps : param list) : param_attr option =
-  let f (s',_,att_opt) =
-    if s = s' then att_opt else None
-  in
-    List.find_map f ps
 
-let is_list_param =
-  fun s ps -> (find_param_attr_opt s ps) = (Some List)
+
 
 let lcat_of : literal -> lit_category =
   function
@@ -393,23 +454,22 @@ let command_str = function
         (opt_suffix_str term_str t_opt)
   | Include p ->
       Printf.sprintf "(include %s)" (String.concat "." p)
-  | Program (s,xs,(ts,t),cs) ->
+  | Program (s,(ps,ty),(qs,cs)) ->
       Printf.sprintf
-        "(program %s (%s) :signature (%s) %s (...))"
-        s (list_str param_str xs)
-        (term_list_str ts) (term_str t)
-        (* (case_list_str cs) *)
+        "(program %s\n:type (%s) %s\n:cases (%s) (%s))"
+        s (list_str param_str ps) (term_str ty)
+          (list_str param_str qs) (case_list_str cs)
   | Reference (str, s_opt) ->
       Printf.sprintf "(reference %s %s)"
         str (opt_str (fun x -> x) s_opt)
   | Step (s,t_opt,s',ts,ts') ->
       Printf.sprintf "(step %s %s %s%s%s)"
-        s (opt_str term_str t_opt) s'
+        s (term_str t_opt) s'
         (list_suffix_str term_str ts)
         (list_suffix_str term_str ts')
   | StepPop (s,t_opt,s',ts,ts') ->
       Printf.sprintf "(step-pop %s %s %s%s%s)"
-        s (opt_str term_str t_opt) s'
+        s (term_str t_opt) s'
         (list_suffix_str term_str ts)
         (list_suffix_str term_str ts')
   | Common c ->

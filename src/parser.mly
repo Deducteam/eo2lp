@@ -145,15 +145,16 @@ command:
   { DeclareConsts (l,t) }
   | LPAREN; DECLARE_PARAM_CONST;
       s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      t = term;
+      LPAREN; ps = list(param); RPAREN;
+      ty = term;
       att_opt = option(const_attr);
     RPAREN
   {
-    _sig := M.add s
-      { prm = xs; att = att_opt; typ = Some t; def = None }
-      !_sig;
-    DeclareParamConst (s, xs, t, att_opt)
+    let lv = (if is_kind ty then Ty else Tm) in
+    let dec = Decl (ps, ty, att_opt, Tm) in
+    _sig := M.add s dec !_sig;
+
+    DeclareParamConst (s, ps, ty, att_opt)
   }
   | LPAREN; DECLARE_RULE;
       s = symbol ;
@@ -173,55 +174,59 @@ command:
         reqs = (
           match reqs_opt with
           | Some cs -> cs
-          | None -> []
-        );
+          | None -> []);
         conc = conc
       }
     in
-      _sig := M.add s
+      (* _sig := M.add s
         { prm = []; att = None; typ = None; def = None }
-       !_sig;
-
-      DeclareRule (s, xs, r, att_opt)
+       !_sig; *)
+    DeclareRule (s, xs, r, att_opt)
   }
   | LPAREN; DEFINE;
       s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      t = term;
+      LPAREN; ps = list(param); RPAREN; t = term;
       ty_opt = option(defn_attr);
     RPAREN
   {
-    _sig := M.add s
-      { prm = xs; att = None; typ = ty_opt; def = Some t }
-      !_sig;
-    Define (s,xs,t,ty_opt)
+    let dec = Defn (ps, t) in
+    _sig := M.add s dec !_sig;
+    Define (s,ps,t,ty_opt)
   }
   | LPAREN; INCLUDE;
       str = STRING;
     RPAREN
   { Include [str] }
+
   | LPAREN; PROGRAM;
       s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
+      LPAREN; ps = list(param); RPAREN;
       SIGNATURE;
         LPAREN; doms = nonempty_list(term); RPAREN;
         ran = term;
       cs_opt = option(cases);
     RPAREN
-  { let cs = match cs_opt with
+  { let cs =
+      match cs_opt with
       | Some cs -> cs
       | None -> []
     in
-      _sig := M.add s
-        { prm = []; att = None; typ = None; def = None }
-        !_sig;
-      Program (s, xs, (doms, ran), cs)
+    let ty = prog_ty (doms,ran) in
+    let lv = (if is_kind ty then Ty else Tm) in
+    let qs = prog_ty_params ty ps in
+    let dec = Decl (qs, ty, None, lv) in
+    _sig := M.add s dec !_sig;
+
+    let rs = prog_cs_params cs ps in
+    Program (s, (qs, ty), (rs, cs))
   }
+
   | LPAREN; REFERENCE;
       str = STRING ;
       s_opt = option(symbol);
     RPAREN
   { Reference (str, s_opt) }
+
   | LPAREN; STEP;
       s1 = symbol ;
       t_opt = option(term);
@@ -231,13 +236,19 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    let step_typ = Option.map mk_proof t_opt in
-    let step_def = Apply (s2, List.append xs ys) in
-    _sig := M.add s1
-      { prm = []; att = None; typ = step_typ; def = Some step_def }
-      !_sig;
-    Step (s1, t_opt, s2, xs, ys)
+    let s1_ty =
+      match t_opt with
+      | Some t -> mk_proof t
+      | None -> Printf.ksprintf failwith
+        "Please ask your SMT solver to print conclusions
+        of proof steps."
+    in
+    let s1_def = Apply (s2, List.append xs ys) in
+    let dec = Decl ([], s1_ty, None, Ty) in
+    _sig := M.add s1 dec !_sig;
+    Step (s1, s1_ty, s2, xs, ys)
   }
+
   | LPAREN; STEP_POP;
       s1 = symbol ;
       t_opt = option(term);
@@ -247,13 +258,18 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    let step_typ = Option.map mk_proof t_opt in
-    let step_def = Apply (s2, List.append xs ys) in
-    _sig := M.add s1
-      { prm = []; att = None; typ = step_typ; def = Some step_def }
-      !_sig;
-    StepPop (s1, t_opt, s2, xs, ys)
+    let s1_ty =
+      match t_opt with
+      | Some t -> mk_proof t
+      | None -> Printf.ksprintf failwith
+        "Please ask your SMT solver to print conclusions."
+    in
+    let s1_def = Apply (s2, List.append xs ys) in
+    let dec = Decl ([], s1_ty, None, Ty) in
+    _sig := M.add s1 dec !_sig;
+    StepPop (s1, s1_ty, s2, xs, ys)
   }
+
   | c = common_command
   { Common c }
 

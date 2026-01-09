@@ -13,6 +13,9 @@
  (modules
    parser lexer parse_eo syntax_eo
    syntax_lp api_lp
+   syntax_lf
+   elaborate
+   main
  )
  (flags :standard -w -8 -w -27)
  (libraries str unix fpath)
