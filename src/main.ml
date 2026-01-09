@@ -4,14 +4,14 @@ module EO = struct
   include Parse_eo
 end
 
-module LP = struct
-  include Syntax_lp
-  include Translate
-end
-module Elab = Elaborate
-module M = EO.M
+let core : EO.command list =
+  EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
 
-let elaborate (env : EO.environment) (cs : EO.command list)
+let env : EO.environment =
+  Parse_eo.parse_eo_dir "./cpc-mini"
+
+
+(* let elaborate (env : EO.environment) (cs : EO.command list)
   : Elab.command list =
   let f eo =
     Printf.printf
@@ -78,7 +78,7 @@ let env : EO.environment =
 let main () =
   let lps = proc env ["theories";"Arith"] in
   write lps
-
+ *)
 
 (* let gen_const (sgn : signature)
     (s : string) (ps : EO.param list) (ty : EO.term)
