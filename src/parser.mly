@@ -91,9 +91,7 @@ common_command:
       att_opt = option(const_attr);
     RPAREN
   {
-    let lv = (if is_kind t then Ty else Tm) in
-    let dec = Decl ([], t, att_opt, lv) in
-    _sig := M.add s dec !_sig;
+    _sym(s, Dcl ([], t, att_opt, lv_of t));
     DeclareConst (s,t,att_opt)
   }
   | LPAREN; DECLARE_DATATYPE;
@@ -123,9 +121,7 @@ command:
       t = term;
     RPAREN
   {
-    let ty  = mk_proof t in
-    let dec = Decl ([], ty, None, Ty) in
-    _sig := M.add s dec !_sig;
+    (* _sym (s, Assm t); *)
     Assume (s,t)
   }
   | LPAREN; ASSUME_PUSH;
@@ -133,9 +129,7 @@ command:
       t = term;
     RPAREN
   {
-    let ty  = mk_proof t in
-    let dec = Decl ([], ty, None, Ty) in
-    _sig := M.add s dec !_sig;
+    (* _sym(s, Assm (mk_proof t, None)); *)
     AssumePush (s,t)
   }
   | LPAREN; DECLARE_CONSTS;
@@ -150,10 +144,7 @@ command:
       att_opt = option(const_attr);
     RPAREN
   {
-    let lv = (if is_kind ty then Ty else Tm) in
-    let dec = Decl (ps, ty, att_opt, Tm) in
-    _sig := M.add s dec !_sig;
-
+    _sym(s, Dcl (ps, ty, att_opt, lv_of ty));
     DeclareParamConst (s, ps, ty, att_opt)
   }
   | LPAREN; DECLARE_RULE;
@@ -181,6 +172,10 @@ command:
       (* _sig := M.add s
         { prm = []; att = None; typ = None; def = None }
        !_sig; *)
+    (* _sym(s, Rule (xs, r)); *)
+    if Option.is_some att_opt then
+      Printf.printf "WARNING: (:sorry, rule %s)\n" s;
+
     DeclareRule (s, xs, r, att_opt)
   }
   | LPAREN; DEFINE;
@@ -189,14 +184,17 @@ command:
       ty_opt = option(defn_attr);
     RPAREN
   {
-    let dec = Defn (ps, t) in
-    _sig := M.add s dec !_sig;
+    _sym (s, Dfn (ps, t));
     Define (s,ps,t,ty_opt)
   }
   | LPAREN; INCLUDE;
       str = STRING;
     RPAREN
-  { Include [str] }
+  {
+  (* TODO. actually implement recursively going through
+  directory and parsing eunoia files.*)
+  Include [str]
+  }
 
   | LPAREN; PROGRAM;
       s = symbol ;
@@ -206,17 +204,11 @@ command:
         ran = term;
       cs_opt = option(cases);
     RPAREN
-  { let cs =
-      match cs_opt with
-      | Some cs -> cs
-      | None -> []
-    in
+  { let cs = Option.fold ~none:[] ~some:(fun x -> x) cs_opt in
     let ty = prog_ty (doms,ran) in
-    let lv = (if is_kind ty then Ty else Tm) in
-    let qs = prog_ty_params ty ps in
-    let dec = Decl (qs, ty, None, lv) in
-    _sig := M.add s dec !_sig;
+    (s, Prg (ps, ty, cs, lv_of ty)) |> _sym;
 
+    let qs = prog_ty_params ty ps in
     let rs = prog_cs_params cs ps in
     Program (s, (qs, ty), (rs, cs))
   }
@@ -229,45 +221,30 @@ command:
 
   | LPAREN; STEP;
       s1 = symbol ;
-      t_opt = option(term);
+      t = term;
       RULE; s2 = symbol ;
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    let s1_ty =
-      match t_opt with
-      | Some t -> mk_proof t
-      | None -> Printf.ksprintf failwith
-        "Please ask your SMT solver to print conclusions
-        of proof steps."
-    in
-    let s1_def = Apply (s2, List.append xs ys) in
-    let dec = Decl ([], s1_ty, None, Ty) in
-    _sig := M.add s1 dec !_sig;
-    Step (s1, s1_ty, s2, xs, ys)
-  }
+    (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
+
+    Step (s1, t, s2, xs, ys);
+}
 
   | LPAREN; STEP_POP;
       s1 = symbol ;
-      t_opt = option(term);
+      t = term;
       RULE; s2 = symbol ;
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    let s1_ty =
-      match t_opt with
-      | Some t -> mk_proof t
-      | None -> Printf.ksprintf failwith
-        "Please ask your SMT solver to print conclusions."
-    in
-    let s1_def = Apply (s2, List.append xs ys) in
-    let dec = Decl ([], s1_ty, None, Ty) in
-    _sig := M.add s1 dec !_sig;
-    StepPop (s1, s1_ty, s2, xs, ys)
+    Printf.printf "WARNING. (step-pop ...)";
+    (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
+    StepPop (s1, t, s2, xs, ys)
   }
 
   | c = common_command
