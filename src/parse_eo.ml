@@ -46,25 +46,17 @@ let parse_command (lx : Lexing.lexbuf) : command option =
       (Lexing.lexeme lx);
     None
 
-let parse_eo_file (root,fp : string * string) : command list =
+let parse_eo_file (root,fp : string * string) : signature =
   Printf.printf "Parsing: %s\n" fp;
   let ch = open_in fp in
   let lx = Lexing.from_channel ch in
-  let cmds = ref [] in
   try while true do (
-      match parse_command lx with
-      | Some cmd -> (
-          match cmd with
-          | Include [str] ->
-            let p = resolve (root,fp,str) in
-              cmds := (Include p) :: !cmds
-          | _ ->
-            cmds := cmd :: !cmds
-      )
-      | None -> raise Exit
-    ) done; assert false
+    match parse_command lx with
+    | Some cmd -> ()
+    | None -> raise Exit
+  ) done; assert false
   with
-  | Exit -> close_in ch; List.rev !cmds
+  | Exit -> close_in ch; !_sig
   | exn -> close_in ch; raise exn
 
 let dir_contents dir =
@@ -95,6 +87,7 @@ let parse_eo_dir (root_str : string) : environment =
     let key = get_logical_path (root,fp) in
 
     (* 2. Parse, passing the absolute root string for inner resolution *)
-    (key, parse_eo_file (root_abs_str, Fpath.to_string fp))
+     (key, parse_eo_file (root_abs_str, Fpath.to_string fp))
+
   in
     List.map f fps

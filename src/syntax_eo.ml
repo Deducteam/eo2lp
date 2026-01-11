@@ -85,15 +85,76 @@ and sorry = Sorry (* `:sorry` attribute for `declare-rule`.*)
 and path = string list (* type of paths for `include`. *)
 
 (* signature maps each symbol to its params/attr/type/def. *)
-module M = Map.Make(String)
 
-type level = Tm | Ty | Pg
-type symdecl =
-  | Decl of param list * term * const_attr option * level
-  | Defn of param list * term
-type signature = symdecl M.t
+module L = List
+module S = String
+module M = Map.Make(S)
+
+type level = Tm | Ty
+type symbol =
+  (* | Prm of term * param_attr * level *)
+  | Dcl of param list * term * const_attr option * level
+  | Prg of param list * term * case list * level
+  | Dfn of param list * term
+type signature = (symbol list) M.t
+
+let _sig : signature ref = ref M.empty
+
+let _sym : string * symbol -> unit =
+  fun (s, sym) -> _sig := M.add_to_list s sym !_sig
+
 type context = signature * param list
-type environment = (path * command list) list
+
+let _pn : string -> param -> bool =
+  (fun s (s',_,_) -> s = s')
+let _pa : param_attr -> param -> bool =
+  (fun pa (_,_,pao) -> Some pa = pao)
+let __pa : (string * param_attr) -> param list -> bool =
+  fun (s,pa) -> L.exists (fun p -> _pn s p && _pa pa p)
+
+type environment = (path * signature) list
+let _env : environment ref = ref []
+
+let rec is_kind : term -> bool =
+  function
+  | Symbol "Type" -> true
+  | Apply ("->", ts) -> L.exists is_kind ts
+  | _ -> false
+
+let lv_of : term -> level =
+  fun t -> if is_kind t then Ty else Tm
+  (* | Step of string * term list * term list * term *)
+  (* | Assm of term *)
+
+let app : term * term list -> term =
+  function
+  | (Symbol s, []) -> Symbol s
+  | (Symbol s, ts) -> Apply (s, ts)
+  | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
+
+
+let rec subst
+  (t : term) ((s,_,_) as p : param) (t' : term) : term =
+  match t with
+  | Symbol s' as t -> if s = s' then t' else t
+  | Apply (s', ts) ->
+    let ts' = L.map (fun x -> subst x p t') ts in
+    if s = s'
+      then app (t', ts')
+      else Apply (s, ts')
+
+let splice
+  (ps, t : param list * term)
+  (ts : term list) : term
+=
+  let qs = ps |> L.drop_while (_pa Implicit) in
+  let n = L.length qs in
+  let (us,vs) = (L.take n ts, L.drop n ts) in
+  let t' = L.fold_left2 (subst) t qs us in
+  app (t',vs)
+
+
+
 (* ---- helpers -------- *)
 (* ##########
   deprecated?
@@ -108,30 +169,7 @@ let _app_bin (f : term) : term * term -> term =
 let _app_list (f : term) (ts : term list) : term =
   List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
 ##########*)
-module L = List
-
 (* find the type of `s` wrt. `ps`. *)
-let find_param_typ_opt
-  (s : string) (ps : param list) : term option =
-  let f (s',t,_) =
-    if s = s' then Some t else None
-  in
-    L.find_map f ps
-
-(* find the attribute of `s` wrt. `ps`.  *)
-let find_param_attr_opt
-  (s : string) (ps : param list) : param_attr option =
-  let f (s',_,att_opt) =
-    if s = s' then att_opt else None
-  in
-    L.find_map f ps
-
-
-let rec is_kind : term -> bool =
-  function
-  | Symbol "Type" -> true
-  | Apply ("->", ts) -> L.exists is_kind ts
-  | _ -> false
 
 let rec is_free (s : string) : term -> bool =
   function
@@ -142,26 +180,14 @@ let rec is_free (s : string) : term -> bool =
     let b1 = List.exists (fun (_,ty) -> is_free s ty) vs
     and b2 = is_free s t in (b1 || b2)
 
-let is_param_attr_list
-  (s : string) (ps : param list) : bool =
-  (find_param_attr_opt s ps) = (Some List)
-
-let app : term * term list -> term =
-  function
-  | (Symbol s, []) -> Symbol s
-  | (Symbol s, ts) -> Apply (s, ts)
-  | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
-
 let glue
   (ps,f : param list * term)
   (t1,t2 : term * term) : term
 =
-  begin match t1 with
-  | Symbol s when is_param_attr_list s ps ->
+  match t1 with
+  | Symbol s when __pa (s,List) ps ->
     Apply ("eo::list_concat",[f;t1;t2])
-  | _ ->
-    Apply ("_",[f;t1;t2])
-  end
+  | _ -> Apply ("_",[f;t1;t2])
 
 let prog_ty (doms,ran : term list * term) : term =
   Apply ("->", List.append doms [ran])
@@ -207,21 +233,11 @@ let is_prog (str : string) : bool =
   &&
   (is_builtin str || String.starts_with ~prefix:"$" str)
 
-let is_def (s : string) (sgn : signature) =
-  match M.find_opt s sgn with
-  | Some (Defn _) -> true
-  | _ -> false
-
-let get_att_opt (s : string) (sgn : signature) =
+(* let get_att_opt (s : string) (sgn : signature) =
   match M.find_opt s sgn with
   | Some (Decl (_,_,att_opt,_)) -> att_opt
-  | None -> None
+  | None -> None *)
 
-(* save signature info at parse time *)
-let _sig : signature ref = ref (M.of_list
-  [
-    ("Type", Decl ([], Symbol "Kind", None, Ty))
-  ])
 
 
 
@@ -479,4 +495,11 @@ let command_str = function
 let ty_of (t : term) : term =
   Symbol ("TY[" ^  term_str t ^ "]")
 
-(* ------------------------------------------------------ *)
+(* let symbol_str =
+  function
+  | Decl (ps, t, _) ->
+    "Decl(" ^ S.concat ", " (L.map param_str ps) ^ ", " ^ term_str t ^ ")"
+  | Prog (ps, t, cs) -> "Prog(" ^ S.concat ", " (L.map param_str ps) ^ ", " ^ term_str t ^ ", " ^ S.concat ", " (L.map case_str cs) ^ ")"
+  | Defn (ps, t) -> "Defn(" ^ S.concat ", " (L.map param_str ps) ^ ", " ^ term_str t ^ ")"
+
+(* ------------------------------------------------------ *) *)

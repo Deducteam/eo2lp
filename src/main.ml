@@ -4,10 +4,10 @@ module EO = struct
   include Parse_eo
 end
 
-let core : EO.command list =
+let core : EO.signature =
   EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
 
-let env : EO.environment =
+let _cpc : EO.environment =
   Parse_eo.parse_eo_dir "./cpc-mini"
 
 
