@@ -7,109 +7,112 @@ module API = Api_lp
 module M = EO.M
 module L = EO.L
 
-let last (xs : 'a list) : ('a list * 'a) =
-  let ys = List.rev xs in
-  (List.rev (List.tl ys), List.hd ys)
-
 let is_well_typed : LF.term -> bool =
   fun _ -> true
 
-let cut_when
-  (p : 'a -> bool) (xs : 'a list)
-  : ('a list * 'a list)
-=
-  (L.take_while p xs, L.drop_while p xs)
-
-let rec elab
-  (sgn,ps as ctx : EO.context)
-  : EO.term -> LF.term =
-  function
-  | Symbol s -> failwith ""
+let rec elab (sgn,ps as ctx : EO.context)
+  : EO.term -> LF.term
+= function
+  (* ---- *)
   | Literal l -> Lit l
-  | Bind (s, vs, t) -> failwith ""
-  | Apply (s,ts) ->
-    begin match M.find s sgn with
-    (* --- *)
-    | [] ->
+  (* ---- *)
+  | Symbol "Type" -> Const ("TYPE", [])
+  | Symbol "Kind" -> Const ("KIND", [])
+  | Symbol "->" -> Const ("->", [])
+  | Symbol s ->
+    if L.mem_assoc s sgn then
+      Const (s,[])
+    else if L.exists (EO._pn s) ps then
+      Var s
+    else
       Printf.ksprintf failwith
-      "%s has no instances in signature." s
-    (* --- *)
-    | k :: ks ->
-      begin match k with
-      | Dcl (ps,_,ao,lv) ->
-        let mvs =
-          ps |> L.take_while (EO._pa Implicit)
-             |> L.map (fun (_,ty,_) -> MVar ty)
-        in
-        let ops =
-          ps |> L.drop (L.length mvs)
-             |> L.take_while (EO._pa Opaque)
-             |>
-
-        elab_nary ctx (ao,lv) (f,ts)
-      | Prg (ps,t,_,lv) ->
-        elab_prog ctx (s,ts,lv)
-      | Dfn (ps,t) ->
-        let f = EO.splice (ps,t) ts in
-        elab ctx f
-      end
-  end
-and elab_const
-  (s,ps,ts : string * EO.param list * EO.term list) : LF.term * EO.term list =
-=
-
-
-
-and elab_nary
-  (sgn,ps as ctx : EO.context)
-  (ao,lv : EO.const_attr option * EO.level)
-  (t, ts : EO.term * EO.term list) : LF.term
-=
-  let g x y = EO.glue (ps,f) (x,y) in
-  let h y x = EO.glue (ps,f) (y,x) in
-  let f',ts' = elab ctx f, L.map (elab ctx) ts in
-  begin match att_opt with
+      "Symbol %s not found in context" s
   (* ---- *)
-  | None -> App (f', ts')
+  | Bind ("eo::define", xs, t) ->
+    L.fold_right
+      (fun (s,x) acc -> LF.Let (s, elab ctx x, acc))
+      xs (elab ctx t)
   (* ---- *)
-  | Some RightAssocNil t_nil -> (
+  | Bind (s,xs,t) ->
+    elab ctx @@
+      EO.app_binder (Symbol s,xs,t) (EO.att_of s sgn)
+  (* ---- *)
+  | Apply ("_",ts) -> (
     match ts with
-    | [t1; Symbol s] when EO.__pa (s,List) ps -> App (f', ts')
-    | _ -> elab ctx (L.fold_right g ts t_nil)
+    | [t1;t2] ->
+      let (t1',t2') = elab ctx t1, elab ctx t2 in
+      LF.App (t1',t2')
+    | _ -> failwith "Invalid HO application."
+  )
+  (* ---- *)
+  | Apply ("->",ts) ->
+      EO.app_nary ps (Symbol "->", ts) (Some RightAssoc)
+      |> elab ctx
+  (* ---- *)
+  | Apply (s,ts) -> (
+    match L.find_opt (EO._pn s) ps with
+    | Some _ ->
+      if ts = []
+        then Var s
+        else EO.app_ho_list (Symbol s) ts |> elab ctx
+    | None -> (
+        match L.assoc_opt s sgn with
+        | None ->
+          Printf.ksprintf failwith
+            "Symbol %s not in context." s
+        | Some Dcl (_,_,ao,_) ->
+          if ts = [] then
+            Const (s,[])
+          else
+            EO.app_nary ps (Symbol s, ts) (EO.att_of s sgn)
+            |> elab ctx
+        | Some Prg (_,_,_,_) ->
+            let f = LF.Const (s,[]) in
+            if ts = [] then f
+            else LF.app_list (f :: L.map (elab ctx) ts)
+        | Some Dfn (qs,t) ->
+            let (qs',t',ts') = EO.splice (qs,t,ts) in
+            if qs' = [] then
+              elab ctx (EO.app_raw t' ts')
+            else
+              failwith "Partially applied definition."
+        )
+      )
+
+let elab_prm (ctx : EO.context)
+  : EO.param list -> LF.param list =
+  L.map (fun (s,t,ao) ->
+    match ao with
+    | Some EO.Implicit -> (s, elab ctx t, LF.Implicit)
+    | _ -> (s, elab ctx t, LF.Explicit)
+  )
+
+let elab_cs (ctx : EO.context)
+  : EO.case list -> LF.case list =
+  L.map (fun (t,t') -> elab ctx t, elab ctx t')
+
+let elab_sym (sgn,ps as ctx: EO.context)
+  : string * EO.symbol -> string * LF.symbol =
+  function
+  | (s, Dcl (qs,t,_,_)) ->
+    Printf.printf "Elaborating symbol `%s`.\n" s;
+    (s, Decl (
+      elab_prm ctx ps,
+      elab (sgn, L.append qs ps) t
+      )
     )
-  (* ---- *)
-  | Some LeftAssocNil t_nil -> (
-    match ts with
-    | [t1; Symbol s] when EO.__pa (s,List) ps -> App (f', ts')
-    | _ -> elab ctx (L.fold_left h f ts)
+  | (s, Prg (ps', ty, cs, _)) ->
+    let (qs,rs) = (
+      EO.prog_ty_params ty ps,
+      EO.prog_cs_params cs ps)
+    in
+      (s, Prog (
+        (elab_prm ctx qs, elab (sgn, L.append qs ps) ty),
+        (elab_prm ctx rs, elab_cs (sgn, L.append rs ps) cs)
+      )
     )
-  (* ---- *)
-  | Some RightAssoc ->
-    let (xs, x) = last ts in
-    elab ctx (L.fold_right g xs x)
-  (* ---- *)
-  | Some LeftAssoc ->
-    elab ctx (L.fold_left h (List.hd ts) (List.tl ts))
-  (* ---- *)
-  | Some Chainable op ->
-    let rec aux =
-      function
-      | v :: w :: vs -> (EO.app (f,[v;w])) :: aux vs
-      | _ -> []
-    in
-      elab ctx (Apply (op, aux ts))
-  (* ---- *)
-  | Some Pairwise op ->
-    let rec aux =
-      function
-      | v :: vs -> L.append
-        (L.map (fun w -> EO.app (f,[v;w])) vs)
-        (aux vs)
-      | [] -> []
-    in
-      elab ctx (Apply (op, aux ts))
-  (* ---- *)
-  | Some _ ->
-    failwith "unimplemented strategy"
-  (* ---- *)
-  end
+
+let elab_sig (sgn : EO.signature)
+  : EO.signature -> LF.signature
+=
+  L.map (elab_sym (sgn,[]))

@@ -3,35 +3,43 @@ module S = String
 module EO = Syntax_eo
 module LP = Syntax_lp
 
-type level = EO.level
+open Literal
+
 type term =
-  | Sym of string * term list
-  | MVar of term
-  | Lit of EO.literal
-  | App of term * term list
+  | Const of string * term list
+  | Var of string
+  | Lit of literal
+  | App of term * term
   | Let of string * term * term
 
-let app_delim_str : level -> string =
-  function
-    | Tm -> " ⋅ "
-    | Ty -> " ∗ "
-    | Pg -> " "
+type attr = Implicit | Explicit
+type param = string * term * attr
+type case = term * term
+type symbol =
+  | Decl of param list * term
+  | Prog of (param list * term) * (param list * case list)
+type signature =
+  (string * symbol) list
+
+
+let app_list (ts : term list) : term =
+  if ts = [] then
+    failwith "Can't apply empty list."
+  else
+  L.fold_left
+    (fun acc t -> App (acc, t))
+    (L.hd ts) (L.tl ts)
 
 let rec term_str : term -> string =
   function
+  | Const (s,[]) | Var s -> s
+  | Const (s,ts) ->
+    Printf.sprintf "%s[%s]"
+      s (ts |> L.map term_str |> S.concat " ")
+  | Lit l -> literal_str l
+  | App (t,t') ->
+    Printf.sprintf "(%s %s)"
+    (term_str t) (term_str t')
   | Let (s,t,t') ->
-  Printf.sprintf "(let %s := %s in %s)"
-  s (term_str t) (term_str t')
-  | Sym s -> s
-  | Lit l -> EO.literal_str l
-  | App (f,ts) ->
-   begin match f with
-    | Sym "->" ->
-      let f =  fun t acc ->
-        Printf.sprintf "%s ⤳ %s"
-        (term_str t) acc
-      in
-        L.fold_right f ts ""
-    | _ ->
-        (term_str f) ^ S.concat " " (L.map term_str ts)
-  end
+    Printf.sprintf "(let %s := %s in %s)"
+      s (term_str t) (term_str t')
