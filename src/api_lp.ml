@@ -119,6 +119,6 @@ let current_file = "lp/Core.lp"
 (* Check if a term typechecks *)
 let foo () =
   match check_term_type current_file
-    (App (M, Leaf (Const "List"), Leaf (Const "List"))) with
+    (App (Var "List", Var ("List"))) with
   | Ok -> Printf.printf "Term is well-typed!\n"
   | Error err -> Printf.printf "Error:\n%s\n" err

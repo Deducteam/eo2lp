@@ -1,5 +1,6 @@
 %{
 open Syntax_eo
+open Literal
 let flatten =
   Option.fold ~none:[] ~some:(fun x -> x)
 %}

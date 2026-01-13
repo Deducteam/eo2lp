@@ -11,10 +11,11 @@
  (name eo2lp)
  (public_name eo2lp)
  (modules
-   parser lexer parse_eo syntax_eo
+   parser lexer
+   literal parse_eo syntax_eo
    syntax_lp api_lp
    syntax_lf
-   elaborate
+   elaborate encode translate
    main
  )
  (flags :standard -w -8 -w -27)

@@ -1,16 +1,27 @@
 
-module EO = struct
-  include Syntax_eo
-  include Parse_eo
-end
+open Syntax_eo
+open Parse_eo
+open Elaborate
 
 let core : EO.signature =
-  EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
+  parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
 
 let _cpc : EO.environment =
-  Parse_eo.parse_eo_dir "./cpc-mini"
+  parse_eo_dir "./cpc-mini"
 
+let _utils =
+  (List.assoc ["programs";"Utils"] _cpc)
 
+let _arr =
+  EO.app_nary []
+    (Symbol "->", [Symbol "T"; Symbol "U"; Symbol "V"; Symbol "V"])
+    (Some RightAssoc)
+
+let t i =
+  Elaborate.elab_sym (!EO._sig,[]) (List.nth core i)
+(* let test =
+  Elaborate.elab_sig !EO._sig
+    ();; *)
 (* let elaborate (env : EO.environment) (cs : EO.command list)
   : Elab.command list =
   let f eo =

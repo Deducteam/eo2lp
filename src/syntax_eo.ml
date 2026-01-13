@@ -1,13 +1,4 @@
-type lit_category =
-  NUM | DEC | RAT | BIN | HEX | STR
-and literal =
-  | Numeral of int
-  | Decimal of float
-  | Rational of int * int
-  | Binary of string
-  | Hexadecimal of string
-  | String of string
-
+open Literal
 type term =
   | Symbol of string
   | Apply of string * (term list)
@@ -86,22 +77,34 @@ and path = string list (* type of paths for `include`. *)
 
 (* signature maps each symbol to its params/attr/type/def. *)
 
-module L = List
+module L = struct
+  include List
+  let split_last (xs : 'a list) : ('a list * 'a) =
+    let ys = List.rev xs in
+    (List.rev (List.tl ys), List.hd ys)
+end
+
 module S = String
 module M = Map.Make(S)
+
 
 type level = Tm | Ty
 type symbol =
   (* | Prm of term * param_attr * level *)
   | Dcl of param list * term * const_attr option * level
-  | Prg of param list * term * case list * level
   | Dfn of param list * term
-type signature = (symbol list) M.t
+  | Prg of param list * term * case list * level
+type signature = (string * symbol) list
 
-let _sig : signature ref = ref M.empty
+let _sig : signature ref = ref []
 
 let _sym : string * symbol -> unit =
-  fun (s, sym) -> _sig := M.add_to_list s sym !_sig
+  fun (s, sym) -> _sig := L.append !_sig [(s,sym)]
+
+let att_of (s : string) (sgn : signature) : const_attr option =
+  match L.assoc_opt s sgn with
+  | Some Dcl (_,_,ao,_) -> ao
+  | _ -> failwith "Invalid query."
 
 type context = signature * param list
 
@@ -123,55 +126,128 @@ let rec is_kind : term -> bool =
 
 let lv_of : term -> level =
   fun t -> if is_kind t then Ty else Tm
-  (* | Step of string * term list * term list * term *)
-  (* | Assm of term *)
 
-let app : term * term list -> term =
-  function
-  | (Symbol s, []) -> Symbol s
-  | (Symbol s, ts) -> Apply (s, ts)
-  | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
+let app_raw : term -> term list -> term =
+  fun t ts ->
+    match t,ts with
+    | (Symbol s, []) -> Symbol s
+    | (Symbol s, ts) -> Apply (s, ts)
+    | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
 
+let app_ho : term -> term -> term =
+  fun t t' -> Apply ("_", [t;t'])
 
-let rec subst
-  (t : term) ((s,_,_) as p : param) (t' : term) : term =
-  match t with
-  | Symbol s' as t -> if s = s' then t' else t
-  | Apply (s', ts) ->
-    let ts' = L.map (fun x -> subst x p t') ts in
-    if s = s'
-      then app (t', ts')
-      else Apply (s, ts')
+let app_ho_list : term -> term list -> term =
+  fun t ts -> L.fold_left app_ho t ts
 
-let splice
-  (ps, t : param list * term)
-  (ts : term list) : term
+let rec subst : term -> param -> term -> term =
+  fun t p t' ->
+    match t with
+    | Symbol s -> if _pn s p then t' else t
+    | Apply (s, ts) ->
+      let ts' = L.map (fun t -> subst t p t') ts in
+      if _pn s p
+        then app_raw t' ts'
+        else Apply (s, ts')
+
+(* reduce application of explicit params.*)
+let rec splice
+    (ps,t,ts : param list * term * term list)
+  : (param list * term * term list)
 =
-  let qs = ps |> L.drop_while (_pa Implicit) in
-  let n = L.length qs in
-  let (us,vs) = (L.take n ts, L.drop n ts) in
-  let t' = L.fold_left2 (subst) t qs us in
-  app (t',vs)
+  match ps, ts with
+  | (([],_)|(_,[])) -> (ps, t, ts)
+  | (p :: ps, ts) when _pa Implicit p ->
+      splice (ps, t, ts)
+  | (p :: ps, t' :: ts) ->
+      splice (ps, subst t p t', ts)
 
+let glue (ps,f : param list * term)
+  : term -> term -> term
+=
+  fun t1 t2 ->
+    begin match t1 with
+    | Symbol s when __pa (s,List) ps ->
+      Apply ("eo::list_concat",[f;t1;t2])
+    | _ ->
+      app_ho_list f [t1;t2]
+    end
 
+let app_nary
+  (ps : param list) (f,ts : term * term list)
+  (ao : const_attr option) : term
+=
+  let g x y = glue (ps,f) x y in
+  let h y x = glue (ps,f) y x in
+  begin match ao with
+  (* ---- *)
+  | None -> app_ho_list f ts
+  (* ---- *)
+  | Some RightAssocNil t_nil -> (
+    match ts with
+    | [t1; Symbol s] when __pa (s,List) ps ->
+      app_ho_list f ts
+    | _ ->
+      L.fold_right g ts t_nil
+    )
+  (* ---- *)
+  | Some LeftAssocNil t_nil -> (
+    match ts with
+    | [t1; Symbol s] when __pa (s,List) ps ->
+      app_ho_list f ts
+    | _ ->
+      L.fold_left h f ts
+    )
+  (* ---- *)
+  | Some RightAssoc ->
+    let (ts', t') =
+      L.split_last ts
+    in
+      L.fold_right g ts' t'
+  (* ---- *)
+  | Some LeftAssoc ->
+    let (t',ts') =
+      (List.hd ts, List.tl ts)
+    in
+      L.fold_left h t' ts'
+  (* ---- *)
+  | Some Chainable op ->
+    let rec aux =
+      function
+      | v :: w :: vs -> (app_ho_list f [v;w]) :: aux vs
+      | _ -> []
+    in
+      Apply (op, aux ts)
+  (* ---- *)
+  | Some Pairwise op ->
+    let rec aux =
+      function
+      | v :: vs ->
+        L.append
+          (L.map (fun w -> app_ho_list f [v;w]) vs)
+          (aux vs)
+      | [] -> []
+    in
+      Apply (op, aux ts)
+  (* ---- *)
+  | Some a ->
+    failwith "unimplemented elaboration strategy."
+  (* ---- *)
+  end
 
-(* ---- helpers -------- *)
-(* ##########
-  deprecated?
-  no longer needed because we post-elab term datatype?
+let app_binder
+  (f,xs,t : term * var list * term)
+  (ao : const_attr option) : term =
+  match ao with
+  | Some Binder t_cons ->
+    let mk_var = fun (s,t) ->
+      Apply("eo::var", [Literal (String s); t])
+    in
+      app_ho_list f [Apply (t_cons, L.map mk_var xs); t]
+  | None -> failwith "No :binder attribute."
 
-let _app ((t1,t2) : term * term) : term =
-  Apply ("_", [t1;t2])
-
-let _app_bin (f : term) : term * term -> term =
-  fun (t1,t2) -> _app (_app (f,t1), t2)
-
-let _app_list (f : term) (ts : term list) : term =
-  List.fold_left (fun t_acc t -> _app (t_acc,t)) f ts
-##########*)
-(* find the type of `s` wrt. `ps`. *)
-
-let rec is_free (s : string) : term -> bool =
+let rec is_free
+  (s : string) : term -> bool =
   function
   | Symbol s' -> s = s'
   | Apply (s',ts) -> (s = s') || L.exists (is_free s) ts
@@ -180,16 +256,9 @@ let rec is_free (s : string) : term -> bool =
     let b1 = List.exists (fun (_,ty) -> is_free s ty) vs
     and b2 = is_free s t in (b1 || b2)
 
-let glue
-  (ps,f : param list * term)
-  (t1,t2 : term * term) : term
+let prog_ty
+  (doms,ran : term list * term) : term
 =
-  match t1 with
-  | Symbol s when __pa (s,List) ps ->
-    Apply ("eo::list_concat",[f;t1;t2])
-  | _ -> Apply ("_",[f;t1;t2])
-
-let prog_ty (doms,ran : term list * term) : term =
   Apply ("->", List.append doms [ran])
 
 let prog_ty_params (t : term)
@@ -210,17 +279,7 @@ let prog_cs_params (cs : case list)
   in
     L.filter_map f
 
-
 (* ---------------------------------------------- *)
-
-
-
-
-
-
-(* can probably destroy all of this???  *)
-let mk_eo_var (s,t : var) : term =
-  Apply("eo::var", [Literal (String s); t])
 
 let mk_proof (t : term) : term =
   Apply("Proof", [t])
@@ -264,10 +323,6 @@ let mk_arg_vars (arg_tys : term list) : (string * term) list =
   in
     List.mapi arg_sym arg_tys
 
-
-
-
-
 let lcat_of : literal -> lit_category =
   function
   | Numeral _  -> NUM
@@ -291,27 +346,7 @@ let opt_str (f : 'a -> string) =
 let opt_suffix_str (f : 'a -> string) =
   Option.fold ~none:"" ~some:(fun x -> " " ^ (f x))
 
-(* TODO. introduce types for literal categories. *)
-let lit_category_str =
-  function
-  | NUM -> "<numeral>"
-  | DEC -> "<decimal>"
-  | RAT -> "<decimal>"
-  | BIN -> "<binary>"
-  | HEX -> "<hexadecimal>"
-  | STR -> "<string>"
 
-let literal_str =
-  function
-  | Numeral n -> string_of_int n
-  | Decimal d -> string_of_float d
-  | Rational (n, d) ->
-    string_of_int n ^ "/" ^ string_of_int d
-  | String s -> "\"" ^ s ^ "\""
-  | Binary _ -> Printf.printf
-    "WARNING: unhandled binary."; ""
-  | Hexadecimal _ -> Printf.printf
-    "WARNING: unhandled hex."; ""
 
 let list_str (f : 'a -> string) =
   fun xs -> (String.concat " " (List.map f xs))

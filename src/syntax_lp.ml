@@ -1,21 +1,12 @@
 
 type binder =
-  | Lambda
-  | Pi
-type leaf =
-  | Type | Set
-  | PVar of string
-  | Const of string
-  | Var of string
+  | Lambda | Pi
 and term =
-  | Leaf of leaf
-  | App of level * term * term
-  | Wrap of term
-  | El of term
-  | Arrow of level * (term list)
+  | Var of string
+  | App of term * term
   | Bind of binder * param list * term
+  | Arrow of term * term
   | Let of string * term * term
-and level = O | M
 and attr = Explicit | Implicit
 and param = string * term * attr
 
@@ -34,17 +25,27 @@ type command =
   | Require of
       string list
 
-(* ---- pretty printing -------- *)
-let binder_str : binder -> string =
-  function
-  | Lambda -> "λ"
-  | Pi     -> "Π"
+module L = List
+module S = struct
+  include String
+  let concat_map s f xs = String.concat " " (L.map f xs)
+end
 
-let is_leaf_or_wrap : term -> bool =
+let is_var : term -> bool =
   function
-  | Leaf _ -> true
-  | Wrap _ -> true
-  | _      -> false
+  | Var _ -> true
+  | _     -> false
+
+let is_forbidden (s : string) : bool =
+  (
+    String.contains s '$'
+  ||
+    String.contains s '@'
+  ||
+    String.contains s ':'
+  ||
+    String.contains s '.'
+  )
 
 let is_pi : term -> bool =
   function
@@ -57,67 +58,51 @@ let in_params (s : string) (ps : param list) : bool =
 let map_param (f : term -> term) : param -> param =
   function (s,t,att) -> (s,f t,att)
 
-let rec map_leaves (f : leaf -> term) : term -> term =
+let rec map_vars (f : string -> term) : term -> term =
   function
-  | Leaf l -> f l
-  | Wrap t -> Wrap (map_leaves f t)
-  | El t -> El (map_leaves f t)
-  | App (lv,t,t') ->
-    App (lv, map_leaves f t, map_leaves f t')
-  | Arrow (lv,ts) ->
-    Arrow (lv, List.map (map_leaves f) ts)
+  | Var s -> f s
+  | App (t,t') ->
+      App (map_vars f t, map_vars f t')
+  | Arrow (t,t') ->
+      Arrow (map_vars f t, map_vars f t')
   | Let (s,t,t') ->
-    Let (s,map_leaves f t, map_leaves f t')
+      Let (s, map_vars f t, map_vars f t')
   | Bind (b,ps,t) ->
-    Bind (b,
-      List.map (map_param (map_leaves f)) ps,
-      map_leaves f t
-    )
+      Bind (b,
+        L.map (map_param @@ map_vars f) ps,
+        map_vars f t
+      )
 
-let map_cases (f : term -> term) (cs : case list) : case list =
-  let g (t,t') = (f t, f t') in
-  List.map g cs
+let map_cases (f : term -> term) : case list -> case list =
+  L.map (fun (t,t') -> (f t, f t'))
 
-let rec leaf_str : leaf -> string =
+
+let app_list : term -> term list -> term =
+  L.fold_left (fun acc t -> App (acc, t))
+
+
+(* ---- pretty printing -------- *)
+let binder_str : binder -> string =
   function
-  | Type -> "TYPE"
-  | Set -> "Set"
-  | PVar s -> "$" ^ s
-  | Const s -> s
+  | Lambda -> "λ"
+  | Pi     -> "Π"
+
+let rec term_str : term -> string =
+  function
   | Var s -> s
-and term_str : term -> string =
-  function
-  | Leaf l -> leaf_str l
-  | Arrow (lv, ts) ->
-    let strs = List.map
-      (fun t ->
-        if is_leaf_or_wrap t then term_str t
-        else "(" ^ term_str t ^ ")"
-      ) ts
-    in
-      String.concat
-        (if lv = O then " ⤳ " else " → ") strs
-  | El t ->
-    Printf.sprintf
-      (if is_leaf_or_wrap t then "τ %s" else "τ (%s)")
-      (term_str t)
-  | Wrap t ->
-    Printf.sprintf
-      "[%s]"
-      (term_str t)
-  | App (lv,t,t') ->
-    Printf.sprintf
-      (if is_leaf_or_wrap t' then "%s%s%s" else "%s%s(%s)")
-      (term_str t)
-      (if lv = O then " ▫ " else " ")
-      (term_str t')
+  | App (t,t') ->
+    Printf.sprintf "(%s %s)"
+      (term_str t) (term_str t')
+  | Arrow (t, t') ->
+    Printf.sprintf "(%s → %s)"
+      (term_str t) (term_str t')
   | Bind (b,xs,t)->
-    Printf.sprintf "%s %s, %s"
+    Printf.sprintf "(%s %s, %s)"
       (binder_str b)
-      (param_list_str xs)
+      (S.concat_map " " param_str xs)
       (term_str t)
   | Let (s,t,t') ->
-    Printf.sprintf "let %s ≔ %s in %s"
+    Printf.sprintf "(let %s ≔ %s in %s)"
       s (term_str t) (term_str t')
 and param_str : param -> string =
   function
@@ -128,15 +113,10 @@ and param_str : param -> string =
     Printf.sprintf "(%s : %s)"
       s (term_str t)
 
-and param_list_str (xs : param list) : string =
-  String.concat " " (List.map param_str xs)
-
 let case_str : (term * term) -> string =
-  function
-  | (lhs,rhs) ->
+  fun (t,t') ->
     Printf.sprintf "%s ↪ %s"
-      (term_str lhs)
-      (term_str rhs)
+    (term_str t) (term_str t')
 
 let modifier_str =
   function
@@ -152,7 +132,7 @@ let lp_command_str =
     in
     let xs_str = match xs with
       | [] -> ""
-      | xs -> param_list_str xs ^ " "
+      | xs -> S.concat_map " " param_str xs
     in
     let ty_str = match ty_opt with
       | None -> ""
@@ -166,11 +146,8 @@ let lp_command_str =
       m_str str xs_str ty_str def_str
   (* printing `rule <r> <with r>*`  *)
   | Rule cs ->
-    let cs_str =
-      String.concat "\nwith "
-        (List.map case_str cs)
-    in
-      Printf.sprintf "rule %s;" cs_str
+      S.concat_map "\nwith " case_str cs
+      |> Printf.sprintf "rule %s;"
   (* printing `require open <path>+`  *)
   | Require ps ->
     let ps_str = String.concat " " ps in
