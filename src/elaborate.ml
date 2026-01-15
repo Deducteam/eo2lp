@@ -52,6 +52,7 @@ function
         | (s', k) when s = s' ->
           let t' = elab_nary ctx (s,k,ts) in
           if wt t' then Some t' else None
+        | _ -> None
         )
     with
     | t' :: _ -> t'
@@ -71,6 +72,7 @@ function
       | (s', k) when s = s' ->
         let t' = elab_binder ctx (s,k,xs,t) in
         if wt t' then Some t' else None
+      | _ -> None
     )
     with
     | t' :: _ -> t'
