@@ -17,13 +17,15 @@ injective symbol app [a b]
 symbol Type : Set;
 rule τ Type ↪ Set;
 
+symbol Int : Set;
+symbol - : τ (Int ⤳ Int ⤳ Int);
+symbol -' : τ (Int ⤳ Int);
 
+symbol const (s : String) (a : Set) : τ a;
+rule const "-" (Int ⤳ Int ⤳ Int) ↪ -;
+rule const "-" (Int ⤳ Int) ↪ -';
 
-
-
-
-
-
+symbol var (s : String) (a : Set) : τ a;
 
 // If t is ground,
 //  return true if t is a value, and false otherwise.

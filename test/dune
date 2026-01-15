@@ -1,0 +1,15 @@
+; Test configuration for eo2lp
+
+(test
+ (name test_elaborate)
+ (libraries eo2lp)
+)
+
+(test
+ (name test_parser)
+ (libraries eo2lp)
+ (deps
+   (source_tree ../cpc-mini)
+   (source_tree ../eo))
+ (action (chdir %{workspace_root} (run %{test})))
+)

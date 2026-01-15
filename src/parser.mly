@@ -59,15 +59,15 @@ let flatten =
   SIGNATURE
   RULE
 
-%start <command option> toplevel_eof
+%start <(string * const) list> toplevel_eof
 %start <term> term
 %start <param list> params
 
 
 %%
 toplevel_eof:
-  | EOF        { None }
-  | command    { Some $1 }
+  | EOF        { [] }
+  | command    { $1 }
 
 symbol:
   | s = SYMBOL { s }
@@ -89,32 +89,31 @@ common_command:
   | LPAREN; DECLARE_CONST;
       s = symbol ;
       t = term;
-      att_opt = option(const_attr);
+      ao = option(const_attr);
     RPAREN
   {
-    _sym(s, Dcl ([], t, att_opt, lv_of t));
-    DeclareConst (s,t,att_opt)
+    [(s, Decl ([], t, ao))]
   }
   | LPAREN; DECLARE_DATATYPE;
       s = symbol ;
       dt = datatype_dec;
     RPAREN
-  { DeclareDatatype (s, dt) }
+  { [] }
   | LPAREN; DECLARE_DATATYPES;
       LPAREN; sts = list(sort_dec); RPAREN;
       LPAREN; dts = list(datatype_dec); RPAREN;
     RPAREN
-  { DeclareDatatypes (sts, dts) }
+  { [] }
   | LPAREN; ECHO;
       str_opt = option(STRING);
     RPAREN;
-  { Echo (str_opt) }
+  { [] }
   | LPAREN; EXIT; RPAREN
-  { Exit }
+  { [] }
   | LPAREN; RESET; RPAREN
-  { Reset }
+  { [] }
   | LPAREN; SET_OPTION; s = symbol; RPAREN
-  { SetOption (s) }
+  { [] }
 
 command:
   | LPAREN; ASSUME;
@@ -122,22 +121,20 @@ command:
       t = term;
     RPAREN
   {
-    (* _sym (s, Assm t); *)
-    Assume (s,t)
+    []
   }
   | LPAREN; ASSUME_PUSH;
       s = symbol ;
       t = term;
     RPAREN
   {
-    (* _sym(s, Assm (mk_proof t, None)); *)
-    AssumePush (s,t)
+    []
   }
   | LPAREN; DECLARE_CONSTS;
       l = lit_category;
       t = term;
     RPAREN
-  { DeclareConsts (l,t) }
+  { [] }
   | LPAREN; DECLARE_PARAM_CONST;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
@@ -145,8 +142,7 @@ command:
       att_opt = option(const_attr);
     RPAREN
   {
-    _sym(s, Dcl (ps, ty, att_opt, lv_of ty));
-    DeclareParamConst (s, ps, ty, att_opt)
+    [(s, Decl (ps, ty, att_opt))]
   }
   | LPAREN; DECLARE_RULE;
       s = symbol ;
@@ -177,7 +173,7 @@ command:
     if Option.is_some att_opt then
       Printf.printf "WARNING: (:sorry, rule %s)\n" s;
 
-    DeclareRule (s, xs, r, att_opt)
+    []
   }
   | LPAREN; DEFINE;
       s = symbol ;
@@ -185,18 +181,14 @@ command:
       ty_opt = option(defn_attr);
     RPAREN
   {
-    _sym (s, Dfn (ps, t));
-    Define (s,ps,t,ty_opt)
+    [(s, Defn (ps, t))]
   }
   | LPAREN; INCLUDE;
       str = STRING;
     RPAREN
   {
-  (* TODO. actually implement recursively going through
-  directory and parsing eunoia files.*)
-  Include [str]
+    !Parse_ctx.parse_include_callback str
   }
-
   | LPAREN; PROGRAM;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
@@ -207,18 +199,16 @@ command:
     RPAREN
   { let cs = Option.fold ~none:[] ~some:(fun x -> x) cs_opt in
     let ty = prog_ty (doms,ran) in
-    (s, Prg (ps, ty, cs, lv_of ty)) |> _sym;
-
     let qs = prog_ty_params ty ps in
     let rs = prog_cs_params cs ps in
-    Program (s, (qs, ty), (rs, cs))
+    [(s, Prog ((qs, ty), (rs, cs)))]
   }
 
   | LPAREN; REFERENCE;
       str = STRING ;
       s_opt = option(symbol);
     RPAREN
-  { Reference (str, s_opt) }
+  { [] }
 
   | LPAREN; STEP;
       s1 = symbol ;
@@ -231,7 +221,7 @@ command:
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
     (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
 
-    Step (s1, t, s2, xs, ys);
+    []
 }
 
   | LPAREN; STEP_POP;
@@ -245,11 +235,11 @@ command:
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
     Printf.printf "WARNING. (step-pop ...)";
     (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
-    StepPop (s1, t, s2, xs, ys)
+    []
   }
 
   | c = common_command
-  { Common c }
+  { c }
 
 const_attr:
   | RIGHT_ASSOC_NIL; t = term { RightAssocNil t }

@@ -1,63 +1,36 @@
 open Literal
+
+module S = String
+module M = Map.Make(S)
+
+module L = struct
+  include List
+  let chop (xs : 'a list) : ('a list * 'a) =
+    let n = List.length xs in
+    (take (n-1) xs, nth xs n)
+end
+
+(* ---------------------------------------------- *)
 type term =
   | Symbol of string
-  | Apply of string * (term list)
   | Literal of literal
+  | Apply of string * (term list)
   | Bind of string * (var list) * term
 and var = (string * term)
 and case = (term * term)
 
-type const_attr =
-  | RightAssocNil of term
-  | RightAssocNilNSN of term
-  | LeftAssocNil of term
-  | LeftAssocNilNSN of term
-  | RightAssoc
-  | LeftAssoc
+type attr =
+  (* constant attributes *)
+  | RightAssocNil of term | LeftAssocNil of term
+  | LeftAssocNilNSN of term | RightAssocNilNSN of term
+  | RightAssoc | LeftAssoc
   | ArgList of string
   | Chainable of string
   | Pairwise of string
   | Binder of string
-type param_attr =
-  Implicit | Opaque | List
+  (* parameter attributes *)
+  | Implicit | Opaque | List
 
-type param = string * term * (param_attr option)
-
-type common_command =
-  | DeclareConst     of string * term * (const_attr option)
-  | DeclareDatatype  of string * dt_dec
-  | DeclareDatatypes of (sort_dec list) * (dt_dec list)
-  | Echo             of string option
-  | Exit
-  | Reset
-  | SetOption        of string
-and sort_dec =
-  | SortDec of string * int
-and sel_dec =
-  | SelDec of string * term
-and cons_dec =
-  | ConsDec of string * (sel_dec list)
-and dt_dec =
-  | DatatypeDec of cons_dec list
-
-
-(* type for Eunoia-exclusive commands *)
-type command =
-  | Assume            of string * term
-  | AssumePush        of string * term
-  | DeclareConsts     of lit_category * term
-  | DeclareParamConst of string * param list * term * (const_attr option)
-  | DeclareRule       of string * param list * rule_dec * (sorry option)
-  | Define            of string * param list * term * (term option)
-  | Include           of path
-  | Program           of string
-                       * (param list * term)
-                       * (param list * case list)
-  | Reference         of string * string option
-  | Step              of string * term * string * term list * term list
-  | StepPop           of string * term * string * term list * term list
-  | Common            of common_command
-(* types for `declare-rule` *)
 and premises =
   | Simple of term list
   | PremiseList of term * term
@@ -75,57 +48,43 @@ and rule_dec =
 and sorry = Sorry (* `:sorry` attribute for `declare-rule`.*)
 and path = string list (* type of paths for `include`. *)
 
-(* signature maps each symbol to its params/attr/type/def. *)
-
-module L = struct
-  include List
-  let split_last (xs : 'a list) : ('a list * 'a) =
-    let ys = List.rev xs in
-    (List.rev (List.tl ys), List.hd ys)
-end
-
-module S = String
-module M = Map.Make(S)
-
-
-type level = Tm | Ty
-type symbol =
-  (* | Prm of term * param_attr * level *)
-  | Dcl of param list * term * const_attr option * level
-  | Dfn of param list * term
-  | Prg of param list * term * case list * level
-type signature = (string * symbol) list
-
-let _sig : signature ref = ref []
-
-let _sym : string * symbol -> unit =
-  fun (s, sym) -> _sig := L.append !_sig [(s,sym)]
-
-let att_of (s : string) (sgn : signature) : const_attr option =
-  match L.assoc_opt s sgn with
-  | Some Dcl (_,_,ao,_) -> ao
-  | _ -> failwith "Invalid query."
-
+type param = string * term * (attr option)
+type const =
+  | Decl of param list * term * attr option
+  | Defn of param list * term
+  | Prog of (param list * term) * (param list * case list)
+  | Rule of param list * term * term list * term list * case list * term
+  (* Rule (ps,assm,prems,args,reqs,conc)  *)
+type signature = (string * const) list
 type context = signature * param list
+(* ---------------------------------------------- *)
 
-let _pn : string -> param -> bool =
-  (fun s (s',_,_) -> s = s')
-let _pa : param_attr -> param -> bool =
-  (fun pa (_,_,pao) -> Some pa = pao)
-let __pa : (string * param_attr) -> param list -> bool =
-  fun (s,pa) -> L.exists (fun p -> _pn s p && _pa pa p)
+(* ---- contexts: `param list` and `signature`. ---- *)
+let is_name (s,_,_ : param) (s' : string) =
+  (s = s')
+let is_attr (_,_,pao : param) (pa : attr) =
+  (Some pa = pao)
+let is_typ (_,ty,_ : param) (ty' : term) =
+  ty = ty'
 
-type environment = (path * signature) list
-let _env : environment ref = ref []
+let prm_find (s : string) =
+  L.find_opt (fun p -> is_name p s)
+let prm_mem (s : string) =
+  L.exists (fun p -> is_name p s)
+let prm_typ (s : string) (ty : term) =
+  L.exists (fun p -> is_name p s && is_typ p ty)
+let prm_has_attr (s : string) (pa : attr) =
+  L.exists (fun p -> is_name p s && is_attr p pa)
 
-let rec is_kind : term -> bool =
-  function
-  | Symbol "Type" -> true
-  | Apply ("->", ts) -> L.exists is_kind ts
-  | _ -> false
 
-let lv_of : term -> level =
-  fun t -> if is_kind t then Ty else Tm
+(* ---------------------------------------------- *)
+
+(* ---- terms: application, substitution. ---- *)
+let app_ho : term -> term -> term =
+  fun t t' -> Apply ("_", [t;t'])
+
+let app_ho_list : term -> term list -> term =
+  fun t ts -> L.fold_left app_ho t ts
 
 let app_raw : term -> term list -> term =
   fun t ts ->
@@ -134,120 +93,57 @@ let app_raw : term -> term list -> term =
     | (Symbol s, ts) -> Apply (s, ts)
     | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
 
-let app_ho : term -> term -> term =
-  fun t t' -> Apply ("_", [t;t'])
-
-let app_ho_list : term -> term list -> term =
-  fun t ts -> L.fold_left app_ho t ts
-
-let rec subst : term -> param -> term -> term =
-  fun t p t' ->
+let rec subst : term -> string -> term -> term =
+  fun t s t' ->
     match t with
-    | Symbol s -> if _pn s p then t' else t
-    | Apply (s, ts) ->
-      let ts' = L.map (fun t -> subst t p t') ts in
-      if _pn s p
+    | Symbol s' -> if (s = s') then t' else t
+    | Apply (s', ts) ->
+      let ts' = L.map (fun t -> subst t s t') ts in
+      if (s = s')
         then app_raw t' ts'
         else Apply (s, ts')
 
-(* reduce application of explicit params.*)
-let rec splice
-    (ps,t,ts : param list * term * term list)
-  : (param list * term * term list)
-=
+let rec splice (ps,t,ts : param list * term * term list)
+  : (param list * term * term list) =
   match ps, ts with
   | (([],_)|(_,[])) -> (ps, t, ts)
-  | (p :: ps, ts) when _pa Implicit p ->
+  | ((s,_, Some Implicit) :: ps, ts) ->
       splice (ps, t, ts)
-  | (p :: ps, t' :: ts) ->
-      splice (ps, subst t p t', ts)
+  | ((s,_,_) :: ps, t' :: ts) ->
+      splice (ps, subst t s t', ts)
 
-let glue (ps,f : param list * term)
-  : term -> term -> term
-=
-  fun t1 t2 ->
-    begin match t1 with
-    | Symbol s when __pa (s,List) ps ->
-      Apply ("eo::list_concat",[f;t1;t2])
-    | _ ->
-      app_ho_list f [t1;t2]
-    end
+let rec is_kind : term -> bool =
+  function
+  | Symbol "Type" -> true
+  | Apply ("->", ts) -> L.exists is_kind ts
+  | _ -> false
+(* ---------------------------------------------- *)
 
-let app_nary
-  (ps : param list) (f,ts : term * term list)
-  (ao : const_attr option) : term
-=
-  let g x y = glue (ps,f) x y in
-  let h y x = glue (ps,f) y x in
-  begin match ao with
-  (* ---- *)
-  | None -> app_ho_list f ts
-  (* ---- *)
-  | Some RightAssocNil t_nil -> (
-    match ts with
-    | [t1; Symbol s] when __pa (s,List) ps ->
-      app_ho_list f ts
-    | _ ->
-      L.fold_right g ts t_nil
-    )
-  (* ---- *)
-  | Some LeftAssocNil t_nil -> (
-    match ts with
-    | [t1; Symbol s] when __pa (s,List) ps ->
-      app_ho_list f ts
-    | _ ->
-      L.fold_left h f ts
-    )
-  (* ---- *)
-  | Some RightAssoc ->
-    let (ts', t') =
-      L.split_last ts
+(* ---- free variables ---- *)
+module Set = Set.Make(String)
+let rec params_in (ps : param list) : term -> Set.t =
+  function
+  | Literal _ -> Set.empty
+  | Symbol s ->
+    if prm_mem s ps then Set.singleton s else Set.empty
+  | Apply (s,ts) ->
+    let xs =
+      L.fold_left
+        (fun acc t -> Set.union acc (params_in ps t))
+        Set.empty ts
     in
-      L.fold_right g ts' t'
-  (* ---- *)
-  | Some LeftAssoc ->
-    let (t',ts') =
-      (List.hd ts, List.tl ts)
+      if prm_mem s ps
+        then Set.union (Set.singleton s) xs
+        else xs
+  | Bind (_, vs, t) ->
+    let xs =
+      L.fold_left
+        (fun acc (_,t) -> Set.union acc (params_in ps t))
+        Set.empty vs
     in
-      L.fold_left h t' ts'
-  (* ---- *)
-  | Some Chainable op ->
-    let rec aux =
-      function
-      | v :: w :: vs -> (app_ho_list f [v;w]) :: aux vs
-      | _ -> []
-    in
-      Apply (op, aux ts)
-  (* ---- *)
-  | Some Pairwise op ->
-    let rec aux =
-      function
-      | v :: vs ->
-        L.append
-          (L.map (fun w -> app_ho_list f [v;w]) vs)
-          (aux vs)
-      | [] -> []
-    in
-      Apply (op, aux ts)
-  (* ---- *)
-  | Some a ->
-    failwith "unimplemented elaboration strategy."
-  (* ---- *)
-  end
+      Set.union xs (params_in ps t)
 
-let app_binder
-  (f,xs,t : term * var list * term)
-  (ao : const_attr option) : term =
-  match ao with
-  | Some Binder t_cons ->
-    let mk_var = fun (s,t) ->
-      Apply("eo::var", [Literal (String s); t])
-    in
-      app_ho_list f [Apply (t_cons, L.map mk_var xs); t]
-  | None -> failwith "No :binder attribute."
-
-let rec is_free
-  (s : string) : term -> bool =
+let rec is_free (s : string) : term -> bool =
   function
   | Symbol s' -> s = s'
   | Apply (s',ts) -> (s = s') || L.exists (is_free s) ts
@@ -255,7 +151,9 @@ let rec is_free
   | Bind (s, vs, t) ->
     let b1 = List.exists (fun (_,ty) -> is_free s ty) vs
     and b2 = is_free s t in (b1 || b2)
+(* ---------------------------------------------- *)
 
+(* ---- handling programs ---- *)
 let prog_ty
   (doms,ran : term list * term) : term
 =
@@ -281,49 +179,9 @@ let prog_cs_params (cs : case list)
 
 (* ---------------------------------------------- *)
 
-let mk_proof (t : term) : term =
-  Apply("Proof", [t])
 
-let is_builtin (str : string) : bool =
-  String.starts_with ~prefix:"eo::" str
-
-let is_prog (str : string) : bool =
-  not (str = "eo::List::cons" || str = "eo::List::nil")
-  &&
-  (is_builtin str || String.starts_with ~prefix:"$" str)
-
-(* let get_att_opt (s : string) (sgn : signature) =
-  match M.find_opt s sgn with
-  | Some (Decl (_,_,att_opt,_)) -> att_opt
-  | None -> None *)
-
-
-
-
-let mk_aux_str (str : string) : string =
-  (str ^ "_aux")
-
-let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
-  Apply ("eo::requires", [t1;t2;t3])
-
-let mk_reqs_list_tm (cs : case list) (t : term) : term =
-  List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
-
-let mk_conc_tm (cs : case list) : conclusion -> term =
-  function
-  | Conclusion t ->
-      mk_reqs_list_tm cs t
-  | ConclusionExplicit t ->
-      Printf.printf "WARNING! --- :conclusion-explicit\n";
-      mk_reqs_list_tm cs t
-
-let mk_arg_vars (arg_tys : term list) : (string * term) list =
-  let arg_sym =
-    (fun i t -> (("α" ^ string_of_int i), t))
-  in
-    List.mapi arg_sym arg_tys
-
-let lcat_of : literal -> lit_category =
+(* map a literal to its category *)
+let lit_cat_of : literal -> lit_category =
   function
   | Numeral _  -> NUM
   | Decimal _  -> DEC
@@ -413,22 +271,6 @@ let case_str (t,t') =
 let case_list_str : case list -> string =
   list_str case_str
 
-let sort_dec_str = function
-  | SortDec (s,n) ->
-      Printf.sprintf "(%s %d)" s n
-and sel_dec_str = function
-  | SelDec (s,t) ->
-      Printf.sprintf "(%s %s)" s (term_str t)
-let cons_dec_str = function
-  | ConsDec (s, xs) ->
-      Printf.sprintf "(%s %s)"
-        s
-        (String.concat " " (List.map sel_dec_str xs))
-let dt_dec_str = function
-  | DatatypeDec xs ->
-      Printf.sprintf "(%s)"
-        (String.concat " " (List.map cons_dec_str xs))
-
 let premises_str = function
   | Simple ts ->
       Printf.sprintf ":premises %s"
@@ -455,6 +297,78 @@ let rule_dec_str ({assm; prem; args; reqs; conc} : rule_dec) : string =
     (opt_newline arguments_str (Some args))
     (opt_newline reqs_str (Some reqs))
     (opt_newline conclusion_str (Some conc))
+
+
+let const_str : (string * const) -> string =
+  function
+  | s, Decl (ps,t,ao) ->
+    Printf.sprintf "(decl %s (%s) %s %s)"
+      s (list_str param_str ps)
+      (term_str t)
+      (opt_str const_attr_str ao)
+  | s, Defn (ps,t) ->
+    Printf.sprintf "(defn %s (%s) %s)"
+      s (list_str param_str ps)
+      (term_str t)
+  | s, Prog ((ps,t), (qs,cs)) ->
+    Printf.sprintf "(prog %s ((%s) %s) (...))"
+      s (list_str param_str ps)
+      (term_str t)
+      (* (list_str param_str qs) *)
+      (* (case_list_str cs) *)
+
+(* ------------------------------------------------------ *)
+type sort_dec =
+  | SortDec of string * int
+and sel_dec =
+  | SelDec of string * term
+and cons_dec =
+  | ConsDec of string * (sel_dec list)
+and dt_dec =
+  | DatatypeDec of cons_dec list
+
+let sort_dec_str = function
+  | SortDec (s,n) ->
+      Printf.sprintf "(%s %d)" s n
+and sel_dec_str = function
+  | SelDec (s,t) ->
+      Printf.sprintf "(%s %s)" s (term_str t)
+let cons_dec_str = function
+  | ConsDec (s, xs) ->
+      Printf.sprintf "(%s %s)"
+        s
+        (String.concat " " (List.map sel_dec_str xs))
+let dt_dec_str = function
+  | DatatypeDec xs ->
+      Printf.sprintf "(%s)"
+        (String.concat " " (List.map cons_dec_str xs))
+
+(* ------------------------------------------------------ *)
+type common_command =
+  | DeclareConst     of string * term * (attr option)
+  | DeclareDatatype  of string * dt_dec
+  | DeclareDatatypes of (sort_dec list) * (dt_dec list)
+  | Echo             of string option
+  | Exit
+  | Reset
+  | SetOption        of string
+
+type command =
+  | Assume            of string * term
+  | AssumePush        of string * term
+  | DeclareConsts     of lit_category * term
+  | DeclareParamConst of string * param list * term * (attr option)
+  | DeclareRule       of string * param list * rule_dec * (sorry option)
+  | Define            of string * param list * term * (term option)
+  | Include           of path
+  | Program           of string
+                       * (param list * term)
+                       * (param list * case list)
+  | Reference         of string * string option
+  | Step              of string * term * string * term list * term list
+  | StepPop           of string * term * string * term list * term list
+  | Common            of common_command
+
 
 let common_command_str = function
   | DeclareConst (s,t,att) ->
@@ -526,15 +440,37 @@ let command_str = function
   | Common c ->
       common_command_str c
 
-(* TODO. actually implement *)
-let ty_of (t : term) : term =
-  Symbol ("TY[" ^  term_str t ^ "]")
+(*
+let mk_proof (t : term) : term =
+  Apply("Proof", [t])
 
-(* let symbol_str =
+let is_builtin (str : string) : bool =
+  String.starts_with ~prefix:"eo::" str
+
+let is_prog (str : string) : bool =
+  not (str = "eo::List::cons" || str = "eo::List::nil")
+  &&
+  (is_builtin str || String.starts_with ~prefix:"$" str)
+
+let mk_aux_str (str : string) : string =
+  (str ^ "_aux")
+
+let mk_reqs_tm ((t1,t2) : term * term) (t3 : term) : term =
+  Apply ("eo::requires", [t1;t2;t3])
+
+let mk_reqs_list_tm (cs : case list) (t : term) : term =
+  List.fold_left (fun acc c -> mk_reqs_tm c acc) t cs
+
+let mk_conc_tm (cs : case list) : conclusion -> term =
   function
-  | Decl (ps, t, _) ->
-    "Decl(" ^ S.concat ", " (L.map param_str ps) ^ ", " ^ term_str t ^ ")"
-  | Prog (ps, t, cs) -> "Prog(" ^ S.concat ", " (L.map param_str ps) ^ ", " ^ term_str t ^ ", " ^ S.concat ", " (L.map case_str cs) ^ ")"
-  | Defn (ps, t) -> "Defn(" ^ S.concat ", " (L.map param_str ps) ^ ", " ^ term_str t ^ ")"
+  | Conclusion t ->
+      mk_reqs_list_tm cs t
+  | ConclusionExplicit t ->
+      Printf.printf "WARNING! --- :conclusion-explicit\n";
+      mk_reqs_list_tm cs t
 
-(* ------------------------------------------------------ *) *)
+let mk_arg_vars (arg_tys : term list) : (string * term) list =
+  let arg_sym =
+    (fun i t -> (("α" ^ string_of_int i), t))
+  in
+    List.mapi arg_sym arg_tys *)

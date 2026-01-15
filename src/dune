@@ -12,12 +12,12 @@
  (public_name eo2lp)
  (modules
    parser lexer
-   literal parse_eo syntax_eo
+   literal parse_ctx parse_eo syntax_eo
    syntax_lp api_lp
    syntax_lf
    elaborate encode translate
    main
  )
- (flags :standard -w -8 -w -27)
+ (flags :standard -w -8 -w -26 -w -27)
  (libraries str unix fpath)
 )
