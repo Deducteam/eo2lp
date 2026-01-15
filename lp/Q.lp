@@ -1,5 +1,7 @@
 require open eo2lp.Zdiv;
 
+
+
 inductive ℚ : TYPE ≔
   | Frac : ℤ → ℤ → ℚ;
 

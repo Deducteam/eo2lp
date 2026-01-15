@@ -1,118 +1,196 @@
-module EO = Syntax_eo
-module LF = Syntax_lf
-module LP = Syntax_lp
+open Syntax_eo
+(* ============================================================
+   Elaboration with Overloading Resolution
 
-module API = Api_lp
+   This module elaborates Eunoia terms, handling:
+   - N-ary operators (:right-assoc-nil, :left-assoc-nil, etc.)
+   - Binders (:binder attribute)
+   - Defined symbol expansion
+   - Overloading resolution via LambdaPi typechecking
+   ============================================================ *)
 
-module M = EO.M
-module L = EO.L
+let wt : term -> bool = fun t -> true
+let glue (ps, f : param list * term)
+  : term -> term -> term =
+  (fun t1 t2 ->
+    match t1 with
+    | Symbol s when prm_has_attr s List ps ->
+      Apply ("eo::list_concat", [f; t1; t2])
+    | _ -> app_ho_list f [t1; t2]
+  )
 
-let is_well_typed : LF.term -> bool =
-  fun _ -> true
+(* ==== elaboration entry points ==== *)
+let rec elab (sgn, ps as ctx : context)
+  : term -> term =
+function
+(* ---- literals, `Type`, and `->`. ---- *)
+| Literal _ | Symbol "Type" | Symbol "->" as t -> t
+(* ---- symbols. ----  *)
+| Symbol s ->
+  begin match L.assoc_opt s sgn with
+  | Some Defn (qs, t) ->
+    if qs = [] then elab ctx t
+    else Printf.ksprintf failwith
+      "Lingering parameters from defined symbol %s." s
+  | _ -> Symbol s
+  end
+(* ---- higher-order application. ---- *)
+| Apply ("_", ts) ->
+  begin match ts with
+  | [t1;t2] -> Apply ("_",[elab ctx t1; elab ctx t2])
+  | _ -> failwith "Invalid number of parameters for `_`."
+  end
+(* ---- first-order application. ---- *)
+| Apply (s, ts) ->
+  begin match prm_find s ps with
+  | Some (s,ty,ao) ->
+    app_ho_list (Symbol s) (L.map (elab ctx) ts)
+  | None ->
+    begin match
+      sgn |> L.filter_map
+        (function
+        | (s', k) when s = s' ->
+          let t' = elab_nary ctx (s,k,ts) in
+          if wt t' then Some t' else None
+        )
+    with
+    | t' :: _ -> t'
+    | [] -> Printf.ksprintf failwith
+      "Symbol `%s` not found in context." s
+    end
+  end
+(* ---- eo::define as local let-binding. ---- *)
+| Bind ("eo::define", xs, t') ->
+    let ys = xs |> L.map (fun (s,t) -> (s, elab ctx t)) in
+    Bind ("eo::define", ys, elab ctx t')
+(* ---- binder application. ---- *)
+| Bind (s, xs, t) ->
+  begin match
+    sgn |> L.filter_map
+    (function
+      | (s', k) when s = s' ->
+        let t' = elab_binder ctx (s,k,xs,t) in
+        if wt t' then Some t' else None
+    )
+    with
+    | t' :: _ -> t'
+    | [] -> Printf.ksprintf failwith
+      "Symbol `%s` not found in context." s
+    end
 
-let rec elab (sgn,ps as ctx : EO.context)
-  : EO.term -> LF.term
-= function
-  (* ---- *)
-  | Literal l -> Lit l
-  (* ---- *)
-  | Symbol "Type" -> Const ("TYPE", [])
-  | Symbol "Kind" -> Const ("KIND", [])
-  | Symbol "->" -> Const ("->", [])
-  | Symbol s ->
-    if L.mem_assoc s sgn then
-      Const (s,[])
-    else if L.exists (EO._pn s) ps then
-      Var s
+(* ==== elaboration of n-ary applcation syntax. ====  *)
+and elab_nary
+    (sgn, ps as ctx : context)
+    (s, k, ts : string * const * term list)
+  : term =
+  match k with
+  (* program constants. *)
+  | Prog _ -> app_ho_list (Symbol s) (L.map (elab ctx) ts)
+
+  (* defined constants. *)
+  | Defn (qs,t) ->
+    let t',ts' = (elab ctx t, L.map (elab ctx) ts) in
+    let (qs',t'',ts'') = splice (qs,t',ts') in
+    if qs' = [] then
+      elab ctx (app_raw t'' ts'')
     else
       Printf.ksprintf failwith
-      "Symbol %s not found in context" s
-  (* ---- *)
-  | Bind ("eo::define", xs, t) ->
-    L.fold_right
-      (fun (s,x) acc -> LF.Let (s, elab ctx x, acc))
-      xs (elab ctx t)
-  (* ---- *)
-  | Bind (s,xs,t) ->
-    elab ctx @@
-      EO.app_binder (Symbol s,xs,t) (EO.att_of s sgn)
-  (* ---- *)
-  | Apply ("_",ts) -> (
-    match ts with
-    | [t1;t2] ->
-      let (t1',t2') = elab ctx t1, elab ctx t2 in
-      LF.App (t1',t2')
-    | _ -> failwith "Invalid HO application."
-  )
-  (* ---- *)
-  | Apply ("->",ts) ->
-      EO.app_nary ps (Symbol "->", ts) (Some RightAssoc)
-      |> elab ctx
-  (* ---- *)
-  | Apply (s,ts) -> (
-    match L.find_opt (EO._pn s) ps with
-    | Some _ ->
-      if ts = []
-        then Var s
-        else EO.app_ho_list (Symbol s) ts |> elab ctx
-    | None -> (
-        match L.assoc_opt s sgn with
-        | None ->
-          Printf.ksprintf failwith
-            "Symbol %s not in context." s
-        | Some Dcl (_,_,ao,_) ->
-          if ts = [] then
-            Const (s,[])
-          else
-            EO.app_nary ps (Symbol s, ts) (EO.att_of s sgn)
-            |> elab ctx
-        | Some Prg (_,_,_,_) ->
-            let f = LF.Const (s,[]) in
-            if ts = [] then f
-            else LF.app_list (f :: L.map (elab ctx) ts)
-        | Some Dfn (qs,t) ->
-            let (qs',t',ts') = EO.splice (qs,t,ts) in
-            if qs' = [] then
-              elab ctx (EO.app_raw t' ts')
-            else
-              failwith "Partially applied definition."
-        )
-      )
+      "Lingering parameters from defined symbol %s." s
 
-let elab_prm (ctx : EO.context)
-  : EO.param list -> LF.param list =
-  L.map (fun (s,t,ao) ->
-    match ao with
-    | Some EO.Implicit -> (s, elab ctx t, LF.Implicit)
-    | _ -> (s, elab ctx t, LF.Explicit)
-  )
+  (* declared constants. *)
+  | Decl (_,_,ao) ->
+    let g x y = glue (ps, Symbol s) x y in
+    let h y x = glue (ps, Symbol s) y x in
+    let ts' = (L.map (elab ctx) ts) in
+    begin match ao with
+    (* No attribute: curried HO application *)
+    | None -> app_ho_list (Symbol s) ts'
 
-let elab_cs (ctx : EO.context)
-  : EO.case list -> LF.case list =
-  L.map (fun (t,t') -> elab ctx t, elab ctx t')
+    (* :right-assoc-nil *)
+    | Some RightAssocNil t_nil ->
+      begin match ts with
+      | [_; Symbol s'] when prm_has_attr s' List ps ->
+        app_ho_list (Symbol s) ts'
+      | _ ->
+        L.fold_right g ts' (elab ctx t_nil)
+      end
 
-let elab_sym (sgn,ps as ctx: EO.context)
-  : string * EO.symbol -> string * LF.symbol =
-  function
-  | (s, Dcl (qs,t,_,_)) ->
-    Printf.printf "Elaborating symbol `%s`.\n" s;
-    (s, Decl (
-      elab_prm ctx ps,
-      elab (sgn, L.append qs ps) t
-      )
-    )
-  | (s, Prg (ps', ty, cs, _)) ->
-    let (qs,rs) = (
-      EO.prog_ty_params ty ps,
-      EO.prog_cs_params cs ps)
-    in
-      (s, Prog (
-        (elab_prm ctx qs, elab (sgn, L.append qs ps) ty),
-        (elab_prm ctx rs, elab_cs (sgn, L.append rs ps) cs)
-      )
-    )
+    (* :left-assoc-nil *)
+    | Some LeftAssocNil t_nil ->
+      begin match ts with
+      | [_; Symbol s'] when prm_has_attr s' List ps ->
+        app_ho_list (Symbol s) ts'
+      | _ ->
+        L.fold_left h (elab ctx t_nil) ts'
+      end
 
-let elab_sig (sgn : EO.signature)
-  : EO.signature -> LF.signature
-=
-  L.map (elab_sym (sgn,[]))
+    (* :right-assoc *)
+    | Some RightAssoc ->
+      let (init, last) = L.chop ts' in
+      L.fold_right g init last
+
+    (* :left-assoc *)
+    | Some LeftAssoc ->
+      L.fold_left h (L.hd ts') (L.tl ts')
+
+    (* :chainable. *)
+    | Some Chainable op ->
+    (* e.g., (< a b c) => (and (< a b) (< b c)) *)
+      let rec aux = function
+        | v :: w :: vs ->
+          (app_ho_list (Symbol s) [v; w]) :: aux (w :: vs)
+        | _ -> []
+      in
+        elab ctx (Apply (op, aux ts))
+
+    (* :pairwise *)
+    | Some Pairwise op ->
+    (* e.g., (distinct a b c) => (and (!= a b) (and (!= a c) (!= b c))) *)
+      let rec aux = function
+      | v :: vs ->
+        L.append
+          (L.map (fun w -> app_ho_list (Symbol s) [v; w]) vs)
+          (aux vs)
+        | [] -> []
+      in
+        elab ctx (Apply (op, aux ts))
+
+    (* Non-singleton nil variants - treat like regular nil for now *)
+    | Some RightAssocNilNSN t_nil ->
+      L.fold_right g ts' (elab ctx t_nil)
+
+    | Some LeftAssocNilNSN t_nil ->
+      L.fold_left h (elab ctx t_nil) ts
+
+    (* Other attributes *)
+    | Some (Binder _) ->
+      failwith "Binder attribute should be handled by elab_binder"
+
+    | Some (ArgList _) ->
+      failwith "ArgList attribute not yet implemented"
+    end
+
+(* ==== elaboration of binder syntax. ====  *)
+and elab_binder
+  (ctx : context)
+  (s, k, xs, t : string * const * var list * term)
+  : term =
+  match k with
+  | Decl (_,_, Some Binder t_cons) ->
+      let mk_var (s, t) =
+        Apply ("eo::var", [Literal (String s); t])
+      in
+      Apply (s, [Apply (t_cons, L.map mk_var xs); t])
+
+  | _ ->
+    failwith "No :binder attribute."
+
+(* ============================================================
+   Helper Functions for Parameters and Cases
+   ============================================================ *)
+
+let elab_prm (ctx : context) : param list -> param list =
+  L.map (fun (s, t, ao) -> (s, elab ctx t, ao))
+
+let elab_cs (ctx : context) : case list -> case list =
+  L.map (fun (t, t') -> (elab ctx t, elab ctx t'))

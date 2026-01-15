@@ -35,29 +35,59 @@ let parse_eo_params (str : string) : param list =
   try Parser.params Lexer.token lx
   with Parser.Error -> failwith "error when parsing term."
 
-let parse_command (lx : Lexing.lexbuf) : command option =
-  try Parser.toplevel_eof Lexer.token lx
+let parse_command (lx : Lexing.lexbuf) : (string * const) list option =
+  try Some (Parser.toplevel_eof Lexer.token lx)
   with Parser.Error ->
     let pos = lx.lex_curr_p in
     Printf.printf
-      "Parser error in at line %d, column %d: token '%s'\n"
+      "Parser error at line %d, column %d: token '%s'\n"
       pos.pos_lnum
       (pos.pos_cnum - pos.pos_bol + 1)
       (Lexing.lexeme lx);
+    Parse_ctx.had_parse_error := true;
     None
 
-let parse_eo_file (root,fp : string * string) : signature =
-  Printf.printf "Parsing: %s\n" fp;
-  let ch = open_in fp in
-  let lx = Lexing.from_channel ch in
-  try while true do (
-    match parse_command lx with
-    | Some cmd -> ()
-    | None -> raise Exit
-  ) done; assert false
-  with
-  | Exit -> close_in ch; !_sig
-  | exn -> close_in ch; raise exn
+(* Cache for parsed files, keyed by absolute path *)
+let parse_cache : (string, signature) Hashtbl.t = Hashtbl.create 32
+
+let clear_parse_cache () = Hashtbl.clear parse_cache
+
+let rec parse_eo_file (root, fp : string * string) : signature =
+  let fp_abs = to_absolute (Fpath.v fp) in
+  let fp_key = Fpath.to_string fp_abs in
+
+  (* Check cache first *)
+  match Hashtbl.find_opt parse_cache fp_key with
+  | Some cached -> cached
+  | None ->
+    (* Printf.printf "Parsing: %s\n" fp; *)
+    let ch = open_in fp in
+    let lx = Lexing.from_channel ch in
+    let _sig = ref [] in
+
+    (* Set up the include callback with current file's context *)
+    let cwd = Fpath.parent fp_abs in
+    let old_callback = !Parse_ctx.parse_include_callback in
+    Parse_ctx.parse_include_callback := (fun include_path ->
+      let target = Fpath.((cwd // v include_path) |> normalize) in
+      parse_eo_file (root, Fpath.to_string target)
+    );
+
+    let result =
+      try while true do (
+        match parse_command lx with
+        | Some [] -> raise Exit
+        | Some syms -> _sig := List.rev_append syms !_sig
+        | None -> raise Exit
+      ) done; assert false
+
+      with
+      | Exit -> close_in ch; List.rev !_sig
+      | exn -> close_in ch; raise exn
+    in
+    Parse_ctx.parse_include_callback := old_callback;
+    Hashtbl.add parse_cache fp_key result;
+    result
 
 let dir_contents dir =
   let rec loop result = function
@@ -73,7 +103,7 @@ let dir_contents dir =
   in
     loop [] [dir]
 
-let parse_eo_dir (root_str : string) : environment =
+(* let parse_eo_dir (root_str : string) : environment =
   let root = to_absolute (Fpath.v root_str) in
   let root_abs_str = Fpath.to_string root in
 
@@ -90,4 +120,4 @@ let parse_eo_dir (root_str : string) : environment =
      (key, parse_eo_file (root_abs_str, Fpath.to_string fp))
 
   in
-    List.map f fps
+    List.map f fps *)
