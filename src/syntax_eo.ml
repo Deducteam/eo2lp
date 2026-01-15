@@ -7,7 +7,7 @@ module L = struct
   include List
   let chop (xs : 'a list) : ('a list * 'a) =
     let n = List.length xs in
-    (take (n-1) xs, nth xs n)
+    (take (n-1) xs, nth xs (n-1))
 end
 
 (* ---------------------------------------------- *)
@@ -101,7 +101,7 @@ let rec subst : term -> string -> term -> term =
       let ts' = L.map (fun t -> subst t s t') ts in
       if (s = s')
         then app_raw t' ts'
-        else Apply (s, ts')
+        else Apply (s', ts')
 
 let rec splice (ps,t,ts : param list * term * term list)
   : (param list * term * term list) =

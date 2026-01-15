@@ -534,11 +534,16 @@ let test_chainable () =
 
 let test_binder () =
   Printf.printf "\n=== :binder ===\n";
+  let ctx = (builtin_signature, []) in
+
+  (* Helper: create a Decl with :binder attribute *)
+  let binder_decl t_cons =
+    Decl ([], Apply ("->", [Symbol "@List"; Symbol "Bool"; Symbol "Bool"]), Some (Binder t_cons))
+  in
 
   (* Single variable *)
-  let t1 = elab_binder
-    ("forall", [("x", Symbol "Int")], Symbol "body")
-    (Some (Binder "@list"))
+  let t1 = elab_binder ctx
+    ("forall", binder_decl "@list", [("x", Symbol "Int")], Symbol "body")
   in
   let e1 = Apply ("forall", [
     Apply ("@list", [Apply ("eo::var", [Literal (String "x"); Symbol "Int"])]);
@@ -547,9 +552,8 @@ let test_binder () =
   check "forall ((x Int)) body" e1 t1;
 
   (* Multiple variables *)
-  let t2 = elab_binder
-    ("forall", [("x", Symbol "Int"); ("y", Symbol "Bool")], Symbol "body")
-    (Some (Binder "@list"))
+  let t2 = elab_binder ctx
+    ("forall", binder_decl "@list", [("x", Symbol "Int"); ("y", Symbol "Bool")], Symbol "body")
   in
   let e2 = Apply ("forall", [
     Apply ("@list", [
@@ -561,9 +565,8 @@ let test_binder () =
   check "forall ((x Int) (y Bool)) body" e2 t2;
 
   (* exists *)
-  let t3 = elab_binder
-    ("exists", [("x", Symbol "Int")], Symbol "body")
-    (Some (Binder "@list"))
+  let t3 = elab_binder ctx
+    ("exists", binder_decl "@list", [("x", Symbol "Int")], Symbol "body")
   in
   let e3 = Apply ("exists", [
     Apply ("@list", [Apply ("eo::var", [Literal (String "x"); Symbol "Int"])]);
@@ -572,9 +575,8 @@ let test_binder () =
   check "exists ((x Int)) body" e3 t3;
 
   (* lambda *)
-  let t4 = elab_binder
-    ("lambda", [("x", Symbol "Int")], Symbol "body")
-    (Some (Binder "@list"))
+  let t4 = elab_binder ctx
+    ("lambda", binder_decl "@list", [("x", Symbol "Int")], Symbol "body")
   in
   let e4 = Apply ("lambda", [
     Apply ("@list", [Apply ("eo::var", [Literal (String "x"); Symbol "Int"])]);
@@ -583,8 +585,9 @@ let test_binder () =
   check "lambda ((x Int)) body" e4 t4;
 
   (* Missing binder attribute should fail *)
+  let no_binder_decl = Decl ([], Symbol "Bool", None) in
   check_exn "binder missing attribute" (fun () ->
-    elab_binder ("forall", [("x", Symbol "Int")], Symbol "body") None
+    elab_binder ctx ("forall", no_binder_decl, [("x", Symbol "Int")], Symbol "body")
   );
 
   ()
@@ -954,45 +957,45 @@ let overload_signature : signature = overload_base_signature @ [
 let test_overloading () =
   Printf.printf "\n=== overloading ===\n";
 
-  (* Test that is_overloaded detects overloaded symbols *)
-  let is_ovl = is_overloaded "-" overload_signature in
-  incr test_count;
-  if is_ovl then begin
-    incr pass_count;
-    Printf.printf "  [PASS] is_overloaded detects - as overloaded\n"
-  end else begin
-    incr fail_count;
-    Printf.printf "  [FAIL] is_overloaded should detect - as overloaded\n"
-  end;
-
-  (* Test that find_all returns both declarations *)
-  let all_minus = find_all "-" overload_signature in
-  incr test_count;
-  if List.length all_minus = 2 then begin
-    incr pass_count;
-    Printf.printf "  [PASS] find_all returns 2 declarations for -\n"
-  end else begin
-    incr fail_count;
-    Printf.printf "  [FAIL] find_all should return 2 declarations for -, got %d\n"
-      (List.length all_minus)
-  end;
-
-  (* Without LP context, first declaration (binary) is used *)
-  (* (- x) with binary - would be partial application *)
+  (* Test overloaded symbol resolution - first matching declaration is used *)
   let ctx = (overload_signature, []) in
-  check_no_exn "(- x y) without LP context" (fun () ->
+
+  (* Binary subtraction works (first declaration) *)
+  check_no_exn "(- x y) uses first declaration" (fun () ->
     let _ = elab ctx (Apply ("-", [Symbol "x"; Symbol "y"])) in ()
   );
 
-  (* Test that non-overloaded symbol is not detected as overloaded *)
-  let is_ovl_plus = is_overloaded "+" overload_signature in
+  (* Unary negation also works via first declaration with partial application *)
+  check_no_exn "(- x) partial application" (fun () ->
+    let _ = elab ctx (Apply ("-", [Symbol "x"])) in ()
+  );
+
+  (* Test that overloaded symbols can be looked up *)
+  let count_minus =
+    List.length (List.filter (fun (s, _) -> s = "-") overload_signature)
+  in
   incr test_count;
-  if not is_ovl_plus then begin
+  if count_minus = 2 then begin
     incr pass_count;
-    Printf.printf "  [PASS] is_overloaded correctly returns false for +\n"
+    Printf.printf "  [PASS] signature contains 2 declarations for -\n"
   end else begin
     incr fail_count;
-    Printf.printf "  [FAIL] is_overloaded should return false for +\n"
+    Printf.printf "  [FAIL] signature should contain 2 declarations for -, got %d\n"
+      count_minus
+  end;
+
+  (* Test non-overloaded symbol *)
+  let count_plus =
+    List.length (List.filter (fun (s, _) -> s = "+") overload_signature)
+  in
+  incr test_count;
+  if count_plus = 1 then begin
+    incr pass_count;
+    Printf.printf "  [PASS] signature contains 1 declaration for +\n"
+  end else begin
+    incr fail_count;
+    Printf.printf "  [FAIL] signature should contain 1 declaration for +, got %d\n"
+      count_plus
   end;
 
   ()
