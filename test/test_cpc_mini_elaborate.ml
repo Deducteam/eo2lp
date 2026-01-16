@@ -22,7 +22,7 @@ let () =
   let files = collect_files () in
   println (Printf.sprintf "  Found %d .eo files" (List.length files));
 
-  run_elaborate_tests stats ~base_sig ~verbose:false files;
+  run_elaborate_tests stats ~base_sig ~verbose:!verbose files;
   print_stats stats;
 
   let code = if stats.failed > 0 || stats.timed_out > 0 then 1 else 0 in

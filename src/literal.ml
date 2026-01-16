@@ -25,7 +25,9 @@ let literal_str =
   | Rational (n, d) ->
     string_of_int n ^ "/" ^ string_of_int d
   | String s -> "\"" ^ s ^ "\""
-  | Binary _ -> Printf.printf
-    "WARNING: unhandled binary."; ""
-  | Hexadecimal _ -> Printf.printf
-    "WARNING: unhandled hex."; ""
+  | Binary _ ->
+    (* Printf.printf "WARNING: unhandled binary.\n"; *)
+    ""
+  | Hexadecimal _ ->
+    (* Printf.printf "WARNING: unhandled hex.\n";  *)
+    ""

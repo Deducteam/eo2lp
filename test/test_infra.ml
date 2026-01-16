@@ -9,12 +9,14 @@ open Eo2lp.Encode
    ============================================================ *)
 
 let test_timeout = ref 0.1
+let verbose = ref false
 
 let parse_args () =
   let usage = "Usage: " ^ Sys.argv.(0) ^ " [options]" in
   let speclist = [
     ("-t", Arg.Set_float test_timeout, "  Timeout in seconds per test (default: 0.1)");
     ("--timeout", Arg.Set_float test_timeout, "  Timeout in seconds per test (default: 0.1)");
+    ("-v", Arg.Set verbose, "  Verbose mode");
   ] in
   Arg.parse speclist (fun _ -> ()) usage
 
