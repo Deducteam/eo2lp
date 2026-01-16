@@ -12,6 +12,7 @@ cpc-less
 .old/
 .ropeproject/
 
+lp/cpc-mini
 Dedukti
 cvc5
 ethos
