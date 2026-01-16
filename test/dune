@@ -14,11 +14,31 @@
  (deps (source_tree ../eo))
  (action (chdir %{workspace_root} (run %{test}))))
 
-; cpc-mini tests
+; cpc-mini parsing tests
 (test
- (name test_cpc_mini)
+ (name test_cpc_mini_parse)
  (libraries eo2lp test_infra)
- (modules test_cpc_mini)
+ (modules test_cpc_mini_parse)
+ (deps
+   (source_tree ../eo)
+   (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+; cpc-mini elaboration tests
+(test
+ (name test_cpc_mini_elaborate)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini_elaborate)
+ (deps
+   (source_tree ../eo)
+   (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+; cpc-mini encoding tests
+(test
+ (name test_cpc_mini_encode)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini_encode)
  (deps
    (source_tree ../eo)
    (source_tree ../cpc-mini))
@@ -33,3 +53,9 @@
    (source_tree ../eo)
    (source_tree ../ethos-tests))
  (action (chdir %{workspace_root} (run %{test}))))
+
+; CLI test runner (not run by dune runtest)
+(executable
+ (name test_runner)
+ (libraries eo2lp test_infra)
+ (modules test_runner))

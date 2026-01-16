@@ -8,7 +8,7 @@ open Syntax_eo
    - Defined symbol expansion
    - Overloading resolution via LambdaPi typechecking
    ============================================================ *)
-let debug = ref false
+let debug = ref true
 
 let wt : term -> bool = fun t -> true
 let glue (ps, f : param list * term)
@@ -22,20 +22,20 @@ let glue (ps, f : param list * term)
 
 let rec elab (sgn, ps as ctx : context)
   : term -> term =
+fun t ->
+  elab_inner ctx t
+
+and elab_inner (sgn, ps as ctx : context)
+  : term -> term =
 function
 (* ---- literals, `Type`, and `->`. ---- *)
 | Literal _ | Symbol "Type" | Symbol "->" as t -> t
 (* ---- symbols. ----  *)
-| Symbol s ->
-  begin match L.assoc_opt s sgn with
-  | Some Defn (qs, t) ->
-    if qs = [] then elab ctx t
-    else Printf.ksprintf failwith
-      "Lingering parameters from defined symbol %s." s
-  | _ -> Symbol s
-  end
+| Symbol s -> Symbol s
 (* ---- applications. ---- *)
 | Apply (s, ts) ->
+  (* if !debug then
+    Printf.printf "Elaborating: %s\n" (Syntax_eo.term_str (Apply (s, ts))); *)
   if is_builtin s then
     Apply (s, L.map (elab ctx) ts)
   else
@@ -59,8 +59,15 @@ function
     end
 (* ---- eo::define as local let-binding. ---- *)
 | Bind ("eo::define", xs, t') ->
-    let ys = xs |> L.map (fun (s,t) -> (s, elab ctx t)) in
-    Bind ("eo::define", ys, elab ctx t')
+    begin match xs with
+    | [] -> elab ctx t'
+    | (x,tx) :: ys ->
+      let tx' = elab ctx tx in
+      let ctx' = (sgn, (x, Symbol "NONE", []) :: ps) in
+      Bind ("eo::define", [(x,tx')],
+        elab ctx' (Bind ("eo::define", ys, t'))
+      )
+    end
 (* ---- binder application. ---- *)
 | Bind (s, xs, t) ->
   begin match
@@ -85,15 +92,11 @@ and elab_nary
   match k with
   (* program constants. *)
   | Prog _ -> app_ho_list (Symbol s) (L.map (elab ctx) ts)
-  (* defined constants. *)
+  (* defined constants - don't inline expand, just elaborate arguments *)
   | Defn (qs,t) ->
-    let t',ts' = (elab ctx t, L.map (elab ctx) ts) in
-    let (qs',t'',ts'') = splice (qs,t',ts') in
-    if qs' = [] then
-      elab ctx (app_raw t'' ts'')
-    else
-      Printf.ksprintf failwith
-        "Lingering parameters from defined symbol %s." s
+    (* Just elaborate the arguments and create an application.
+       Don't expand the definition body - keep it as a function call. *)
+    app_ho_list (Symbol s) (L.map (elab ctx) ts)
   (* declared constants. *)
   | Decl (_,_,ao) ->
     let g x y = glue (ps, Symbol s) x y in
@@ -188,18 +191,18 @@ and elab_const (ctx : context) : const -> const =
     let cs' = elab_cs ctx_cs cs in
     Prog ((ps', ty'), (qs', cs'))
 
-let elab_sig (sgn : signature) : signature =
-  let rec aux sgn_acc sgn_rem =
-    match sgn_rem with
-    | [] -> List.rev sgn_acc
-    | (s, c) :: sgn_rest ->
-      if !debug then
-        Printf.printf "Elaborating:\n%s\n" (const_str (s,c));
-      let ctx = (sgn_acc @ sgn_rem, []) in
-      let c' = elab_const ctx c in
-      if !debug then
-        Printf.printf "Done:\n%s\n\n" (const_str (s,c'));
+let elab_hook : (string -> (unit -> 'a) -> 'a) ref = ref (fun _ f -> f ())
 
-      aux ((s, c') :: sgn_acc) sgn_rest
-  in
-  aux [] sgn
+ let elab_sig (sgn : signature) : signature =
+   let rec aux sgn_acc sgn_rem =
+     match sgn_rem with
+     | [] -> List.rev sgn_acc
+     | (s, c) :: sgn_rest ->
+       (* if !debug then
+         Printf.printf "      + %s\n" s; *)
+       let ctx = (sgn_acc @ sgn_rem, []) in
+       let c' = !elab_hook s (fun () -> elab_const ctx c) in
+
+       aux ((s, c') :: sgn_acc) sgn_rest
+   in
+   aux [] sgn

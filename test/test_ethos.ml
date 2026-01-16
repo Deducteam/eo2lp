@@ -17,14 +17,15 @@ let test_ethos () =
     println (Printf.sprintf "  Found %d .eo files" (List.length files));
 
     run_parse_tests stats files;
-    run_elaborate_tests stats ~base_sig files;
-    run_encode_tests stats ~base_sig files;
+    run_elaborate_tests stats ~base_sig ~verbose:false files;
+    run_encode_tests stats ~base_sig ~verbose:false files;
 
     print_stats stats;
     stats
   end
 
 let () =
+  parse_args ();
   print_suite_header "ethos-tests Test Suite";
   let stats = test_ethos () in
   (* ethos-tests failures don't fail the build *)
