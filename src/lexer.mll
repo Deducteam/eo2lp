@@ -51,6 +51,8 @@ rule token = parse
   (* constant attributes *)
   | ":right-assoc-nil-non-singleton-nil" { RIGHT_ASSOC_NIL_NSN }
   | ":left-assoc-nil-non-singleton-nil"  { LEFT_ASSOC_NIL_NSN }
+  | ":right-assoc-non-singleton-nil"     { RIGHT_ASSOC_NSN }
+  | ":left-assoc-non-singleton-nil"      { LEFT_ASSOC_NSN }
   | ":right-assoc-nil" { RIGHT_ASSOC_NIL }
   | ":left-assoc-nil"  { LEFT_ASSOC_NIL }
   | ":right-assoc"     { RIGHT_ASSOC }
@@ -59,20 +61,31 @@ rule token = parse
   | ":pairwise"        { PAIRWISE }
   | ":arg-list"        { ARG_LIST }
   | ":binder"          { BINDER }
+  | ":let-binder"      { LET_BINDER }
   (* variable attributes *)
   | ":implicit"        { IMPLICIT }
   | ":opaque"          { OPAQUE }
   | ":list"            { LIST }
+  | ":syntax"          { SYNTAX }
+  | ":restrict"        { RESTRICT }
   (* type attribute for `define` command *)
   | ":type" { TYPE }
   (* sorry attribute for `declare-rule` command *)
   | ":sorry" { SORRY }
+  (* push/pop commands *)
+  | "push" { PUSH }
+  | "pop"  { POP }
+  (* par for parametric datatypes *)
+  | "par"  { PAR }
+  (* as for type annotation *)
+  | "as"   { AS }
   (* eunoia proof script commands *)
   | "assume"         { ASSUME }
   | "assume-push"    { ASSUME_PUSH }
   | "step"           { STEP }
   | "step-pop"       { STEP_POP }
   (* rule declaration attributes *)
+  | ":conclusion-explicit" { CONCLUSION_EXPLICIT }
   | ":conclusion"    { CONCLUSION }
   | ":assumption"    { ASSUMPTION }
   | ":premise-list"  { PREMISE_LIST }

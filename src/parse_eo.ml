@@ -35,7 +35,8 @@ let parse_eo_params (str : string) : param list =
   try Parser.params Lexer.token lx
   with Parser.Error -> failwith "error when parsing term."
 
-let parse_command (lx : Lexing.lexbuf) : (string * const) list option =
+(* Returns: Some (Some syms) for a command, Some None for EOF, None for error *)
+let parse_command (lx : Lexing.lexbuf) : (string * const) list option option =
   try Some (Parser.toplevel_eof Lexer.token lx)
   with Parser.Error ->
     let pos = lx.lex_curr_p in
@@ -52,7 +53,7 @@ let parse_cache : (string, signature) Hashtbl.t = Hashtbl.create 32
 
 let clear_parse_cache () = Hashtbl.clear parse_cache
 
-let rec parse_eo_file (root, fp : string * string) : signature =
+let rec parse_eo_file (root : string) (fp : string) : signature =
   let fp_abs = to_absolute (Fpath.v fp) in
   let fp_key = Fpath.to_string fp_abs in
 
@@ -70,15 +71,15 @@ let rec parse_eo_file (root, fp : string * string) : signature =
     let old_callback = !Parse_ctx.parse_include_callback in
     Parse_ctx.parse_include_callback := (fun include_path ->
       let target = Fpath.((cwd // v include_path) |> normalize) in
-      parse_eo_file (root, Fpath.to_string target)
+      parse_eo_file root (Fpath.to_string target)
     );
 
     let result =
       try while true do (
         match parse_command lx with
-        | Some [] -> raise Exit
-        | Some syms -> _sig := List.rev_append syms !_sig
-        | None -> raise Exit
+        | Some (Some syms) -> _sig := List.rev_append syms !_sig
+        | Some None -> raise Exit  (* EOF *)
+        | None -> raise Exit  (* Parse error *)
       ) done; assert false
 
       with
@@ -103,21 +104,16 @@ let dir_contents dir =
   in
     loop [] [dir]
 
-(* let parse_eo_dir (root_str : string) : environment =
+let parse_eo_dir (root_str : string) : signature =
   let root = to_absolute (Fpath.v root_str) in
   let root_abs_str = Fpath.to_string root in
 
-  (* Your existing recursive directory search *)
   let fps = List.filter
     (fun fp -> Filename.check_suffix fp ".eo")
     (dir_contents root_abs_str) in
 
-  let f fp_str =
-    let fp = to_absolute (Fpath.v fp_str) in
-    let key = get_logical_path (root,fp) in
+  let signatures = List.map (fun fp_str ->
+    parse_eo_file root_abs_str fp_str
+  ) fps in
 
-    (* 2. Parse, passing the absolute root string for inner resolution *)
-     (key, parse_eo_file (root_abs_str, Fpath.to_string fp))
-
-  in
-    List.map f fps *)
+  List.concat signatures

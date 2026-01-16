@@ -1,13 +1,42 @@
+module EO = struct
+  include Parse_eo
+  include Syntax_eo
+  include Elaborate
+end
 
-open Syntax_eo
-open Parse_eo
-open Elaborate
+module LP = struct
+  include Syntax_lp
+  include Api_lp
+  include Encode
+end
 
-let core : signature =
-  parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
+let init : unit =
+  let meta = LP.Require ["eo2lp.Meta";"Stdlib.Set"] in
+  let lp_sig = "./eo/Core.eo"
+    |> EO.parse_eo_file (Sys.getcwd ())
+    |> EO.elab_sig
+    |> LP.eo_sig
+  in
+    Api_lp.write_lp_file "lp/Core.lp" (meta :: lp_sig)
 
-let utils : signature =
-  parse_eo_file (Sys.getcwd (), "./cpc-mini/programs/Utils.eo")
+let eo2lp (fp : string) : unit =
+  let meta = LP.Require ["eo2lp.Core"; "Stdlib.Set"] in
+  let lp_sig = fp
+    |> EO.parse_eo_file (Sys.getcwd ())
+    |> EO.elab_sig
+    |> LP.eo_sig
+  in
+
+  let lp_fp =
+    "lp/" ^ Filename.(chop_extension @@ basename fp)
+            ^ ".lp"
+  in
+
+  Api_lp.write_lp_file lp_fp (meta :: lp_sig)
+
+
+(* let utils : signature =
+  parse_eo_file (Sys.getcwd (), "./cpc-mini/programs/Utils.eo") *)
 (*
 let _cpc : environment =
   parse_eo_dir "./cpc-mini"

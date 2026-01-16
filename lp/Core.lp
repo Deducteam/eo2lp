@@ -1,204 +1,56 @@
-require open Stdlib.HOL Stdlib.Bool Stdlib.Z eo2lp.Q Stdlib.String;
-
-symbol int ≔ int;
-symbol rat ≔ rat;
-symbol str ≔ string;
-
-require open Stdlib.List;
-
-symbol List : Set;
-symbol List⋅⋅nil : τ List;
-symbol List⋅⋅cons [a] : τ a → τ List → τ List;
-
-// object-level application.
-injective symbol app [a b]
-  : τ (a ⤳ b) → τ a → τ b;
-
-symbol Type : Set;
-rule τ Type ↪ Set;
-
-symbol Int : Set;
-symbol - : τ (Int ⤳ Int ⤳ Int);
-symbol -' : τ (Int ⤳ Int);
-
-symbol const (s : String) (a : Set) : τ a;
-rule const "-" (Int ⤳ Int ⤳ Int) ↪ -;
-rule const "-" (Int ⤳ Int) ↪ -';
-
-symbol var (s : String) (a : Set) : τ a;
-
-// If t is ground,
-//  return true if t is a value, and false otherwise.
-// If t is not ground, it does not evaluate.
-sequential symbol is_okay
- [t] : τ t → τ bool;
-
-rule τ bool ↪ 𝔹;
-rule τ string ↪ String;
-
-symbol ite [x] : τ (bool ⤳ x ⤳ x ⤳ x);
-rule ite true $t1 _  ↪ $t1
-with ite false _ $t2 ↪ $t2;
-
-sequential symbol eq
-  [x y] : τ (x ⤳ y ⤳ bool);
-
-sequential symbol is_eq
-  [x y] : τ (x ⤳ y ⤳ bool);
-
-sequential symbol cond
-  [x] : τ (bool ⤳ x ⤳ x);
-
-rule cond true $t ↪ $t;
-
-// ---- eo::requires ----
-sequential symbol requires
-  [x y z] : τ (x ⤳ y ⤳ z ⤳ z);
-rule requires $t1 $t2 $t3
-  ↪ cond (is_eq $t1 $t2) $t3;
-
-symbol requires_type_in
-  [x] : Set → Set → τ x → τ x;
-
-symbol requires_type_out
-  [x] : τ x → τ x → Set → Set;
-
-sequential symbol hash
-  [x] : τ x → ℤ;
-
-sequential symbol typeof
-  [x] : τ (x ⤳ Type);
-//rule typeof [$x] $t ↪ $x;constant
-
-sequential symbol nameof
-  [x] : τ x → τ string;
-
-//sequential symbol var
-  //(_ : τ string) (t : τ Type) : τ t;
-
-//rule nameof (var $s _) ↪ $s;
-//rule typeof (var _ $t) ↪ $t;
-
-sequential symbol cmp
-  [x y] : τ (x ⤳ y ⤳ bool);
-
-sequential symbol is_z
-  [x] : τ (x ⤳ bool);
-
-sequential symbol is_q
-  [x] : τ (x ⤳ bool);
-
-sequential symbol is_bin
-  [x] : τ (x ⤳ bool);
-
-sequential symbol is_str
-  [x] : τ (x ⤳ bool);
-
-sequential symbol is_bool
-  [x] : τ (x ⤳ bool);
-
-sequential symbol is_var
-  [x] : τ (x ⤳ bool);
-
-
-// ---- boolean operators ----
-symbol and [x] : τ (x ⤳ x ⤳ x);
-
-rule and true true ↪ true
-with and false _ ↪ false
-with and _ false ↪ false;
-
-symbol or [x] : τ (x ⤳ x ⤳ x);
-
-rule or false false ↪ false
-with or true _ ↪ true
-with and _ true ↪ true;
-
-symbol xor [x] : τ (x ⤳ x ⤳ x);
-
-rule xor true false ↪ true
-with xor false true ↪ true
-with xor false false ↪ false
-with xor false false ↪ false;
-
-symbol not [x] : τ (x ⤳ x);
-
-rule not true ↪ false
-with not false ↪ true;
-
-
-// --- arithmetic ---
-//rule τ int ↪ ℤ;
-
-symbol neg [x] : τ (x ⤳ x);
-rule neg [int] $x ↪ — $x;
-
-symbol add [x] : τ (x ⤳ x ⤳ x);
-rule add [int] $x $y ↪ $x + $y;
-
-symbol mul [x] : τ (x ⤳ x ⤳ x);
-rule mul [int] $x $y ↪ $x * $y;
-
-symbol qdiv [x] : τ (x ⤳ x ⤳ x);
-symbol zdiv [x] : τ (x ⤳ x ⤳ x);
-
-symbol zmod [x] : τ (x ⤳ x ⤳ x);
-
-symbol is_neg [x] : τ (x ⤳ bool);
-symbol gt [x] : τ (x ⤳ x ⤳ bool);
-
-// --- strings ---
-symbol len [x] : τ (x ⤳ int);
-symbol concat [x] : τ (x ⤳ x ⤳ bool);
-symbol extract [x] : τ (x ⤳ int ⤳ int ⤳ x);
-symbol find : τ (string ⤳ string ⤳ int);
-
-// --- conversion ----
-symbol to_z [x] : τ (x ⤳ int);
-symbol to_q [x] : τ (x ⤳ rat);
-symbol to_bin [x] : τ (x ⤳ pos);
-symbol to_str [x] : τ (x ⤳ string);
-
-// ---- list ops ----
-symbol nil [x y] (f : τ (x ⤳ y ⤳ y))
-  (t : τ Type) : τ y;
-
-symbol cons [x y] (f : τ (x ⤳ y ⤳ y))
-  (t1 : τ x) (t2 : τ y) : τ y
-  ≔ f t1 t2;
-
-symbol list_len [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ int);
-
-symbol list_concat [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y ⤳ y);
-
-symbol list_nth [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ int ⤳ x);
-
-symbol list_find [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ x ⤳ int);
-
-symbol list_rev [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y);
-
-symbol list_erase [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y);
-
-symbol list_erase_all [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y);
-
-symbol list_setof [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y);
-
-symbol list_minclude [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y ⤳ bool);
-
-symbol list_meq [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y ⤳ y);
-
-symbol list_diff [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ y);
-
-symbol list_singleton_elim [x y] (f : τ (x ⤳ y ⤳ y))
-  : τ (y ⤳ x);
+require open eo2lp.Meta Stdlib.Set;
+constant symbol Bool : Set;
+constant symbol true : τ Bool;
+constant symbol false : τ Bool;
+constant symbol eo⋅⋅String : Set;
+constant symbol eo⋅⋅Z : Set;
+constant symbol eo⋅⋅Q : Set;
+constant symbol eo⋅⋅is_ok [T : Set]: τ (T ⤳ Bool);
+constant symbol eo⋅⋅ite [T : Set]: τ (Bool ⤳ T ⤳ T ⤳ T);
+constant symbol eo⋅⋅eq [U : Set]: τ (U ⤳ U ⤳ Bool);
+constant symbol eo⋅⋅is_eq [T : Set] [S : Set]: τ (T ⤳ S ⤳ Bool);
+constant symbol eo⋅⋅requires [T : Set] [U : Set] [V : Set]: τ (T ⤳ U ⤳ V ⤳ V);
+constant symbol eo⋅⋅hash [T : Set]: τ (T ⤳ eo⋅⋅Z);
+constant symbol eo⋅⋅typeof [T : Set]: τ (T ⤳ eo⋅⋅Type);
+constant symbol eo⋅⋅nameof [T : Set]: τ (T ⤳ eo⋅⋅String);
+constant symbol eo⋅⋅var [T : Set]: τ (eo⋅⋅String ⤳ T ⤳ T);
+constant symbol eo⋅⋅cmp [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
+constant symbol eo⋅⋅is_var [T : Set]: τ (T ⤳ Bool);
+constant symbol eo⋅⋅and : τ (Bool ⤳ Bool ⤳ Bool);
+constant symbol eo⋅⋅or : τ (Bool ⤳ Bool ⤳ Bool);
+constant symbol eo⋅⋅xor : τ (Bool ⤳ Bool ⤳ Bool);
+constant symbol eo⋅⋅not : τ (Bool ⤳ Bool);
+constant symbol eo⋅⋅add [T : Set]: τ (T ⤳ T ⤳ T);
+constant symbol eo⋅⋅mul [T : Set]: τ (T ⤳ T ⤳ T);
+constant symbol eo⋅⋅neg [T : Set]: τ (T ⤳ T);
+constant symbol eo⋅⋅qdiv [T : Set]: τ (T ⤳ T ⤳ T);
+constant symbol eo⋅⋅zdiv [T : Set]: τ (T ⤳ T ⤳ T);
+constant symbol eo⋅⋅zmod [T : Set]: τ (T ⤳ T ⤳ T);
+constant symbol eo⋅⋅is_neg [T : Set]: τ (T ⤳ Bool);
+constant symbol eo⋅⋅gt [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
+constant symbol eo⋅⋅len [T : Set]: τ (T ⤳ eo⋅⋅Z);
+constant symbol eo⋅⋅concat [T : Set]: τ (T ⤳ T ⤳ T);
+constant symbol eo⋅⋅extract [T : Set]: τ (T ⤳ eo⋅⋅Z ⤳ eo⋅⋅Z ⤳ T);
+constant symbol eo⋅⋅find : τ (eo⋅⋅String ⤳ eo⋅⋅String ⤳ eo⋅⋅Z);
+constant symbol eo⋅⋅to_z [T : Set]: τ (T ⤳ eo⋅⋅Z);
+constant symbol eo⋅⋅to_q [T : Set]: τ (T ⤳ eo⋅⋅Q);
+constant symbol eo⋅⋅to_bin [T : Set]: τ (eo⋅⋅Z ⤳ T ⤳ T);
+constant symbol eo⋅⋅to_str [T : Set]: τ (T ⤳ eo⋅⋅String);
+constant symbol eo⋅⋅nil [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ eo⋅⋅Type ⤳ T);
+constant symbol eo⋅⋅cons [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ U ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_concat [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ T ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_len [F : Set] [T : Set]: τ (F ⤳ T ⤳ eo⋅⋅Z);
+constant symbol eo⋅⋅list_nth [F : Set] [T : Set]: τ (F ⤳ T ⤳ eo⋅⋅Z ⤳ T);
+constant symbol eo⋅⋅list_find [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ eo⋅⋅Z);
+constant symbol eo⋅⋅list_rev [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_erase [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_erase_all [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_setof [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_minclude [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Bool);
+constant symbol eo⋅⋅list_meq [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Bool);
+constant symbol eo⋅⋅list_diff [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_eo⋅⋅Zer [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+constant symbol eo⋅⋅list_singleton_elim [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
+constant symbol eo⋅⋅List : Set;
+constant symbol eo⋅⋅List⋅⋅nil : τ eo⋅⋅List;
+constant symbol eo⋅⋅List⋅⋅cons [T : Set]: τ (T ⤳ eo⋅⋅List ⤳ eo⋅⋅List);

@@ -1,8 +1,49 @@
+module L = List
+module S = struct
+  include String
+  let concat_map s f xs = String.concat " " (L.map f xs)
+end
+
+let is_forbidden (s : string) : bool =
+  (
+    String.contains s '$'
+  ||
+    String.contains s '@'
+  ||
+    String.contains s ':'
+  ||
+    String.contains s '.'
+  )
+
+let strip_prefix (str : string) (pre : string) : string =
+  let n = String.length pre in
+  let m = String.length str in
+  (String.sub str n (m - n))
+
+let replace (c, s : char * string) (str : string) : string =
+  let xs = String.split_on_char c str in
+  String.concat s xs
+
+
+let rec safe_name : string -> string =
+  function
+  | s when S.starts_with ~prefix:"$" s ->
+    "!" ^ safe_name (strip_prefix s "$")
+  | s when S.starts_with ~prefix:"@@" s ->
+    "_" ^ safe_name (strip_prefix s "@@")
+  (* | s when S.starts_with ~prefix:"eo::" s ->
+    "eo." ^ safe_name (strip_prefix s "eo::") *)
+  | s ->
+    let s' = s |> replace ('.',"⋅") |> replace (':', "⋅") in
+    if is_forbidden s'
+      then Printf.sprintf "{|%s|}" s
+      else s'
+
 
 type binder =
   | Lambda | Pi
 and term =
-  | Var of string
+  | Var of string | PVar of string
   | App of term * term
   | Bind of binder * param list * term
   | Arrow of term * term
@@ -11,6 +52,9 @@ and attr = Explicit | Implicit
 and param = string * term * attr
 
 type case = (term * term)
+
+let map_cases (f : term -> term) : case list -> case list =
+  L.map (fun (t,t') -> f t, f t')
 
 type modifier =
   | Constant
@@ -25,28 +69,17 @@ type command =
   | Require of
       string list
 
-module L = List
-module S = struct
-  include String
-  let concat_map s f xs = String.concat " " (L.map f xs)
-end
+type signature = command list
+
+module EO = Syntax_eo
+
+let app_list : term -> term list -> term =
+  fun t ts -> L.fold_left (fun acc t -> App (acc, t)) t ts
 
 let is_var : term -> bool =
   function
   | Var _ -> true
   | _     -> false
-
-let is_forbidden (s : string) : bool =
-  (
-    String.contains s '$'
-  ||
-    String.contains s '@'
-  ||
-    String.contains s ':'
-  ||
-    String.contains s '.'
-  )
-
 let is_pi : term -> bool =
   function
   | Bind (Pi, _, _) -> true
@@ -73,13 +106,15 @@ let rec map_vars (f : string -> term) : term -> term =
         map_vars f t
       )
 
-let map_cases (f : term -> term) : case list -> case list =
-  L.map (fun (t,t') -> (f t, f t'))
+let bind_pvars (ps : EO.param list) (t : term)  : term =
+  let f s =
+    if L.exists (fun (s',_,_) -> s = s') ps
+    then PVar s else Var s
+  in
+    map_vars f t
 
-
-let app_list : term -> term list -> term =
-  L.fold_left (fun acc t -> App (acc, t))
-
+let tau_of (t : term) =
+  App (Var "τ", t)
 
 (* ---- pretty printing -------- *)
 let binder_str : binder -> string =
@@ -90,8 +125,18 @@ let binder_str : binder -> string =
 let rec term_str : term -> string =
   function
   | Var s -> s
+  | App (Var "τ", Var "eo⋅⋅Type") -> "Set"
+  | App (App (Var "⤳",t),t') when is_var t ->
+    Printf.sprintf "%s ⤳ %s"
+      (term_str t) (term_str t')
+  | App (App (Var "⤳",t),t') ->
+    Printf.sprintf "(%s) ⤳ %s"
+      (term_str t) (term_str t')
+  | App (t,t') when is_var t' ->
+    Printf.sprintf "%s %s"
+      (term_str t) (term_str t')
   | App (t,t') ->
-    Printf.sprintf "(%s %s)"
+    Printf.sprintf "%s (%s)"
       (term_str t) (term_str t')
   | Arrow (t, t') ->
     Printf.sprintf "(%s → %s)"
@@ -123,7 +168,7 @@ let modifier_str =
   | Constant   -> "constant"
   | Sequential -> "sequential"
 
-let lp_command_str =
+let command_str =
   function
   | Symbol (m_opt, str, xs, ty_opt, def_opt) ->
     let m_str = match m_opt with
@@ -152,3 +197,6 @@ let lp_command_str =
   | Require ps ->
     let ps_str = String.concat " " ps in
     Printf.sprintf "require open %s;" ps_str
+
+let sig_str : signature -> string =
+  S.concat_map "\n" command_str

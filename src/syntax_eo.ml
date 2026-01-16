@@ -23,13 +23,16 @@ type attr =
   (* constant attributes *)
   | RightAssocNil of term | LeftAssocNil of term
   | LeftAssocNilNSN of term | RightAssocNilNSN of term
+  | RightAssocNSN of term | LeftAssocNSN of term
   | RightAssoc | LeftAssoc
   | ArgList of string
   | Chainable of string
   | Pairwise of string
   | Binder of string
+  | LetBinder of term
   (* parameter attributes *)
   | Implicit | Opaque | List
+  | Syntax of term | Restrict of term
 
 and premises =
   | Simple of term list
@@ -48,7 +51,7 @@ and rule_dec =
 and sorry = Sorry (* `:sorry` attribute for `declare-rule`.*)
 and path = string list (* type of paths for `include`. *)
 
-type param = string * term * (attr option)
+type param = string * term * (attr list)
 type const =
   | Decl of param list * term * attr option
   | Defn of param list * term
@@ -62,8 +65,8 @@ type context = signature * param list
 (* ---- contexts: `param list` and `signature`. ---- *)
 let is_name (s,_,_ : param) (s' : string) =
   (s = s')
-let is_attr (_,_,pao : param) (pa : attr) =
-  (Some pa = pao)
+let is_attr (_,_,pas : param) (pa : attr) =
+  List.mem pa pas
 let is_typ (_,ty,_ : param) (ty' : term) =
   ty = ty'
 
@@ -92,22 +95,23 @@ let app_raw : term -> term list -> term =
     | (Symbol s, []) -> Symbol s
     | (Symbol s, ts) -> Apply (s, ts)
     | (Apply (s,ts), ts') -> Apply (s, L.append ts ts')
+    | _ -> app_ho_list t ts
 
 let rec subst : term -> string -> term -> term =
   fun t s t' ->
     match t with
     | Symbol s' -> if (s = s') then t' else t
     | Apply (s', ts) ->
-      let ts' = L.map (fun t -> subst t s t') ts in
+      let ts' = L.map (fun u -> subst u s t') ts in
       if (s = s')
-        then app_raw t' ts'
+        then app_ho_list t' ts'
         else Apply (s', ts')
 
 let rec splice (ps,t,ts : param list * term * term list)
   : (param list * term * term list) =
   match ps, ts with
   | (([],_)|(_,[])) -> (ps, t, ts)
-  | ((s,_, Some Implicit) :: ps, ts) ->
+  | ((s,_, atts) :: ps, ts) when List.mem Implicit atts ->
       splice (ps, t, ts)
   | ((s,_,_) :: ps, t' :: ts) ->
       splice (ps, subst t s t', ts)
@@ -163,7 +167,7 @@ let prog_ty_params (t : term)
   : param list -> param list =
   let f (s,ty,_) =
     if is_free s t then
-      Some (s, ty, Some Implicit)
+      Some (s, ty, [Implicit])
     else
       None
   in
@@ -214,11 +218,6 @@ let list_suffix_str (f : 'a -> string) =
   | [] -> ""
   | ys -> " " ^ (list_str f ys)
 
-let param_attr_str = function
-  | Implicit -> ":implicit"
-  | Opaque -> ":opaque"
-  | List -> ":list"
-
 let rec
   var_str = fun (str,t) ->
     Printf.sprintf "(%s %s)"
@@ -235,6 +234,10 @@ and
       Printf.sprintf ":right-assoc-nil-non-singleton-nil %s" (term_str t)
   | LeftAssocNilNSN t ->
       Printf.sprintf ":left-assoc-nil-non-singleton-nil %s" (term_str t)
+  | RightAssocNSN t ->
+      Printf.sprintf ":right-assoc-non-singleton-nil %s" (term_str t)
+  | LeftAssocNSN t ->
+      Printf.sprintf ":left-assoc-non-singleton-nil %s" (term_str t)
   | Chainable s ->
       Printf.sprintf ":chainable %s" s
   | Binder s ->
@@ -243,6 +246,13 @@ and
       Printf.sprintf ":pairwise %s" s
   | ArgList s ->
       Printf.sprintf ":arg-list %s" s
+  | LetBinder t ->
+      Printf.sprintf ":let-binder %s" (term_str t)
+  | Implicit -> ":implicit"
+  | Opaque -> ":opaque"
+  | List -> ":list"
+  | Syntax t -> Printf.sprintf ":syntax %s" (term_str t)
+  | Restrict t -> Printf.sprintf ":restrict %s" (term_str t)
 and
   term_str = function
   | Symbol str  -> str
@@ -258,10 +268,10 @@ and
 and term_list_str = fun ts ->
   String.concat " " (List.map term_str ts)
 
-let param_str (s,t,att) =
+let param_str (s,t,atts) =
   Printf.sprintf "(%s %s%s)"
     s (term_str t)
-    (opt_suffix_str param_attr_str att)
+    (list_suffix_str const_attr_str atts)
 
 let case_str (t,t') =
   Printf.sprintf "(%s %s)"
@@ -298,11 +308,10 @@ let rule_dec_str ({assm; prem; args; reqs; conc} : rule_dec) : string =
     (opt_newline reqs_str (Some reqs))
     (opt_newline conclusion_str (Some conc))
 
-
 let const_str : (string * const) -> string =
   function
   | s, Decl (ps,t,ao) ->
-    Printf.sprintf "(decl %s (%s) %s %s)"
+    Printf.sprintf "(decl %s (%s) %s (%s))"
       s (list_str param_str ps)
       (term_str t)
       (opt_str const_attr_str ao)
@@ -311,11 +320,14 @@ let const_str : (string * const) -> string =
       s (list_str param_str ps)
       (term_str t)
   | s, Prog ((ps,t), (qs,cs)) ->
-    Printf.sprintf "(prog %s ((%s) %s) (...))"
+    Printf.sprintf "(prog %s ((%s) %s) (..))"
       s (list_str param_str ps)
       (term_str t)
       (* (list_str param_str qs) *)
       (* (case_list_str cs) *)
+
+ let sig_str : signature -> string =
+   fun sgn -> S.concat "\n" (L.map const_str sgn)
 
 (* ------------------------------------------------------ *)
 type sort_dec =
