@@ -23,11 +23,6 @@ type signature =
   (string * symbol) list
 
 
-let from_eo (sgn,ps as ctx : EO.context)
-  : EO.term -> term =
-  function
-  | Symbol s ->
-  failwith ""
 
 let rec term_str : term -> string =
   function

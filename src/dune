@@ -1,7 +1,6 @@
 (ocamllex lexer)
 (menhir
- (modules parser)
-)
+ (modules parser))
 
 (env
  (dev (flags (:standard -warn-error -A)))
@@ -11,12 +10,10 @@
  (name eo2lp)
  (public_name eo2lp)
  (modules
-   parser lexer
-   literal parse_ctx parse_eo syntax_eo
+   parser lexer literal
+   syntax_eo parse_eo parse_ctx
    syntax_lp api_lp
-   syntax_lf
-   elaborate encode translate
-   main
+   elaborate encode main
  )
  (flags :standard -w -8 -w -26 -w -27)
  (libraries str unix fpath)

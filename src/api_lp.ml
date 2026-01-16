@@ -69,7 +69,7 @@ let write_lp_file (filepath : string) (commands : command list) : unit =
   (* Write file *)
   let oc = open_out filepath in
   List.iter (fun cmd ->
-    output_string oc (lp_command_str cmd);
+    output_string oc (command_str cmd);
     output_string oc "\n"
   ) commands;
   close_out oc

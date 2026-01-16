@@ -3,6 +3,9 @@
 (test
  (name test_elaborate)
  (libraries eo2lp)
+ (deps
+   (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test})))
 )
 
 (test

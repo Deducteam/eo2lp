@@ -1,8 +1,17 @@
 %{
 open Syntax_eo
 open Literal
+
 let flatten =
   Option.fold ~none:[] ~some:(fun x -> x)
+
+let lit_cat_to_str = function
+  | NUM -> "<numeral>"
+  | DEC -> "<decimal>"
+  | RAT -> "<rational>"
+  | BIN -> "<binary>"
+  | HEX -> "<hexadecimal>"
+  | STR -> "<string>"
 %}
 
 %token <string> SYMBOL
@@ -38,12 +47,16 @@ let flatten =
 
 %token
   RIGHT_ASSOC_NIL_NSN LEFT_ASSOC_NIL_NSN
+  RIGHT_ASSOC_NSN LEFT_ASSOC_NSN
   RIGHT_ASSOC_NIL LEFT_ASSOC_NIL
   RIGHT_ASSOC LEFT_ASSOC
-  CHAINABLE PAIRWISE ARG_LIST BINDER
+  CHAINABLE PAIRWISE ARG_LIST BINDER LET_BINDER
 
 %token
-  IMPLICIT OPAQUE LIST
+  IMPLICIT OPAQUE LIST SYNTAX RESTRICT
+
+%token
+  PUSH POP PAR AS
 
 %token
   TYPE SORRY
@@ -59,18 +72,20 @@ let flatten =
   SIGNATURE
   RULE
 
-%start <(string * const) list> toplevel_eof
+%start <(string * const) list option> toplevel_eof
 %start <term> term
 %start <param list> params
 
 
 %%
 toplevel_eof:
-  | EOF        { [] }
-  | command    { $1 }
+  | EOF        { None }
+  | command    { Some $1 }
 
 symbol:
   | s = SYMBOL { s }
+  | AS { "as" }
+  | PAR { "par" }
 
 literal:
   | x = NUMERAL      { Numeral x  }
@@ -112,7 +127,11 @@ common_command:
   { [] }
   | LPAREN; RESET; RPAREN
   { [] }
-  | LPAREN; SET_OPTION; s = symbol; RPAREN
+  | LPAREN; SET_OPTION; s = symbol; v = option(term); RPAREN
+  { [] }
+  | LPAREN; PUSH; n = option(NUMERAL); RPAREN
+  { [] }
+  | LPAREN; POP; n = option(NUMERAL); RPAREN
   { [] }
 
 command:
@@ -222,7 +241,20 @@ command:
     (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
 
     []
-}
+  }
+
+  | LPAREN; STEP;
+      s1 = symbol ;
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  {
+    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
+    (* (s1, Step (s2, xs, ys, Symbol "true")) |> _sym; *)
+
+    []
+  }
 
   | LPAREN; STEP_POP;
       s1 = symbol ;
@@ -238,6 +270,19 @@ command:
     []
   }
 
+  | LPAREN; STEP_POP;
+      s1 = symbol ;
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  {
+    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
+    Printf.printf "WARNING. (step-pop ...)";
+    (* (s1, Step (s2, xs, ys, Symbol "true")) |> _sym; *)
+    []
+  }
+
   | c = common_command
   { c }
 
@@ -246,17 +291,23 @@ const_attr:
   | RIGHT_ASSOC_NIL_NSN; t = term { RightAssocNilNSN t }
   | LEFT_ASSOC_NIL; t = term  { LeftAssocNil t }
   | LEFT_ASSOC_NIL_NSN; t = term { LeftAssocNilNSN t }
+  | RIGHT_ASSOC_NSN; t = term { RightAssocNSN t }
+  | LEFT_ASSOC_NSN; t = term  { LeftAssocNSN t }
   | RIGHT_ASSOC { RightAssoc }
   | LEFT_ASSOC { LeftAssoc }
   | CHAINABLE; s = symbol { Chainable s }
   | PAIRWISE; s = symbol  { Pairwise s }
   | BINDER; s = symbol    { Binder s }
   | ARG_LIST; s = symbol  { ArgList s }
+  | LET_BINDER; t = term  { LetBinder t }
 
 param_attr:
   | LIST     { List }
   | IMPLICIT { Implicit }
   | OPAQUE   { Opaque }
+  | SYNTAX; t = term { Syntax t }
+  | SYNTAX; lc = lit_category { Syntax (Symbol (lit_cat_to_str lc)) }
+  | RESTRICT; t = term { Restrict t }
 
 defn_attr:
   | TYPE; t = term
@@ -282,6 +333,17 @@ term:
       t = term;
     RPAREN
   { Bind (b, xs, t) }
+  | LPAREN;
+      AS;
+      s = symbol;
+      t = term;
+    RPAREN
+  { Apply ("as", [Symbol s; t]) }
+  | LPAREN;
+      LPAREN; AS; s = symbol; ty = term; RPAREN;
+      ts = nonempty_list(term);
+    RPAREN
+  { Apply ("_", [Apply ("as", [Symbol s; ty]); Apply ("@app", ts)]) }
 
 var:
   | LPAREN;
@@ -293,9 +355,9 @@ param:
   | LPAREN;
       s = symbol;
       t = term;
-      att = option(param_attr);
+      atts = list(param_attr);
     RPAREN
-  { (s, t, att) }
+  { (s, t, atts) }
 
 params:
   | LPAREN;
@@ -332,6 +394,12 @@ datatype_dec:
       xs = nonempty_list(cons_dec);
     RPAREN
   { DatatypeDec xs }
+  | LPAREN;
+      PAR;
+      LPAREN; ps = nonempty_list(symbol); RPAREN;
+      LPAREN; xs = nonempty_list(cons_dec); RPAREN;
+    RPAREN
+  { DatatypeDec xs }  (* parametric datatype - params discarded for now *)
 
 lit_category:
   | NUM { NUM }
