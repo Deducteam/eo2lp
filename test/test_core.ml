@@ -16,7 +16,7 @@ let test_core () =
     stats
   end else begin
     (* Parse *)
-    println "\n  --- Parsing ---";
+    println "\n  ┌─ Parsing";
     let parse_result = test_parse_file core_file in
     record_result stats parse_result;
     print_result core_file parse_result;
@@ -33,28 +33,28 @@ let test_core () =
         println "  [SKIP] Could not load Core.eo for elaboration/encoding"
     | Some sig_ ->
         (* Elaborate *)
-        println "\n  --- Elaboration ---";
+        println "\n  ┌─ Elaboration";
         let elab_result =
-          match with_timeout test_timeout (fun () -> elab_sig sig_) with
-          | None -> Timeout test_timeout
-          | Some (_, elapsed) -> Pass elapsed
-          | exception Failure msg -> Fail (msg, 0.0)
-          | exception e -> Fail (Printexc.to_string e, 0.0)
+          match with_timeout (fun () -> elab_sig sig_) with
+          | None -> Timeout (!test_timeout, None)
+          | Some (_, elapsed) -> Pass (elapsed, None)
+          | exception Failure msg -> Fail (msg, 0.0, None)
+          | exception e -> Fail (Printexc.to_string e, 0.0, None)
         in
         record_result stats elab_result;
         print_result core_file elab_result;
 
         (* Encode *)
-        println "\n  --- Encoding ---";
+        println "\n  ┌─ Encoding";
         let encode_result =
-          match with_timeout test_timeout (fun () ->
+          match with_timeout (fun () ->
             let elab_sig_ = elab_sig sig_ in
             eo_sig elab_sig_
           ) with
-          | None -> Timeout test_timeout
-          | Some (_, elapsed) -> Pass elapsed
-          | exception Failure msg -> Fail (msg, 0.0)
-          | exception e -> Fail (Printexc.to_string e, 0.0)
+          | None -> Timeout (!test_timeout, None)
+          | Some (_, elapsed) -> Pass (elapsed, None)
+          | exception Failure msg -> Fail (msg, 0.0, None)
+          | exception e -> Fail (Printexc.to_string e, 0.0, None)
         in
         record_result stats encode_result;
         print_result core_file encode_result);
@@ -64,6 +64,7 @@ let test_core () =
   end
 
 let () =
+  parse_args ();
   print_suite_header "Core.eo Test Suite";
   let stats = test_core () in
   let code = if stats.failed > 0 || stats.timed_out > 0 then 1 else 0 in

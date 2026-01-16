@@ -53,6 +53,17 @@ let parse_cache : (string, signature) Hashtbl.t = Hashtbl.create 32
 
 let clear_parse_cache () = Hashtbl.clear parse_cache
 
+(* Remove duplicate symbols, keeping the last occurrence, preserving order. *)
+let unique sgn =
+  let sgn_rev = List.rev sgn in
+  let seen = Hashtbl.create (List.length sgn_rev) in
+  let result_rev = List.filter (fun (s, _) ->
+    let fresh = not (Hashtbl.mem seen s) in
+    if fresh then Hashtbl.add seen s ();
+    fresh
+  ) sgn_rev in
+  List.rev result_rev
+
 let rec parse_eo_file (root : string) (fp : string) : signature =
   let fp_abs = to_absolute (Fpath.v fp) in
   let fp_key = Fpath.to_string fp_abs in
@@ -69,7 +80,8 @@ let rec parse_eo_file (root : string) (fp : string) : signature =
     (* Set up the include callback with current file's context *)
     let cwd = Fpath.parent fp_abs in
     let old_callback = !Parse_ctx.parse_include_callback in
-    Parse_ctx.parse_include_callback := (fun include_path ->
+    Parse_ctx.parse_include_callback :=
+    (fun include_path ->
       let target = Fpath.((cwd // v include_path) |> normalize) in
       parse_eo_file root (Fpath.to_string target)
     );
@@ -87,8 +99,9 @@ let rec parse_eo_file (root : string) (fp : string) : signature =
       | exn -> close_in ch; raise exn
     in
     Parse_ctx.parse_include_callback := old_callback;
-    Hashtbl.add parse_cache fp_key result;
-    result
+    let unique_result = unique result in
+    Hashtbl.add parse_cache fp_key unique_result;
+    unique_result
 
 let dir_contents dir =
   let rec loop result = function

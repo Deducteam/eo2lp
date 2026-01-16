@@ -78,6 +78,7 @@ let map_param (f : term -> term) : param -> param =
 
 let rec map_vars (f : string -> term) : term -> term =
   function
+  | Lit _ | PVar _ as t -> t
   | Var s -> f s
   | App (t,t') ->
       App (map_vars f t, map_vars f t')

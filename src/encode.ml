@@ -1,6 +1,8 @@
 module EO = Syntax_eo
 open Syntax_lp
 
+let encode_hook = ref (fun _ f -> f ())
+
 let rec eo_name : string -> string =
   function
   | "Type" -> eo_name "eo::Type"
@@ -48,34 +50,40 @@ let eo_prm (ps : EO.param list) : param list =
     (eo_name s, tau_of (eo_tm t), eo_att atts)) ps
 
 let eo_const (s,k : string * EO.const) : command list =
-  match k with
-  | Decl (ps,ty,_) ->
-  [
-    Symbol (
-      Some Constant, eo_name s,
-      eo_prm ps,
-      Some (tau_of @@ eo_tm ty),
-      None
-    )
-  ]
+  !encode_hook s (fun () ->
+    match k with
+    | Decl (ps,ty,_) ->
+    [
+      Symbol (
+        Some Constant, eo_name s,
+        eo_prm ps,
+        Some (tau_of @@ eo_tm ty),
+        None
+      )
+    ]
 
-  | Prog ((ps,ty),(qs,cs)) ->
-  [
-    Symbol (
-      Some Sequential, eo_name s,
-      eo_prm ps,
-      Some (tau_of @@ eo_tm ty),
-      None
-    );
+    | Prog ((ps,ty),(qs,cs)) ->
+    [
+      Symbol (
+        Some Sequential, eo_name s,
+        eo_prm ps,
+        Some (tau_of @@ eo_tm ty),
+        None
+      );
 
-    Rule (
-      let f t = bind_pvars qs (eo_tm t) in
-      L.map (fun (t,t') -> (f t, f t')) cs
-    )
-  ]
+      Rule (
+        let f t = bind_pvars qs (eo_tm t) in
+        L.map (fun (t,t') -> (f t, f t')) cs
+      )
+    ]
 
-  | Rule _ -> []
-  | Defn _ -> []
+    | Defn (ps,t) ->
+    [
+      Symbol (None, eo_name s, eo_prm ps, None, Some (eo_tm t))
+    ]
+
+    | Rule _ -> []
+  )
 
 let eo_sig : EO.signature -> signature =
   L.concat_map eo_const
