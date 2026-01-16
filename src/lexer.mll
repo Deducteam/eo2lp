@@ -75,10 +75,6 @@ rule token = parse
   (* push/pop commands *)
   | "push" { PUSH }
   | "pop"  { POP }
-  (* par for parametric datatypes *)
-  | "par"  { PAR }
-  (* as for type annotation *)
-  | "as"   { AS }
   (* eunoia proof script commands *)
   | "assume"         { ASSUME }
   | "assume-push"    { ASSUME_PUSH }

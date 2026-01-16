@@ -56,7 +56,7 @@ let lit_cat_to_str = function
   IMPLICIT OPAQUE LIST SYNTAX RESTRICT
 
 %token
-  PUSH POP PAR AS
+  PUSH POP
 
 %token
   TYPE SORRY
@@ -84,8 +84,6 @@ toplevel_eof:
 
 symbol:
   | s = SYMBOL { s }
-  | AS { "as" }
-  | PAR { "par" }
 
 literal:
   | x = NUMERAL      { Numeral x  }
@@ -265,7 +263,7 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    Printf.printf "WARNING. (step-pop ...)";
+    Printf.printf "WARNING. (step-pop ...)\n";
     (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
     []
   }
@@ -278,7 +276,7 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    Printf.printf "WARNING. (step-pop ...)";
+    Printf.printf "WARNING. (step-pop ...)\n";
     (* (s1, Step (s2, xs, ys, Symbol "true")) |> _sym; *)
     []
   }
@@ -333,17 +331,6 @@ term:
       t = term;
     RPAREN
   { Bind (b, xs, t) }
-  | LPAREN;
-      AS;
-      s = symbol;
-      t = term;
-    RPAREN
-  { Apply ("as", [Symbol s; t]) }
-  | LPAREN;
-      LPAREN; AS; s = symbol; ty = term; RPAREN;
-      ts = nonempty_list(term);
-    RPAREN
-  { Apply ("_", [Apply ("as", [Symbol s; ty]); Apply ("@app", ts)]) }
 
 var:
   | LPAREN;
@@ -395,11 +382,12 @@ datatype_dec:
     RPAREN
   { DatatypeDec xs }
   | LPAREN;
-      PAR;
+      par = symbol;
       LPAREN; ps = nonempty_list(symbol); RPAREN;
       LPAREN; xs = nonempty_list(cons_dec); RPAREN;
     RPAREN
-  { DatatypeDec xs }  (* parametric datatype - params discarded for now *)
+  { (* parametric datatype - params discarded for now, par should be "par" *)
+    let _ = par in let _ = ps in DatatypeDec xs }
 
 lit_category:
   | NUM { NUM }

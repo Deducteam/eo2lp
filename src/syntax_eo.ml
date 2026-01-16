@@ -63,6 +63,10 @@ type context = signature * param list
 (* ---------------------------------------------- *)
 
 (* ---- contexts: `param list` and `signature`. ---- *)
+let is_builtin (s : string) : bool =
+  s = "->" || s = "Type" || s = "_"
+    || S.starts_with ~prefix:"eo::" s
+
 let is_name (s,_,_ : param) (s' : string) =
   (s = s')
 let is_attr (_,_,pas : param) (pa : attr) =
@@ -100,12 +104,16 @@ let app_raw : term -> term list -> term =
 let rec subst : term -> string -> term -> term =
   fun t s t' ->
     match t with
+    | Literal _ -> t
     | Symbol s' -> if (s = s') then t' else t
     | Apply (s', ts) ->
       let ts' = L.map (fun u -> subst u s t') ts in
       if (s = s')
         then app_ho_list t' ts'
         else Apply (s', ts')
+    | Bind (b,xs,body) ->
+      let ys = L.map (fun (x,tx) -> (x, subst tx s t')) xs in
+      Bind (b,ys, subst body s t')
 
 let rec splice (ps,t,ts : param list * term * term list)
   : (param list * term * term list) =

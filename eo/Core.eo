@@ -2,197 +2,201 @@
 (declare-const true Bool)
 (declare-const false Bool)
 
-(declare-const eo::String Type)
-(declare-const eo::Z Type)
-(declare-const eo::Q Type)
+(declare-const String Type)
+(declare-const Z Type)
+(declare-const Q Type)
 
 ; Core operators
-(declare-parameterized-const eo::is_ok
+(declare-parameterized-const as
+  ((T Type :implicit))
+  (-> T Type T)
+)
+
+(declare-parameterized-const is_ok
   ((T Type :implicit))
   (-> T Bool)
 )
-(declare-parameterized-const eo::ite
+(declare-parameterized-const ite
   ((T Type :implicit))
   (-> Bool T T T)
 )
-(declare-parameterized-const eo::eq
+(declare-parameterized-const eq
   ((U Type :implicit))
   (-> U U Bool)
 )
-(declare-parameterized-const eo::is_eq
+(declare-parameterized-const is_eq
     ((T Type :implicit) (S Type :implicit))
     (-> T S Bool)
 )
-(declare-parameterized-const eo::requires
+(declare-parameterized-const requires
   ((T Type :implicit) (U Type :implicit) (V Type :implicit))
   (-> T U V V)
 )
-(declare-parameterized-const eo::hash
+(declare-parameterized-const hash
     ((T Type :implicit))
-    (-> T eo::Z)
+    (-> T Z)
 )
-(declare-parameterized-const eo::typeof
+(declare-parameterized-const typeof
   ((T Type :implicit))
   (-> T Type)
 )
-(declare-parameterized-const eo::nameof
+(declare-parameterized-const nameof
     ((T Type :implicit))
-    (-> T eo::String)
+    (-> T String)
 )
-(declare-parameterized-const eo::var
+(declare-parameterized-const var
     ((T Type :implicit))
-    (-> eo::String T T)
+    (-> String T T)
 )
-(declare-parameterized-const eo::cmp
+(declare-parameterized-const cmp
   ((T Type :implicit) (U Type :implicit))
   (-> T U Bool)
 )
-(declare-parameterized-const eo::is_var
+(declare-parameterized-const is_var
   ((T Type :implicit))
   (-> T Bool)
 )
 
 ; Boolean operators
-(declare-const eo::and (-> Bool Bool Bool))
-(declare-const eo::or (-> Bool Bool Bool))
-(declare-const eo::xor (-> Bool Bool Bool))
-(declare-const eo::not (-> Bool Bool))
+(declare-const and (-> Bool Bool Bool))
+(declare-const or (-> Bool Bool Bool))
+(declare-const xor (-> Bool Bool Bool))
+(declare-const not (-> Bool Bool))
 
 ; Arithmetic operators
-(declare-parameterized-const eo::add
+(declare-parameterized-const add
     ((T Type :implicit))
     (-> T T T)
 )
-(declare-parameterized-const eo::mul
+(declare-parameterized-const mul
     ((T Type :implicit))
     (-> T T T)
 )
-(declare-parameterized-const eo::neg
+(declare-parameterized-const neg
     ((T Type :implicit))
     (-> T T)
 )
-(declare-parameterized-const eo::qdiv
+(declare-parameterized-const qdiv
     ((T Type :implicit))
     (-> T T T)
 )
-(declare-parameterized-const eo::zdiv
+(declare-parameterized-const zdiv
     ((T Type :implicit))
     (-> T T T)
 )
-(declare-parameterized-const eo::zmod
+(declare-parameterized-const zmod
     ((T Type :implicit))
     (-> T T T)
 )
-(declare-parameterized-const eo::is_neg
+(declare-parameterized-const is_neg
     ((T Type :implicit))
     (-> T Bool)
 )
-(declare-parameterized-const eo::gt
+(declare-parameterized-const gt
     ((T Type :implicit) (U Type :implicit))
     (-> T U Bool)
 )
 
-; eo::String operators
-(declare-parameterized-const eo::len
+; String operators
+(declare-parameterized-const len
     ((T Type :implicit))
-    (-> T eo::Z)
+    (-> T Z)
 )
-(declare-parameterized-const eo::concat
+(declare-parameterized-const concat
     ((T Type :implicit))
     (-> T T T)
 )
-(declare-parameterized-const eo::extract
+(declare-parameterized-const extract
     ((T Type :implicit))
-    (-> T eo::Z eo::Z T)
+    (-> T Z Z T)
 )
-(declare-const eo::find (-> eo::String eo::String eo::Z))
+(declare-const find (-> String String Z))
 
 ; Conversion operators
-(declare-parameterized-const eo::to_z
+(declare-parameterized-const to_z
     ((T Type :implicit))
-    (-> T eo::Z)
+    (-> T Z)
 )
-(declare-parameterized-const eo::to_q
+(declare-parameterized-const to_q
     ((T Type :implicit))
-    (-> T eo::Q)
+    (-> T Q)
 )
-(declare-parameterized-const eo::to_bin
+(declare-parameterized-const to_bin
     ((T Type :implicit))
-    (-> eo::Z T T)
+    (-> Z T T)
 )
-(declare-parameterized-const eo::to_str
+(declare-parameterized-const to_str
     ((T Type :implicit))
-    (-> T eo::String)
+    (-> T String)
 )
 
 
 ; List operators
-(declare-parameterized-const eo::nil
+(declare-parameterized-const nil
   ((U Type :implicit) (T Type :implicit))
   (-> (-> U T T) Type T)
 )
-(declare-parameterized-const eo::cons
+(declare-parameterized-const cons
   ((U Type :implicit) (T Type :implicit))
   (-> (-> U T T) U T T)
 )
-(declare-parameterized-const eo::list_concat
+(declare-parameterized-const list_concat
   ((U Type :implicit) (T Type :implicit))
   (-> (-> U T T) T T T)
 )
-(declare-parameterized-const eo::list_len
+(declare-parameterized-const list_len
   ((F Type :implicit) (T Type :implicit))
-  (-> F T eo::Z)
+  (-> F T Z)
 )
-(declare-parameterized-const eo::list_nth
+(declare-parameterized-const list_nth
   ((F Type :implicit) (T Type :implicit))
-  (-> F T eo::Z T)
+  (-> F T Z T)
 )
-(declare-parameterized-const eo::list_find
+(declare-parameterized-const list_find
   ((F Type :implicit) (T Type :implicit))
-  (-> F T T eo::Z)
+  (-> F T T Z)
 )
-(declare-parameterized-const eo::list_rev
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T)
-)
-(declare-parameterized-const eo::list_erase
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T T)
-)
-(declare-parameterized-const eo::list_erase_all
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T T)
-)
-(declare-parameterized-const eo::list_setof
+(declare-parameterized-const list_rev
   ((F Type :implicit) (T Type :implicit))
   (-> F T T)
 )
-(declare-parameterized-const eo::list_minclude
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T Bool)
-)
-(declare-parameterized-const eo::list_meq
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T Bool)
-)
-(declare-parameterized-const eo::list_diff
+(declare-parameterized-const list_erase
   ((F Type :implicit) (T Type :implicit))
   (-> F T T T)
 )
-(declare-parameterized-const eo::list_eo::Zer
+(declare-parameterized-const list_erase_all
   ((F Type :implicit) (T Type :implicit))
   (-> F T T T)
 )
-(declare-parameterized-const eo::list_singleton_elim
+(declare-parameterized-const list_setof
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T)
+)
+(declare-parameterized-const list_minclude
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T Bool)
+)
+(declare-parameterized-const list_meq
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T Bool)
+)
+(declare-parameterized-const list_diff
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T T)
+)
+(declare-parameterized-const list_inter
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T T)
+)
+(declare-parameterized-const list_singleton_elim
   ((F Type :implicit) (T Type :implicit))
   (-> F T T)
 )
 
-
-(declare-const eo::List Type)
-(declare-const eo::List::nil eo::List)
-(declare-parameterized-const eo::List::cons
+(declare-const List Type)
+(declare-const List::nil List)
+(declare-parameterized-const List::cons
   ((T Type :implicit))
-  (-> T eo::List eo::List)
-  :right-assoc-nil eo::List::nil
+  (-> T List List)
+  :right-assoc-nil List::nil
 )

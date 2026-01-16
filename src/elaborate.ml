@@ -8,7 +8,7 @@ open Syntax_eo
    - Defined symbol expansion
    - Overloading resolution via LambdaPi typechecking
    ============================================================ *)
-let debug = ref true
+let debug = ref false
 
 let wt : term -> bool = fun t -> true
 let glue (ps, f : param list * term)
@@ -36,9 +36,9 @@ function
   end
 (* ---- applications. ---- *)
 | Apply (s, ts) ->
-  begin match app_builtin ctx s ts with
-  | Some t -> t
-  | None ->
+  if is_builtin s then
+    Apply (s, L.map (elab ctx) ts)
+  else
     begin match prm_find s ps with
     | Some (s,ty,ao) ->
       app_ho_list (Symbol s) (L.map (elab ctx) ts)
@@ -57,7 +57,6 @@ function
           "Symbol `%s` not found in context." s
       end
     end
-  end
 (* ---- eo::define as local let-binding. ---- *)
 | Bind ("eo::define", xs, t') ->
     let ys = xs |> L.map (fun (s,t) -> (s, elab ctx t)) in
@@ -141,7 +140,11 @@ and elab_nary
     | Some LeftAssocNilNSN t_nil -> L.fold_left h (elab ctx t_nil) ts'
     | Some RightAssocNSN t_nil -> L.fold_right g ts' (elab ctx t_nil)
     | Some LeftAssocNSN t_nil -> L.fold_left h (elab ctx t_nil) ts'
-    | Some (Binder _) -> failwith "Binder attribute should be handled by elab_binder"
+    | Some (Binder _) -> app_ho_list (Symbol s) ts'
+      (* Printf.ksprintf failwith
+      "Cannot elaborate application of `%s` to `%s`.
+       Binder attribute should be handled by elab_binder" *)
+       (* s (term_list_str ts) *)
     | Some (ArgList _) -> app_ho_list (Symbol s) ts'
     | Some (LetBinder _) -> app_ho_list (Symbol s) ts'
     end
@@ -159,18 +162,6 @@ and elab_binder
       Apply (s, [Apply (t_cons, L.map mk_var xs); elab ctx t])
   | _ ->
     failwith "No :binder attribute."
-
-and app_builtin (ctx : context) (s : string) (ts : term list) : term option =
-  match s with
-  | "->" ->
-    let decl_arrow = Decl ([], Apply ("->", [Symbol "Type"; Symbol "Type"; Symbol "Type"]), Some RightAssoc) in
-    Some (elab_nary ctx ("->", decl_arrow, ts))
-  | "_" ->
-    begin match ts with
-    | [t1;t2] -> Some (Apply ("_",[elab ctx t1; elab ctx t2]))
-    | _ -> failwith "Invalid number of parameters for `_`."
-    end
-  | _ -> None
 
 and elab_prm (ctx : context) : param list -> param list =
   L.map (fun (s, t, ao) -> (s, elab ctx t, ao))
