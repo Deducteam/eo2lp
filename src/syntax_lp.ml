@@ -1,3 +1,5 @@
+open Literal
+
 module L = List
 module S = struct
   include String
@@ -5,15 +7,10 @@ module S = struct
 end
 
 let is_forbidden (s : string) : bool =
-  (
-    String.contains s '$'
-  ||
-    String.contains s '@'
-  ||
-    String.contains s ':'
-  ||
-    String.contains s '.'
-  )
+  String.contains s '$'
+  || String.contains s '@'
+  || String.contains s ':'
+  || String.contains s '.'
 
 let strip_prefix (str : string) (pre : string) : string =
   let n = String.length pre in
@@ -24,26 +21,10 @@ let replace (c, s : char * string) (str : string) : string =
   let xs = String.split_on_char c str in
   String.concat s xs
 
-
-let rec safe_name : string -> string =
-  function
-  | s when S.starts_with ~prefix:"$" s ->
-    "!" ^ safe_name (strip_prefix s "$")
-  | s when S.starts_with ~prefix:"@@" s ->
-    "_" ^ safe_name (strip_prefix s "@@")
-  (* | s when S.starts_with ~prefix:"eo::" s ->
-    "eo." ^ safe_name (strip_prefix s "eo::") *)
-  | s ->
-    let s' = s |> replace ('.',"⋅") |> replace (':', "⋅") in
-    if is_forbidden s'
-      then Printf.sprintf "{|%s|}" s
-      else s'
-
-
 type binder =
   | Lambda | Pi
 and term =
-  | Var of string | PVar of string
+  | Var of string | PVar of string | Lit of literal
   | App of term * term
   | Bind of binder * param list * term
   | Arrow of term * term
@@ -52,9 +33,6 @@ and attr = Explicit | Implicit
 and param = string * term * attr
 
 type case = (term * term)
-
-let map_cases (f : term -> term) : case list -> case list =
-  L.map (fun (t,t') -> f t, f t')
 
 type modifier =
   | Constant
@@ -75,6 +53,13 @@ module EO = Syntax_eo
 
 let app_list : term -> term list -> term =
   fun t ts -> L.fold_left (fun acc t -> App (acc, t)) t ts
+
+(* given `ts = [t1 ... tn], return `t1 ⤳ ... ⤳ tn` *)
+let rec arr_list : term list -> term =
+  function
+  | [] -> failwith "Cannot built arrow type from empty list."
+  | t::[] -> t
+  | t::ts -> App (App (Var "⤳", t), arr_list ts)
 
 let is_var : term -> bool =
   function
@@ -106,6 +91,9 @@ let rec map_vars (f : string -> term) : term -> term =
         map_vars f t
       )
 
+let map_cases (f : term -> term) : case list -> case list =
+  L.map (fun (t,t') -> f t, f t')
+
 let bind_pvars (ps : EO.param list) (t : term)  : term =
   let f s =
     if L.exists (fun (s',_,_) -> s = s') ps
@@ -125,6 +113,8 @@ let binder_str : binder -> string =
 let rec term_str : term -> string =
   function
   | Var s -> s
+  | Lit l -> literal_str l
+  | PVar s -> "$" ^ s
   | App (Var "τ", Var "eo⋅⋅Type") -> "Set"
   | App (App (Var "⤳",t),t') when is_var t ->
     Printf.sprintf "%s ⤳ %s"

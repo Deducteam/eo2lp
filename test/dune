@@ -1,18 +1,35 @@
 ; Test configuration for eo2lp
 
-(test
- (name test_elaborate)
- (libraries eo2lp)
- (deps
-   (source_tree ../cpc-mini))
- (action (chdir %{workspace_root} (run %{test})))
-)
+; Shared test infrastructure library
+(library
+ (name test_infra)
+ (libraries eo2lp unix)
+ (modules test_infra))
 
+; Core.eo tests
 (test
- (name test_parser)
- (libraries eo2lp)
+ (name test_core)
+ (libraries eo2lp test_infra)
+ (modules test_core)
+ (deps (source_tree ../eo))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+; cpc-mini tests
+(test
+ (name test_cpc_mini)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini)
  (deps
-   (source_tree ../cpc-mini)
-   (source_tree ../eo))
- (action (chdir %{workspace_root} (run %{test})))
-)
+   (source_tree ../eo)
+   (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+; ethos-tests (optional, doesn't fail build)
+(test
+ (name test_ethos)
+ (libraries eo2lp test_infra)
+ (modules test_ethos)
+ (deps
+   (source_tree ../eo)
+   (source_tree ../ethos-tests))
+ (action (chdir %{workspace_root} (run %{test}))))

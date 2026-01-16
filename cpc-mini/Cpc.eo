@@ -59,7 +59,7 @@
 ; An additional set of theory definitions and rules can be found at
 ; ./expert/CpcExpert.eo. This contains all definitions of theories and rules
 ; that are not supported by cvc5 when safe mode is enabled.
-; 
+;
 ; Typically, we use $ as the prefix of symbols introduced by define and
 ; program.  For clarity, we sometimes use @ as the prefix of symbols introduced
 ; by simple define commands.
@@ -112,7 +112,7 @@
 ; args:
 ; - t S: The term to evaluate.
 ; return: The result of evaluating t.
-(program $run_evaluate ((T Type) (S Type) 
+(program $run_evaluate ((T Type) (S Type)
                        (x T) (y T) (z S) (ys S :list)
                        (i1 Int) (i2 Int)
                        (b Bool) (b2 Bool) (bs Bool :list) (n Int) (m Int)
@@ -137,7 +137,7 @@
       (($run_evaluate (=> b b2))           (eo::or (eo::not ($run_evaluate b)) ($run_evaluate b2)))
       (($run_evaluate (and b bs))          (eo::and ($run_evaluate b) ($run_evaluate bs)))
       (($run_evaluate (xor b b2))          (eo::xor ($run_evaluate b) ($run_evaluate b2)))
-  
+
       ; arithmetic
       (($run_evaluate (< x z))             (eo::is_neg ($arith_eval_qsub ($run_evaluate x) ($run_evaluate z))))
       (($run_evaluate (<= x z))            (eo::define ((d ($arith_eval_qsub ($run_evaluate x) ($run_evaluate z))))
@@ -317,7 +317,7 @@
                                              (eo::ite (eo::eq ($bv_sign_bit xb) #b0)
                                                (eo::to_z ex)
                                                (eo::add (eo::to_z ex) (eo::neg ($arith_eval_int_pow_2 ($bv_bitwidth (eo::typeof xb))))))))
-  
+
       (($run_evaluate z)                   z)
     )
 )
@@ -408,7 +408,7 @@
 ;   which are defined in CpcExpert.eo.
 (declare-rule aci_norm ((U Type) (a U) (b U))
   :args ((= a b))
-  :requires (((eo::define ((an ($get_aci_normal_form a)) 
+  :requires (((eo::define ((an ($get_aci_normal_form a))
                            (bn ($get_aci_normal_form b)))
               ($is_aci_norm a b an bn)) true))
   :conclusion (= a b)
