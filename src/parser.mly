@@ -76,11 +76,17 @@ let lit_cat_to_str = function
 %start <term> term
 %start <param list> params
 
+(* New entry point that separates includes from signature entries *)
+%start <[ `Sig of (string * const) list | `Include of string ] option> toplevel_eof_v2
 
 %%
 toplevel_eof:
   | EOF        { None }
   | command    { Some $1 }
+
+toplevel_eof_v2:
+  | EOF          { None }
+  | command_v2   { Some $1 }
 
 symbol:
   | s = SYMBOL { s }
@@ -206,6 +212,7 @@ command:
   {
     !Parse_ctx.parse_include_callback str
   }
+
   | LPAREN; PROGRAM;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
@@ -419,3 +426,117 @@ conclusion:
   { Conclusion t }
   | CONCLUSION_EXPLICIT; t = term
   { ConclusionExplicit t }
+
+(* v2 command: separates includes from signature entries *)
+command_v2:
+  | LPAREN; INCLUDE;
+      str = STRING;
+    RPAREN
+  { `Include str }
+  | c = command_no_include
+  { `Sig c }
+
+(* command without include - for use by command_v2 *)
+command_no_include:
+  | LPAREN; ASSUME;
+      s = symbol ;
+      t = term;
+    RPAREN
+  { [] }
+  | LPAREN; ASSUME_PUSH;
+      s = symbol ;
+      t = term;
+    RPAREN
+  { [] }
+  | LPAREN; DECLARE_CONSTS;
+      l = lit_category;
+      t = term;
+    RPAREN
+  { [] }
+  | LPAREN; DECLARE_PARAM_CONST;
+      s = symbol ;
+      LPAREN; ps = list(param); RPAREN;
+      ty = term;
+      att_opt = option(const_attr);
+    RPAREN
+  { [(s, Decl (ps, ty, att_opt))] }
+  | LPAREN; DECLARE_RULE;
+      s = symbol ;
+      LPAREN; xs = list(param); RPAREN;
+      assm_opt  = option(assumption);
+      prems_opt = option(premises);
+      args_opt  = option(arguments);
+      reqs_opt  = option(reqs);
+      conc = conclusion;
+      att_opt = option(rule_attr);
+    RPAREN
+  { let _ = {
+        assm = assm_opt;
+        prem = prems_opt;
+        args = flatten args_opt;
+        reqs = (match reqs_opt with Some cs -> cs | None -> []);
+        conc = conc
+      } in
+    if Option.is_some att_opt then
+      Printf.printf "WARNING: (:sorry, rule %s)\n" s;
+    []
+  }
+  | LPAREN; DEFINE;
+      s = symbol ;
+      LPAREN; ps = list(param); RPAREN; t = term;
+      ty_opt = option(defn_attr);
+    RPAREN
+  { [(s, Defn (ps, t))] }
+  | LPAREN; PROGRAM;
+      s = symbol ;
+      LPAREN; ps = list(param); RPAREN;
+      SIGNATURE;
+        LPAREN; doms = nonempty_list(term); RPAREN;
+        ran = term;
+      cs_opt = option(cases);
+    RPAREN
+  { let cs = Option.fold ~none:[] ~some:(fun x -> x) cs_opt in
+    let ty = prog_ty (doms,ran) in
+    let qs = prog_ty_params ty ps in
+    let rs = prog_cs_params cs ps in
+    [(s, Prog ((qs, ty), (rs, cs)))]
+  }
+  | LPAREN; REFERENCE;
+      str = STRING ;
+      s_opt = option(symbol);
+    RPAREN
+  { [] }
+  | LPAREN; STEP;
+      s1 = symbol ;
+      t = term;
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  { let _ = (flatten prem_opt, flatten args_opt) in [] }
+  | LPAREN; STEP;
+      s1 = symbol ;
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  { let _ = (flatten prem_opt, flatten args_opt) in [] }
+  | LPAREN; STEP_POP;
+      s1 = symbol ;
+      t = term;
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  { let _ = (flatten prem_opt, flatten args_opt) in
+    Printf.printf "WARNING. (step-pop ...)\n"; [] }
+  | LPAREN; STEP_POP;
+      s1 = symbol ;
+      RULE; s2 = symbol ;
+      prem_opt = option(simple_premises);
+      args_opt = option(arguments);
+    RPAREN
+  { let _ = (flatten prem_opt, flatten args_opt) in
+    Printf.printf "WARNING. (step-pop ...)\n"; [] }
+  | c = common_command
+  { c }

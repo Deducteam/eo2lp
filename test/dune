@@ -1,12 +1,9 @@
-; Test configuration for eo2lp
-
-; Shared test infrastructure library
+; Test infrastructure library
 (library
  (name test_infra)
  (libraries eo2lp unix)
  (modules test_infra))
 
-; Core.eo tests
 (test
  (name test_core)
  (libraries eo2lp test_infra)
@@ -14,42 +11,51 @@
  (deps (source_tree ../eo))
  (action (chdir %{workspace_root} (run %{test}))))
 
-; cpc-mini parsing tests
 (test
  (name test_cpc_mini_parse)
  (libraries eo2lp test_infra)
  (modules test_cpc_mini_parse)
- (deps
-   (source_tree ../eo)
-   (source_tree ../cpc-mini))
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
  (action (chdir %{workspace_root} (run %{test}))))
 
-; cpc-mini elaboration tests
 (test
  (name test_cpc_mini_elaborate)
  (libraries eo2lp test_infra)
  (modules test_cpc_mini_elaborate)
- (deps
-   (source_tree ../eo)
-   (source_tree ../cpc-mini))
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
  (action (chdir %{workspace_root} (run %{test}))))
 
-; cpc-mini encoding tests
 (test
  (name test_cpc_mini_encode)
  (libraries eo2lp test_infra)
  (modules test_cpc_mini_encode)
- (deps
-   (source_tree ../eo)
-   (source_tree ../cpc-mini))
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
  (action (chdir %{workspace_root} (run %{test}))))
 
-; ethos-tests (optional, doesn't fail build)
 (test
  (name test_ethos)
  (libraries eo2lp test_infra)
  (modules test_ethos)
- (deps
-   (source_tree ../eo)
-   (source_tree ../ethos-tests))
+ (deps (source_tree ../eo) (source_tree ../ethos-tests))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+(test
+ (name test_graph)
+ (libraries eo2lp)
+ (modules test_graph)
+ (deps (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+(test
+ (name test_cpc_mini_full)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini_full)
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+(test
+ (name test_lp_check)
+ (libraries eo2lp test_infra unix)
+ (modules test_lp_check)
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
  (action (chdir %{workspace_root} (run %{test}))))

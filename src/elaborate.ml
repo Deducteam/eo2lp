@@ -10,6 +10,12 @@ open Syntax_eo
    ============================================================ *)
 let debug = ref true
 
+(* Check if a type has return type `Type` (i.e., is a type constructor) *)
+let rec returns_type : term -> bool = function
+  | Symbol "Type" -> true
+  | Apply ("->", ts) when ts <> [] -> returns_type (L.hd (L.rev ts))
+  | _ -> false
+
 let wt : term -> bool = fun t -> true
 let glue (ps, f : param list * term)
   : term -> term -> term =
@@ -31,7 +37,12 @@ function
 (* ---- literals, `Type`, and `->`. ---- *)
 | Literal _ | Symbol "Type" | Symbol "->" as t -> t
 (* ---- symbols. ----  *)
-| Symbol s -> Symbol s
+| Symbol s ->
+  (* Check if this symbol is a nullary macro that should be expanded *)
+  begin match sgn |> L.find_opt (fun (s', _) -> s = s') with
+  | Some (_, Defn ([], Symbol s')) -> elab ctx (Symbol s')
+  | _ -> Symbol s
+  end
 (* ---- applications. ---- *)
 | Apply (s, ts) ->
   (* if !debug then
@@ -42,6 +53,7 @@ function
     begin match prm_find s ps with
     | Some (s,ty,ao) ->
       app_ho_list (Symbol s) (L.map (elab ctx) ts)
+
     | None ->
       begin match
         sgn |> L.filter_map
@@ -49,12 +61,11 @@ function
           | (s', k) when s = s' ->
             let t' = elab_nary ctx (s,k,ts) in
             if wt t' then Some t' else None
-          | _ -> None
-          )
+          | _ -> None)
         with
         | t' :: _ -> t'
-        | [] -> Printf.ksprintf failwith
-          "Symbol `%s` not found in context." s
+        | [] ->
+          Printf.ksprintf failwith "Symbol `%s` not found in context." s
       end
     end
 (* ---- eo::define as local let-binding. ---- *)
@@ -90,39 +101,49 @@ and elab_nary
     (s, k, ts : string * const * term list)
   : term =
   match k with
-  (* program constants. *)
-  | Prog _ -> app_ho_list (Symbol s) (L.map (elab ctx) ts)
-  (* defined constants - don't inline expand, just elaborate arguments *)
-  | Defn (qs,t) ->
-    (* Just elaborate the arguments and create an application.
-       Don't expand the definition body - keep it as a function call. *)
-    app_ho_list (Symbol s) (L.map (elab ctx) ts)
-  (* declared constants. *)
-  | Decl (_,_,ao) ->
-    let g x y = glue (ps, Symbol s) x y in
-    let h y x = glue (ps, Symbol s) y x in
+  (* program constants. descend and elaborate arguments. *)
+  | Prog _ -> Apply (s, (L.map (elab ctx) ts))
+  (* macro-level constants. Expand if it's a simple abbreviation (no params, just a symbol). *)
+  | Defn ([], Symbol s') when ts = [] ->
+    (* Simple macro: (define @foo () @@foo) - expand to the target symbol *)
+    elab ctx (Symbol s')
+
+  | Defn ([], Symbol s') ->
+    (* Simple macro with arguments - expand and apply arguments *)
+    elab ctx (Apply (s', ts))
+
+  | Defn (qs,t) -> Apply (s, (L.map (elab ctx) ts))
+  (* object-level constants. *)
+  | Decl (_,ty,ao) ->
     let ts' = (L.map (elab ctx) ts) in
-    begin match ao with
-    | None -> app_ho_list (Symbol s) ts'
-    | Some RightAssocNil t_nil ->
-      begin match ts with
-      | [_; Symbol s'] when prm_has_attr s' List ps ->
-        app_ho_list (Symbol s) ts'
-      | _ ->
-        L.fold_right g ts' (elab ctx t_nil)
-      end
-    | Some LeftAssocNil t_nil ->
-      begin match ts with
-      | [_; Symbol s'] when prm_has_attr s' List ps ->
-        app_ho_list (Symbol s) ts'
-      | _ ->
-        L.fold_left h (elab ctx t_nil) ts'
-      end
-    | Some RightAssoc ->
-      let (init, last) = L.chop ts' in
-      L.fold_right g init last
-    | Some LeftAssoc ->
-      L.fold_left h (L.hd ts') (L.tl ts')
+    (* Type constructors (returning Type) use regular application, not HO application *)
+    if returns_type ty then
+      (* Type constructor: use simple Apply *)
+      Apply (s, ts')
+    else begin
+      let g x y = glue (ps, Symbol s) x y in
+      let h y x = glue (ps, Symbol s) y x in
+      match ao with
+      | None -> app_ho_list (Symbol s) ts'
+      | Some RightAssocNil t_nil ->
+        begin match ts with
+        | [_; Symbol s'] when prm_has_attr s' List ps ->
+          app_ho_list (Symbol s) ts'
+        | _ ->
+          L.fold_right g ts' (elab ctx t_nil)
+        end
+      | Some LeftAssocNil t_nil ->
+        begin match ts with
+        | [_; Symbol s'] when prm_has_attr s' List ps ->
+          app_ho_list (Symbol s) ts'
+        | _ ->
+          L.fold_left h (elab ctx t_nil) ts'
+        end
+      | Some RightAssoc ->
+        let (init, last) = L.chop ts' in
+        L.fold_right g init last
+      | Some LeftAssoc ->
+        L.fold_left h (L.hd ts') (L.tl ts')
     | Some Chainable op ->
       let rec aux = function
         | v :: w :: vs ->
@@ -193,16 +214,31 @@ and elab_const (ctx : context) : const -> const =
 
 let elab_hook : (string -> (unit -> 'a) -> 'a) ref = ref (fun _ f -> f ())
 
- let elab_sig (sgn : signature) : signature =
-   let rec aux sgn_acc sgn_rem =
-     match sgn_rem with
-     | [] -> List.rev sgn_acc
-     | (s, c) :: sgn_rest ->
-       (* if !debug then
-         Printf.printf "      + %s\n" s; *)
-       let ctx = (sgn_acc @ sgn_rem, []) in
-       let c' = !elab_hook s (fun () -> elab_const ctx c) in
+let elab_sig (sgn : signature) : signature =
+  let rec aux sgn_acc sgn_rem =
+    match sgn_rem with
+    | [] -> List.rev sgn_acc
+    | (s, c) :: sgn_rest ->
+      (* if !debug then
+        Printf.printf "      + %s\n" s; *)
+      let ctx = (sgn_acc @ sgn_rem, []) in
+      let c' = !elab_hook s (fun () -> elab_const ctx c) in
 
-       aux ((s, c') :: sgn_acc) sgn_rest
-   in
-   aux [] sgn
+      aux ((s, c') :: sgn_acc) sgn_rest
+  in
+  aux [] sgn
+
+(* Elaborate a local signature with an external context.
+   ctx_sig: the full signature from dependencies (already elaborated)
+   local_sig: the local signature to elaborate *)
+let elab_sig_with_ctx (ctx_sig : signature) (local_sig : signature) : signature =
+  let rec aux sgn_acc sgn_rem =
+    match sgn_rem with
+    | [] -> List.rev sgn_acc
+    | (s, c) :: sgn_rest ->
+      (* Context includes: external context + already elaborated locals + remaining locals *)
+      let ctx = (ctx_sig @ sgn_acc @ sgn_rem, []) in
+      let c' = !elab_hook s (fun () -> elab_const ctx c) in
+      aux ((s, c') :: sgn_acc) sgn_rest
+  in
+  aux [] local_sig

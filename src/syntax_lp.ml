@@ -3,19 +3,37 @@ open Literal
 module L = List
 module S = struct
   include String
-  let concat_map s f xs = String.concat " " (L.map f xs)
+  let concat_map s f xs = String.concat s (L.map f xs)
 end
+
+(* LambdaPi reserved keywords that must be escaped *)
+let reserved_keywords = [
+  "as"; "in"; "let"; "open"; "require"; "rule"; "symbol"; "with";
+  "assert"; "assertnot"; "builtin"; "compute"; "constant"; "debug";
+  "definition"; "flag"; "injective"; "opaque"; "prefix"; "print";
+  "private"; "protected"; "prover"; "prover_timeout"; "proofterm";
+  "quantifier"; "sequential"; "type"; "TYPE"; "unif_rule"; "verbose";
+  "why3"; "begin"; "end"; "inductive"; "notation"; "infix"; "postfix";
+  "λ"; "Π"; "→"; "↪"; "≔"; "∀"; "∃"; "τ"; "π";
+]
+
+let is_reserved (s : string) : bool =
+  List.mem s reserved_keywords
 
 let is_forbidden (s : string) : bool =
   String.contains s '$'
   || String.contains s '@'
   || String.contains s ':'
   || String.contains s '.'
+  || is_reserved s
 
-let strip_prefix (str : string) (pre : string) : string =
+let strip_prefix (pre : string) (str : string) : string =
   let n = String.length pre in
   let m = String.length str in
-  (String.sub str n (m - n))
+  if String.starts_with ~prefix:pre str then
+    (String.sub str n (m - n))
+  else
+    str
 
 let replace (c, s : char * string) (str : string) : string =
   let xs = String.split_on_char c str in
@@ -46,6 +64,8 @@ type command =
       case list
   | Require of
       string list
+  | RequireAs of
+      string * string  (* module path, alias *)
 
 type signature = command list
 
@@ -54,21 +74,17 @@ module EO = Syntax_eo
 let app_list : term -> term list -> term =
   fun t ts -> L.fold_left (fun acc t -> App (acc, t)) t ts
 
-(* given `ts = [t1 ... tn], return `t1 ⤳ ... ⤳ tn` *)
-let rec arr_list : term list -> term =
-  function
-  | [] -> failwith "Cannot built arrow type from empty list."
-  | t::[] -> t
-  | t::ts -> App (App (Var "⤳", t), arr_list ts)
+let app_binop : term -> (term * term) -> term =
+  fun f (t1,t2) -> App (App (f,t1),t2)
 
-let is_var : term -> bool =
-  function
-  | Var _ -> true
-  | _     -> false
-let is_pi : term -> bool =
-  function
-  | Bind (Pi, _, _) -> true
-  | _ -> false
+let rec app_arr : term list -> term =
+  function (* return `t1 ⤳ ... ⤳ tn` *)
+  | [] -> failwith "No arrow type from empty list."
+  | t::[] -> t
+  | t::ts -> app_binop (Var "⤳") (t, app_arr ts)
+
+let is_var = (function Var _ -> true | PVar _ -> true | _ -> false)
+let is_pi = (function Bind (Pi, _, _) -> true | _ -> false)
 
 let in_params (s : string) (ps : param list) : bool =
   List.exists (fun (s',_,_) -> s = s') ps
@@ -111,24 +127,49 @@ let binder_str : binder -> string =
   | Lambda -> "λ"
   | Pi     -> "Π"
 
+(* Check if term is an infix operator application *)
+let is_star_app = function
+  | App (App (Var "∗", _), _) -> true
+  | _ -> false
+
+let is_arrow_app = function
+  | App (App (Var "⤳", _), _) -> true
+  | _ -> false
+
 let rec term_str : term -> string =
   function
-  | Var s -> s
+  (* HACK: τ eo.Type renders as Set for readability *)
+  | App (Var "τ", Var "eo.Type") -> "Set"
+  | Var ("eo.List__nil") -> "∎"
+
   | Lit l -> literal_str l
   | PVar s -> "$" ^ s
-  | App (Var "τ", Var "eo⋅⋅Type") -> "Set"
-  | App (App (Var "⤳",t),t') when is_var t ->
-    Printf.sprintf "%s ⤳ %s"
-      (term_str t) (term_str t')
-  | App (App (Var "⤳",t),t') ->
-    Printf.sprintf "(%s) ⤳ %s"
-      (term_str t) (term_str t')
-  | App (t,t') when is_var t' ->
-    Printf.sprintf "%s %s"
-      (term_str t) (term_str t')
-  | App (t,t') ->
-    Printf.sprintf "%s (%s)"
-      (term_str t) (term_str t')
+  | Var s -> s
+
+  (* ∗ is left-associative: (a ∗ b) ∗ c prints as a ∗ b ∗ c
+     Left child: no parens needed for ∗ (same precedence, left-assoc)
+     Right child: needs parens if it's ∗ or lower precedence *)
+  | App (App (Var "∗", t1), t2) ->
+    let s1 = if is_arrow_app t1 then Printf.sprintf "(%s)" (term_str t1) else term_str t1 in
+    let s2 = if is_star_app t2 || is_arrow_app t2 then Printf.sprintf "(%s)" (term_str t2) else term_str_arg t2 in
+    Printf.sprintf "%s ∗ %s" s1 s2
+
+  | App (App (Var "eo.List__cons", t1), t2) ->
+    let s1 = if is_arrow_app t1 || is_star_app t1 then Printf.sprintf "(%s)" (term_str t1) else term_str_arg t1 in
+    let s2 = if is_star_app t2 then Printf.sprintf "(%s)" (term_str t2) else term_str t2 in
+    Printf.sprintf "%s ⨾ %s" s1 s2
+
+  (* ⤳ is right-associative with precedence 20, ∗ has precedence 5.
+     Higher precedence binds tighter in LambdaPi, so ⤳ binds tighter than ∗.
+     This means: a ⤳ b ∗ c parses as (a ⤳ b) ∗ c, NOT a ⤳ (b ∗ c).
+     So when right child is ∗, we MUST parenthesize it. *)
+  | App (App (Var "⤳", t1), t2) ->
+    let s1 = if is_arrow_app t1 || is_star_app t1 then Printf.sprintf "(%s)" (term_str t1) else term_str_arg t1 in
+    let s2 = if is_star_app t2 then Printf.sprintf "(%s)" (term_str t2) else term_str t2 in
+    Printf.sprintf "%s ⤳ %s" s1 s2
+
+  | App (t, t') ->
+    Printf.sprintf "%s %s" (term_str t) (term_str_arg t')
   | Arrow (t, t') ->
     Printf.sprintf "(%s → %s)"
       (term_str t) (term_str t')
@@ -140,6 +181,11 @@ let rec term_str : term -> string =
   | Let (s,t,t') ->
     Printf.sprintf "(let %s ≔ %s in %s)"
       s (term_str t) (term_str t')
+
+(* Print a term as an argument - parenthesize if needed *)
+and term_str_arg : term -> string = function
+  | (Var _ | Lit _ | PVar _) as t -> term_str t
+  | t -> Printf.sprintf "(%s)" (term_str t)
 and param_str : param -> string =
   function
   | (s,t,Implicit) ->
@@ -176,7 +222,7 @@ let command_str =
     in
     let def_str = match def_opt with
       | None -> ""
-      | Some def -> "≔ " ^ (term_str def)
+      | Some def -> " ≔ " ^ (term_str def)
     in
     Printf.sprintf "%ssymbol %s %s%s%s;"
       m_str str xs_str ty_str def_str
@@ -188,6 +234,9 @@ let command_str =
   | Require ps ->
     let ps_str = String.concat " " ps in
     Printf.sprintf "require open %s;" ps_str
+  (* printing `require <path> as <alias>;` *)
+  | RequireAs (path, alias) ->
+    Printf.sprintf "require %s as %s;" path alias
 
 let sig_str : signature -> string =
   S.concat_map "\n" command_str

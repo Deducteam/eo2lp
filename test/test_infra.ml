@@ -349,16 +349,5 @@ let print_suite_header name =
   println (Printf.sprintf "║  %s" (dim (Printf.sprintf "timeout: %.1fs per test" !test_timeout)));
   println "╚══════════════════════════════════════╝"
 
-(* Load Core.eo and return its parsed signature *)
-let load_core_sig () =
-  let core_file = "eo/Core.eo" in
-  if not (Sys.file_exists core_file) then begin
-    println (Printf.sprintf "  %s Core.eo not found, using empty base signature" (yellow "⚠"));
-    []
-  end else begin
-    clear_parse_cache ();
-    try parse_eo_file "." core_file
-    with e ->
-      println (Printf.sprintf "  %s Failed to load Core.eo: %s" (yellow "⚠") (Printexc.to_string e));
-      []
-  end
+(* No longer loading Core.eo - Prelude is generated, not parsed *)
+let load_core_sig () = []

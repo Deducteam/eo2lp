@@ -64,8 +64,8 @@ type context = signature * param list
 
 (* ---- contexts: `param list` and `signature`. ---- *)
 let is_builtin (s : string) : bool =
-  s = "->" || s = "Type" || s = "_"
-    || S.starts_with ~prefix:"eo::" s
+  s = "->" || s = "Type" || s = "_" || s = "as"
+  || S.starts_with ~prefix:"eo::" s
 
 let is_name (s,_,_ : param) (s' : string) =
   (s = s')
@@ -494,3 +494,297 @@ let mk_arg_vars (arg_tys : term list) : (string * term) list =
     (fun i t -> (("α" ^ string_of_int i), t))
   in
     List.mapi arg_sym arg_tys *)
+
+(* ============================================================
+   Signature Graph (DAG) for managing file dependencies
+   ============================================================ *)
+
+module PathMap = Map.Make(struct
+  type t = path
+  let compare = compare
+end)
+
+(* A node in the signature graph represents a single .eo file *)
+type sig_node = {
+  node_path : path;           (* logical path, e.g., ["theories"; "Builtin"] *)
+  node_file : string;         (* absolute file path *)
+  node_includes : path list;  (* direct dependencies (include statements) *)
+  node_sig : signature;       (* symbols defined in THIS file only *)
+}
+
+(* The signature graph: a DAG of sig_nodes keyed by path *)
+type sig_graph = sig_node PathMap.t
+
+(* Result of parsing a single file (before graph construction) *)
+type file_parse_result = {
+  fpr_path : path;
+  fpr_file : string;
+  fpr_includes : path list;
+  fpr_sig : signature;
+}
+
+(* Pretty printing for sig_node *)
+let sig_node_str (n : sig_node) : string =
+  Printf.sprintf "{ path: %s\n  file: %s\n  includes: [%s]\n  symbols: %d }"
+    (S.concat "." n.node_path)
+    n.node_file
+    (S.concat ", " (L.map (S.concat ".") n.node_includes))
+    (L.length n.node_sig)
+
+let path_str : path -> string = S.concat "."
+
+(* Get all paths in topological order (dependencies first) *)
+let topo_sort (graph : sig_graph) : path list =
+  let visited = Hashtbl.create (PathMap.cardinal graph) in
+  let result = ref [] in
+  let rec visit path =
+    if Hashtbl.mem visited path then ()
+    else begin
+      Hashtbl.add visited path ();
+      match PathMap.find_opt path graph with
+      | None -> ()
+      | Some node ->
+          L.iter visit node.node_includes;
+          result := path :: !result
+    end
+  in
+  PathMap.iter (fun path _ -> visit path) graph;
+  L.rev !result
+
+(* Flatten a graph into a single signature (topological order) *)
+let flatten_graph (graph : sig_graph) : signature =
+  let paths = topo_sort graph in
+  L.concat_map (fun p ->
+    match PathMap.find_opt p graph with
+    | Some node -> node.node_sig
+    | None -> []
+  ) paths
+
+(* Core/prelude signature - symbols that are always available *)
+let core_prelude : signature ref = ref []
+
+let set_core_prelude (sig_ : signature) : unit =
+  core_prelude := sig_
+
+(* Embedded Core.eo source - always available *)
+let core_eo_source = {|
+(declare-const Bool Type)
+(declare-const true Bool)
+(declare-const false Bool)
+
+(declare-const String Type)
+(declare-const Z Type)
+(declare-const Q Type)
+
+; Core operators
+(declare-parameterized-const as
+  ((T Type :implicit))
+  (-> T Type T)
+)
+
+(declare-parameterized-const is_ok
+  ((T Type :implicit))
+  (-> T Bool)
+)
+(declare-parameterized-const ite
+  ((T Type :implicit))
+  (-> Bool T T T)
+)
+(declare-parameterized-const eq
+  ((U Type :implicit))
+  (-> U U Bool)
+)
+(declare-parameterized-const is_eq
+    ((T Type :implicit) (S Type :implicit))
+    (-> T S Bool)
+)
+(declare-parameterized-const requires
+  ((T Type :implicit) (U Type :implicit) (V Type :implicit))
+  (-> T U V V)
+)
+(declare-parameterized-const hash
+    ((T Type :implicit))
+    (-> T Z)
+)
+(declare-parameterized-const typeof
+  ((T Type :implicit))
+  (-> T Type)
+)
+(declare-parameterized-const nameof
+    ((T Type :implicit))
+    (-> T String)
+)
+(declare-parameterized-const var
+    ((T Type :implicit))
+    (-> String T T)
+)
+(declare-parameterized-const cmp
+  ((T Type :implicit) (U Type :implicit))
+  (-> T U Bool)
+)
+(declare-parameterized-const is_var
+  ((T Type :implicit))
+  (-> T Bool)
+)
+
+; Boolean operators
+(declare-const and (-> Bool Bool Bool))
+(declare-const or (-> Bool Bool Bool))
+(declare-const xor (-> Bool Bool Bool))
+(declare-const not (-> Bool Bool))
+
+; Arithmetic operators
+(declare-parameterized-const add
+    ((T Type :implicit))
+    (-> T T T)
+)
+(declare-parameterized-const mul
+    ((T Type :implicit))
+    (-> T T T)
+)
+(declare-parameterized-const neg
+    ((T Type :implicit))
+    (-> T T)
+)
+(declare-parameterized-const qdiv
+    ((T Type :implicit))
+    (-> T T T)
+)
+(declare-parameterized-const zdiv
+    ((T Type :implicit))
+    (-> T T T)
+)
+(declare-parameterized-const zmod
+    ((T Type :implicit))
+    (-> T T T)
+)
+(declare-parameterized-const is_neg
+    ((T Type :implicit))
+    (-> T Bool)
+)
+(declare-parameterized-const gt
+    ((T Type :implicit) (U Type :implicit))
+    (-> T U Bool)
+)
+
+; String operators
+(declare-parameterized-const len
+    ((T Type :implicit))
+    (-> T Z)
+)
+(declare-parameterized-const concat
+    ((T Type :implicit))
+    (-> T T T)
+)
+(declare-parameterized-const extract
+    ((T Type :implicit))
+    (-> T Z Z T)
+)
+(declare-const find (-> String String Z))
+
+; Conversion operators
+(declare-parameterized-const to_z
+    ((T Type :implicit))
+    (-> T Z)
+)
+(declare-parameterized-const to_q
+    ((T Type :implicit))
+    (-> T Q)
+)
+(declare-parameterized-const to_bin
+    ((T Type :implicit))
+    (-> Z T T)
+)
+(declare-parameterized-const to_str
+    ((T Type :implicit))
+    (-> T String)
+)
+
+
+; List operators
+(declare-parameterized-const nil
+  ((U Type :implicit) (T Type :implicit))
+  (-> (-> U T T) Type T)
+)
+(declare-parameterized-const cons
+  ((U Type :implicit) (T Type :implicit))
+  (-> (-> U T T) U T T)
+)
+(declare-parameterized-const list_concat
+  ((U Type :implicit) (T Type :implicit))
+  (-> (-> U T T) T T T)
+)
+(declare-parameterized-const list_len
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T Z)
+)
+(declare-parameterized-const list_nth
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T Z T)
+)
+(declare-parameterized-const list_find
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T Z)
+)
+(declare-parameterized-const list_rev
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T)
+)
+(declare-parameterized-const list_erase
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T T)
+)
+(declare-parameterized-const list_erase_all
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T T)
+)
+(declare-parameterized-const list_setof
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T)
+)
+(declare-parameterized-const list_minclude
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T Bool)
+)
+(declare-parameterized-const list_meq
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T Bool)
+)
+(declare-parameterized-const list_diff
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T T)
+)
+(declare-parameterized-const list_inter
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T T)
+)
+(declare-parameterized-const list_singleton_elim
+  ((F Type :implicit) (T Type :implicit))
+  (-> F T T)
+)
+
+(declare-const List Type)
+(declare-const List::nil List)
+(declare-parameterized-const List::cons
+  ((T Type :implicit))
+  (-> T List List)
+  :right-assoc-nil List::nil
+)
+|}
+
+(* Get the full signature visible at a node (includes + local) *)
+let full_sig_at (graph : sig_graph) (path : path) : signature =
+  let visited = Hashtbl.create 16 in
+  let rec collect p =
+    if Hashtbl.mem visited p then []
+    else begin
+      Hashtbl.add visited p ();
+      match PathMap.find_opt p graph with
+      | None -> []
+      | Some node ->
+          let deps = L.concat_map collect node.node_includes in
+          deps @ node.node_sig
+    end
+  in
+  (* Include core prelude + collected signatures *)
+  !core_prelude @ collect path
