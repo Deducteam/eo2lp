@@ -2,8 +2,8 @@ admin/
 hs/
 notes/
 benchmarks/
+out/
 
-cpc-less
 
 .ocamlinit
 
