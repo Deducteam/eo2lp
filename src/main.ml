@@ -1,3 +1,7 @@
+(* ============================================================
+   eo2lp: Translate Eunoia signatures to LambdaPi
+   ============================================================ *)
+
 module EO = struct
   include Parse_eo
   include Syntax_eo
@@ -10,241 +14,209 @@ module LP = struct
   include Encode
 end
 
-let init : unit =
-  let meta = LP.Require ["eo2lp.Meta";"Stdlib.Set"] in
-  let lp_sig = "./eo/Core.eo"
-    |> EO.parse_eo_file (Sys.getcwd ())
-    |> EO.elab_sig
-    |> LP.eo_sig
-  in
-    Api_lp.write_lp_file "lp/Core.lp" (meta :: lp_sig)
+(* ============================================================
+   CLI Configuration
+   ============================================================ *)
 
-let eo2lp (fp : string) : unit =
-  let meta = LP.Require ["eo2lp.Core"; "Stdlib.Set"] in
-  let lp_sig = fp
-    |> EO.parse_eo_file (Sys.getcwd ())
-    |> EO.elab_sig
-    |> LP.eo_sig
-  in
+type config = {
+  input_dir : string option;
+  output_dir : string option;
+  verbose : bool;
+}
 
-  let lp_fp =
-    "lp/" ^ Filename.(chop_extension @@ basename fp)
-            ^ ".lp"
-  in
+let default_config = {
+  input_dir = None;
+  output_dir = None;
+  verbose = false;
+}
 
-  Api_lp.write_lp_file lp_fp (meta :: lp_sig)
+let config = ref default_config
 
+let usage = "Usage: eo2lp -d <input_dir> -o <output_dir> [options]"
 
-(* let utils : signature =
-  parse_eo_file (Sys.getcwd (), "./cpc-mini/programs/Utils.eo") *)
-(*
-let _cpc : environment =
-  parse_eo_dir "./cpc-mini"
+let speclist = [
+  ("-d", Arg.String (fun s -> config := { !config with input_dir = Some s }),
+   "<dir> Input directory containing .eo files");
+  ("-o", Arg.String (fun s -> config := { !config with output_dir = Some s }),
+   "<dir> Output directory for LambdaPi package");
+  ("-v", Arg.Unit (fun () -> config := { !config with verbose = true }),
+   " Verbose output");
+]
 
-let _utils =
-  (List.assoc ["programs";"Utils"] _cpc) *)
+(* ============================================================
+   LambdaPi Package Generation
+   ============================================================ *)
 
-(* let test =
-  Elaborate.elab_sig !EO._sig
-    ();; *)
-(* let elaborate (env : EO.environment) (cs : EO.command list)
-  : Elab.command list =
-  let f eo =
-    Printf.printf
-      "Elaborating:\n%s\n"
-      (EO.command_str eo);
+let mkdir_p dir =
+  let rec aux dir =
+    if not (Sys.file_exists dir) then begin
+      aux (Filename.dirname dir);
+      Sys.mkdir dir 0o755
+    end
+  in aux dir
 
-    let eo' = Elab.elaborate_cmd env eo in
-    if eo' != [] then
-      Printf.printf
-        "Done:\n%s\n\n"
-        (List.map Elab.command_str eo' |> String.concat "\n");
-    eo'
-  in
-    List.concat_map f cs
+let path_to_module pkg path = pkg ^ "." ^ String.concat "." path
 
-let translate (eos : Elab.command list) : LP.command list =
-  List.concat_map (fun eo ->
-    Printf.printf
-      "Translating:\n%s\n"
-      (Elab.command_str eo);
+let generate_pkg_file output_dir pkg_name =
+  let oc = open_out (Filename.concat output_dir "lambdapi.pkg") in
+  Printf.fprintf oc "package_name = %s\nroot_path = %s\n" pkg_name pkg_name;
+  close_out oc
 
-    let lps = LP.translate_command eo in
-    Printf.printf
-      "Done:\n%s\n\n"
-      (String.concat "\n" (List.map LP.lp_command_str lps));
-    lps
-) eos
+let prelude_content = {|require open
+  Stdlib.Set
+  Stdlib.HOL
+  Stdlib.List
+  Stdlib.String
+  Stdlib.Z
+  Stdlib.Bool;
 
-let write (lps : LP.command list) : unit =
-  let ch = open_out "lp/out.lp" in
-  output_string ch
-    (String.concat "\n" [
-    "require Stdlib.Bool as B;";
-     "symbol Bool ≔ B.bool;";
-     "symbol true ≔ B.true;";
-     "symbol false ≔ B.false;\n\n";
-    ]);
-  output_string ch "require open Stdlib.HOL;\n";
-  output_string ch "require eo2lp.Core as eo;\n";
-  output_string ch "symbol ▫ [x y] ≔  eo.app [x] [y];\n";
-  output_string ch "notation ▫ infix left 5;\n\n";
+symbol ℚ : TYPE;
 
-  let f lp =
-    output_string ch (LP.lp_command_str lp);
-    output_char ch '\n'
-  in
-    List.iter f lps;
-    close_out ch
+// the set of all Eunoia types.
+symbol Type : Set;
+rule τ Type ↪ Set;
 
-let proc (env : EO.environment) (p : EO.path) : LP.command list =
-  match List.assoc_opt p env with
-  | Some eos -> translate (elaborate env eos)
-  | None -> failwith "Can't find path in environment."
+// higher-order application.
+symbol ∗ [a b] : τ (a ⤳ b) → τ a → τ b;
+notation ∗ infix left 5;
 
-let core : Elab.command list =
-  let eos =
-    EO.parse_eo_file (Sys.getcwd (), "./eo/Core.eo")
-  in
-    (elaborate [] eos)
+// inlined typechecking.
+symbol _as (a : Set) (x : τ a) : τ a;
+rule _as _ $x ↪ $x;
 
-let env : EO.environment =
-  Parse_eo.parse_eo_dir "./cpc-mini"
+// Core types - use Stdlib types where possible
+symbol Bool : Set ≔ bool;
+rule τ Bool ↪ 𝔹;
+symbol String : Set ≔ string;
+rule τ String ↪ Stdlib.String.String;
+symbol Z : Set ≔ int;
+rule τ Z ↪ ℤ;
+symbol Q : Set;
+rule τ Q ↪ ℚ;
+
+// Eunoia builtins
+sequential symbol is_ok [T : Set]: τ (T ⤳ Bool);
+sequential symbol ite [T : Set]: τ (Bool ⤳ T ⤳ T ⤳ T);
+sequential symbol eq [U : Set]: τ (U ⤳ U ⤳ Bool);
+sequential symbol is_eq [T : Set] [S : Set]: τ (T ⤳ S ⤳ Bool);
+sequential symbol requires [T : Set] [U : Set] [V : Set]: τ (T ⤳ U ⤳ V ⤳ V);
+sequential symbol hash [T : Set]: τ (T ⤳ Z);
+sequential symbol typeof [T : Set]: τ (T ⤳ Type);
+sequential symbol nameof [T : Set]: τ (T ⤳ String);
+sequential symbol var [T : Set]: τ (String ⤳ T ⤳ T);
+sequential symbol cmp [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
+sequential symbol is_var [T : Set]: τ (T ⤳ Bool);
+sequential symbol is_z [T : Set]: τ (T ⤳ Bool);
+sequential symbol and : τ (Bool ⤳ Bool ⤳ Bool);
+sequential symbol or : τ (Bool ⤳ Bool ⤳ Bool);
+sequential symbol xor : τ (Bool ⤳ Bool ⤳ Bool);
+sequential symbol not : τ (Bool ⤳ Bool);
+sequential symbol add [T : Set]: τ (T ⤳ T ⤳ T);
+sequential symbol mul [T : Set]: τ (T ⤳ T ⤳ T);
+sequential symbol neg [T : Set]: τ (T ⤳ T);
+sequential symbol qdiv [T : Set]: τ (T ⤳ T ⤳ T);
+sequential symbol zdiv [T : Set]: τ (T ⤳ T ⤳ T);
+sequential symbol zmod [T : Set]: τ (T ⤳ T ⤳ T);
+sequential symbol is_neg [T : Set]: τ (T ⤳ Bool);
+sequential symbol gt [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
+sequential symbol len [T : Set]: τ (T ⤳ Z);
+sequential symbol concat [T : Set]: τ (T ⤳ T ⤳ T);
+sequential symbol extract [T : Set]: τ (T ⤳ Z ⤳ Z ⤳ T);
+sequential symbol find : τ (String ⤳ String ⤳ Z);
+sequential symbol to_z [T : Set]: τ (T ⤳ Z);
+sequential symbol to_q [T : Set]: τ (T ⤳ Q);
+sequential symbol to_bin [T : Set]: τ (Z ⤳ T ⤳ T);
+sequential symbol to_str [T : Set]: τ (T ⤳ String);
+sequential symbol nil [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ Type ⤳ T);
+sequential symbol cons [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ U ⤳ T ⤳ T);
+sequential symbol list_concat [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ T ⤳ T ⤳ T);
+sequential symbol list_len [F : Set] [T : Set]: τ (F ⤳ T ⤳ Z);
+sequential symbol list_nth [F : Set] [T : Set]: τ (F ⤳ T ⤳ Z ⤳ T);
+sequential symbol list_find [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Z);
+sequential symbol list_rev [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
+sequential symbol list_erase [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+sequential symbol list_erase_all [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+sequential symbol list_setof [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
+sequential symbol list_minclude [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Bool);
+sequential symbol list_meq [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Bool);
+sequential symbol list_diff [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+sequential symbol list_inter [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
+sequential symbol list_singleton_elim [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
+sequential symbol List : Set;
+sequential symbol List__nil : τ List;
+sequential symbol List__cons [T : Set]: τ (T ⤳ List ⤳ List);
+|}
+
+let generate_prelude output_dir =
+  let oc = open_out (Filename.concat output_dir "Prelude.lp") in
+  output_string oc prelude_content;
+  close_out oc
+
+let stdlib_modules = [
+  "Stdlib.Set"; "Stdlib.HOL"; "Stdlib.List";
+  "Stdlib.String"; "Stdlib.Z"; "Stdlib.Bool"
+]
+
+let generate_lp_file graph pkg_name output_dir path =
+  match EO.PathMap.find_opt path graph with
+  | None -> ()
+  | Some node ->
+      let full_sig = EO.full_sig_at graph path in
+      let elab_sig = EO.elab_sig_with_ctx full_sig node.node_sig in
+      let lp_sig = LP.eo_sig elab_sig in
+      let out_path = Filename.concat output_dir (String.concat "/" path ^ ".lp") in
+      mkdir_p (Filename.dirname out_path);
+      let prelude_module = pkg_name ^ ".Prelude" in
+      let prelude_qualified = LP.RequireAs (prelude_module, "eo") in
+      let deps = List.map (path_to_module pkg_name) node.node_includes in
+      let open_imports = LP.Require (stdlib_modules @ [prelude_module] @ deps) in
+      Api_lp.write_lp_file out_path (prelude_qualified :: open_imports :: lp_sig)
+
+let print_graph graph =
+  Printf.printf "Signature graph (%d nodes):\n" (EO.PathMap.cardinal graph);
+  EO.PathMap.iter (fun path node ->
+    Printf.printf "  %s -> [%s]\n"
+      (EO.path_str path)
+      (String.concat ", " (List.map EO.path_str node.EO.node_includes))
+  ) graph
+
+(* ============================================================
+   Translation
+   ============================================================ *)
+
+let translate input_dir output_dir verbose =
+  if verbose then Printf.printf "Building signature graph from %s...\n" input_dir;
+  let graph = EO.build_sig_graph input_dir in
+  if verbose then print_graph graph;
+  match EO.check_dag graph with
+  | Error cycle ->
+      Printf.printf "Error: Cycle detected in include graph:\n";
+      List.iter (fun p -> Printf.printf "  -> %s\n" (EO.path_str p)) cycle;
+      exit 1
+  | Ok () ->
+      if verbose then Printf.printf "DAG check passed.\n";
+      mkdir_p output_dir;
+      let pkg_name = Filename.basename output_dir in
+      generate_pkg_file output_dir pkg_name;
+      generate_prelude output_dir;
+      let paths = EO.topo_sort graph in
+      List.iter (fun path ->
+        if verbose then Printf.printf "Generating %s...\n" (EO.path_str path);
+        generate_lp_file graph pkg_name output_dir path
+      ) paths;
+      Printf.printf "Generated %d LambdaPi files in %s\n" (List.length paths + 1) output_dir
+
+(* ============================================================
+   Main entry point
+   ============================================================ *)
 
 let main () =
-  let lps = proc env ["theories";"Arith"] in
-  write lps
- *)
+  Arg.parse speclist (fun _ -> ()) usage;
+  let cfg = !config in
+  match cfg.input_dir, cfg.output_dir with
+  | Some input_dir, Some output_dir ->
+      translate input_dir output_dir cfg.verbose
+  | _ ->
+      Printf.printf "%s\n" usage
 
-(* let gen_const (sgn : signature)
-    (s : string) (ps : EO.param list) (ty : EO.term)
-  : LP.command =
-  let (s', ps', ty') =
-    (
-      translate_symbol s,
-      translate_params (map (elab_param sgn) ps),
-      translate_ty (elab_tm (sgn,ps) ty)
-    )
-  in
-    Symbol (Some Constant, s', ps', Some ty', None)
-
-(* ?TODO? split into gen_prog_sym and gen_prog_rule. *)
-let gen_prog (sgn : signature)
-    (s : string) (ps : EO.param list) (ty : EO.term)
-    (cs : EO.cases) : LP.command list
-=
-  let (eps, ety) =
-    (
-      map (elab_param sgn) ps,
-      elab_tm (sgn,ps) ty
-    )
-  in
-
-  let vs = free_params eps ety in
-  let vs' = List.map (fun (s,t) -> (s,t, Implicit)) vs in
-  Printf.printf "ty params for %s with type %s are [%s].\n"
-    s (eterm_str ety) (String.concat " " (List.map fst vs));
-
-  let (s', ty_ps, ty', rl_ps, cs') =
-    (
-      translate_symbol s,
-      translate_params vs',
-      translate_ty ety,
-      translate_params eps,
-      translate_cases (elab_cases (sgn,ps) cs)
-    )
-  in
-    List.append
-      [LP.Symbol (Some Sequential, s', ty_ps, Some ty', None)]
-      (if cs' = [] then [] else [LP.Rule (bind_pvars_cases rl_ps cs')])
-
-let gen_defn (sgn : signature)
-    (s : string) (ps : EO.param list)
-    (def : EO.term) (ty_opt : EO.term option)
-  : LP.command
-=
-  let (s', ps', def') =
-    (
-      translate_symbol s,
-      translate_params (map (elab_param sgn) ps),
-      translate_tm (elab_tm (sgn,ps) def)
-    )
-  in
-  let ty_opt' = match ty_opt with
-    | Some ty -> Some (translate_ty (elab_tm (sgn,ps) ty))
-    | None -> None
-  in
-    Symbol (None, s', ps', ty_opt', Some def')
-
-let gen_rdec (sgn : signature)
-    (s : string) (ps : EO.param list)
-      (prems_opt : EO.premises option)
-      (args_opt : EO.arguments option)
-      (reqs_opt : EO.reqs option)
-      (conc : EO.conclusion)
-  : ((LP.command * LP.command) option * LP.command)
-=
-  let (s', ps') =
-    (
-      translate_symbol s,
-      translate_params (map (elab_param sgn) ps)
-    )
-  in
-  (* if there are requirements, wrap the conclusion. *)
-  let conc_tm =
-    match reqs_opt with
-    | Some (Requires cs) -> EO.mk_conc_tm cs conc
-    | None               -> EO.mk_conc_tm [] conc
-  in
-
-  (* if there are arguments, gen aux judgements and fresh vars *)
-  let (aux_cmds_opt, aux_vars, conc_ty) =
-    match args_opt with
-    | Some (Args ts) ->
-      let arg_tys = List.map EO.ty_of ts in
-      let s_aux   = "$" ^ s ^ "_aux" in
-      let aux_ty  = EO.mk_arrow_ty arg_tys (Symbol "Bool") in
-      let (s',ty') =
-        (
-          translate_symbol s_aux,
-          translate_ty (elab_tm (sgn,ps) aux_ty)
-        )
-      in
-
-      let cs  = [(EO.Apply (s_aux, ts), conc_tm)] in
-      let cs' = translate_cases (elab_cases (sgn,ps) cs) in
-
-      let aux_cmds =
-        (
-          LP.Symbol (None, s', [], Some ty', None),
-          LP.Rule (bind_pvars_cases ps' cs')
-        )
-      in
-
-      let vs = mk_aux_vars arg_tys in
-      let ws = List.map (fun (s,_) -> EO.Symbol s) vs in
-      let conc = EO.proof_of (EO.Apply (s_aux, ws)) in
-
-      (Some aux_cmds, vs, conc)
-
-    | None -> (None, [], EO.proof_of conc_tm)
-    in
-
-    (* build type of symbol for declared rule. *)
-    let ty =
-      match prems_opt with
-      | Some (Simple (Premises ts)) ->
-          let ts' = List.map EO.proof_of ts in
-          EO.mk_arrow_ty ts' conc_ty
-      | Some (PremiseList (_,_)) ->
-          Printf.printf "WARNING! --- :premise-list\n";
-          conc_ty
-      | None -> conc_ty
-    in
-
-    let ty' = translate_ty (elab_tm (sgn,ps) ty) in
-    let ty_cmd =
-      LP.Symbol (None, s', ps', Some ty', None)
-    in
-      (aux_cmds_opt, ty_cmd)
- *)
+(* Note: main() is called from eo2lp_cli.ml *)

@@ -1,10 +1,11 @@
-require open eo2lp.Meta Stdlib.Set;
+require open eo-test.Core Stdlib.Set;
 constant symbol Bool : Set;
 constant symbol true : τ Bool;
 constant symbol false : τ Bool;
 constant symbol String : Set;
 constant symbol Z : Set;
 constant symbol Q : Set;
+constant symbol {|as|} [T : Set]: τ (T ⤳ eo⋅⋅Type ⤳ T);
 constant symbol is_ok [T : Set]: τ (T ⤳ Bool);
 constant symbol ite [T : Set]: τ (Bool ⤳ T ⤳ T ⤳ T);
 constant symbol eq [U : Set]: τ (U ⤳ U ⤳ Bool);

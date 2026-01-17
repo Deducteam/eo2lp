@@ -18,3 +18,10 @@
  (flags :standard -w -8 -w -26 -w -27)
  (libraries str unix fpath)
 )
+
+(executable
+ (name eo2lp_cli)
+ (public_name eo2lp)
+ (modules eo2lp_cli)
+ (libraries eo2lp)
+)

@@ -1,4 +1,5 @@
 (lang dune 3.20)
+(name eo2lp)
 
 (authors "Ciaran Dunne")
 (using menhir 3.0)

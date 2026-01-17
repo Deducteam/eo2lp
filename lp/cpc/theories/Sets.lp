@@ -1,0 +1,14 @@
+require open cpc.Core Stdlib.Set cpc.programs.Utils cpc.theories.Builtin cpc.theories.Arith cpc.theories.Datatypes;
+constant symbol Set : τ (eo⋅⋅Type ⤳ eo⋅⋅Type);
+constant symbol set⋅empty [T : Set]: τ (Set T);
+constant symbol set⋅singleton [T : Set]: τ (T ⤳ Set T);
+constant symbol set⋅union [T : Set]: τ ((Set T) ⤳ (Set T) ⤳ Set T);
+constant symbol set⋅inter [T : Set]: τ ((Set T) ⤳ (Set T) ⤳ Set T);
+constant symbol set⋅minus [T : Set]: τ ((Set T) ⤳ (Set T) ⤳ Set T);
+constant symbol set⋅member [T : Set]: τ (T ⤳ (Set T) ⤳ Bool);
+constant symbol set⋅subset [T : Set]: τ ((Set T) ⤳ (Set T) ⤳ Bool);
+constant symbol set⋅choose [T : Set]: τ ((Set T) ⤳ T);
+constant symbol set⋅is_empty [T : Set]: τ ((Set T) ⤳ Bool);
+constant symbol set⋅is_singleton [T : Set]: τ ((Set T) ⤳ Bool);
+constant symbol set⋅insert [T : Set]: τ ({|@List|} ⤳ (Set T) ⤳ Set T);
+constant symbol {|@sets_deq_diff|} [T : Set] (s : τ (Set T)) (t : τ (Set T)): τ T;
