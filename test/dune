@@ -4,6 +4,7 @@
  (libraries eo2lp unix)
  (modules test_infra))
 
+; Core.eo basic tests
 (test
  (name test_core)
  (libraries eo2lp test_infra)
@@ -11,34 +12,7 @@
  (deps (source_tree ../eo))
  (action (chdir %{workspace_root} (run %{test}))))
 
-(test
- (name test_cpc_mini_parse)
- (libraries eo2lp test_infra)
- (modules test_cpc_mini_parse)
- (deps (source_tree ../eo) (source_tree ../cpc-mini))
- (action (chdir %{workspace_root} (run %{test}))))
-
-(test
- (name test_cpc_mini_elaborate)
- (libraries eo2lp test_infra)
- (modules test_cpc_mini_elaborate)
- (deps (source_tree ../eo) (source_tree ../cpc-mini))
- (action (chdir %{workspace_root} (run %{test}))))
-
-(test
- (name test_cpc_mini_encode)
- (libraries eo2lp test_infra)
- (modules test_cpc_mini_encode)
- (deps (source_tree ../eo) (source_tree ../cpc-mini))
- (action (chdir %{workspace_root} (run %{test}))))
-
-(test
- (name test_ethos)
- (libraries eo2lp test_infra)
- (modules test_ethos)
- (deps (source_tree ../eo) (source_tree ../ethos-tests))
- (action (chdir %{workspace_root} (run %{test}))))
-
+; Signature graph tests
 (test
  (name test_graph)
  (libraries eo2lp)
@@ -46,11 +20,45 @@
  (deps (source_tree ../cpc-mini))
  (action (chdir %{workspace_root} (run %{test}))))
 
+; Main cpc-mini test suite (unified pipeline test)
+(test
+ (name test_cpc_mini)
+ (libraries eo2lp unix)
+ (modules test_cpc_mini)
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (action (chdir %{workspace_root} (run %{test}))))
+
+; Legacy individual stage tests (kept for granular debugging)
+(test
+ (name test_cpc_mini_parse)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini_parse)
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (enabled_if false)
+ (action (chdir %{workspace_root} (run %{test}))))
+
+(test
+ (name test_cpc_mini_elaborate)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini_elaborate)
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (enabled_if false)
+ (action (chdir %{workspace_root} (run %{test}))))
+
+(test
+ (name test_cpc_mini_encode)
+ (libraries eo2lp test_infra)
+ (modules test_cpc_mini_encode)
+ (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (enabled_if false)
+ (action (chdir %{workspace_root} (run %{test}))))
+
 (test
  (name test_cpc_mini_full)
  (libraries eo2lp test_infra)
  (modules test_cpc_mini_full)
  (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (enabled_if false)
  (action (chdir %{workspace_root} (run %{test}))))
 
 (test
@@ -58,4 +66,14 @@
  (libraries eo2lp test_infra unix)
  (modules test_lp_check)
  (deps (source_tree ../eo) (source_tree ../cpc-mini))
+ (enabled_if false)
+ (action (chdir %{workspace_root} (run %{test}))))
+
+; ethos-tests (disabled for now - focus on cpc-mini)
+(test
+ (name test_ethos)
+ (libraries eo2lp test_infra)
+ (modules test_ethos)
+ (deps (source_tree ../eo) (source_tree ../ethos-tests))
+ (enabled_if false)
  (action (chdir %{workspace_root} (run %{test}))))

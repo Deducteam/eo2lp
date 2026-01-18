@@ -53,6 +53,33 @@ let parse_cache : (string, signature) Hashtbl.t = Hashtbl.create 32
 
 let clear_parse_cache () = Hashtbl.clear parse_cache
 
+(* Parse a signature from a string (used for core_eo_source) *)
+let parse_eo_string (src : string) : signature =
+  let lx = Lexing.from_string src in
+  let _sig = ref [] in
+  try
+    while true do
+      match parse_command lx with
+      | Some (Some syms) -> _sig := List.rev_append syms !_sig
+      | Some None -> raise Exit  (* EOF *)
+      | None -> raise Exit  (* Parse error *)
+    done;
+    assert false
+  with Exit -> List.rev !_sig
+
+(* Initialize core_prelude by parsing core_eo_source *)
+let init_core_prelude () : unit =
+  let core_sig = parse_eo_string Syntax_eo.core_eo_source in
+  Syntax_eo.set_core_prelude core_sig
+
+(* Ensure core prelude is initialized (idempotent) *)
+let core_prelude_initialized = ref false
+let ensure_core_prelude () =
+  if not !core_prelude_initialized then begin
+    init_core_prelude ();
+    core_prelude_initialized := true
+  end
+
 (* Remove duplicate symbols, keeping the last occurrence, preserving order. *)
 let unique sgn =
   let sgn_rev = List.rev sgn in
@@ -196,6 +223,7 @@ let collect_eo_files (dir : string) : string list =
 
 (* Build the signature graph from a directory *)
 let build_sig_graph (root : string) : sig_graph =
+  ensure_core_prelude ();
   let root_abs = to_absolute (Fpath.v root) in
   let root_str = Fpath.to_string root_abs in
   let files = collect_eo_files root_str in

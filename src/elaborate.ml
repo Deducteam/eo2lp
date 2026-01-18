@@ -65,7 +65,8 @@ function
         with
         | t' :: _ -> t'
         | [] ->
-          Printf.ksprintf failwith "Symbol `%s` not found in context." s
+          Printf.ksprintf failwith
+          "Symbol `%s` not found in context." s
       end
     end
 (* ---- eo::define as local let-binding. ---- *)

@@ -23,7 +23,8 @@ let literal_str =
   | Numeral n -> string_of_int n
   | Decimal d -> string_of_float d
   | Rational (n, d) ->
-    string_of_int n ^ "/" ^ string_of_int d
+    (* Represent rationals as (mkrat n d) since LambdaPi doesn't have native rational literals *)
+    Printf.sprintf "(mkrat %d %d)" n d
   | String s -> "\"" ^ s ^ "\""
   | Binary _ ->
     (* Printf.printf "WARNING: unhandled binary.\n"; *)

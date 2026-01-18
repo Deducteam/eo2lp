@@ -44,6 +44,7 @@ type binder =
 and term =
   | Var of string | PVar of string | Lit of literal
   | App of term * term
+  | BracketApp of term * term  (* f [t] - explicit type argument in patterns *)
   | Bind of binder * param list * term
   | Arrow of term * term
   | Let of string * term * term
@@ -98,6 +99,8 @@ let rec map_vars (f : string -> term) : term -> term =
   | Var s -> f s
   | App (t,t') ->
       App (map_vars f t, map_vars f t')
+  | BracketApp (t,t') ->
+      BracketApp (map_vars f t, map_vars f t')
   | Arrow (t,t') ->
       Arrow (map_vars f t, map_vars f t')
   | Let (s,t,t') ->
@@ -149,10 +152,10 @@ let rec term_str : term -> string =
   (* ∗ is left-associative: (a ∗ b) ∗ c prints as a ∗ b ∗ c
      Left child: no parens needed for ∗ (same precedence, left-assoc)
      Right child: needs parens if it's ∗ or lower precedence *)
-  | App (App (Var "∗", t1), t2) ->
+  | App (App (Var "⋅", t1), t2) ->
     let s1 = if is_arrow_app t1 then Printf.sprintf "(%s)" (term_str t1) else term_str t1 in
     let s2 = if is_star_app t2 || is_arrow_app t2 then Printf.sprintf "(%s)" (term_str t2) else term_str_arg t2 in
-    Printf.sprintf "%s ∗ %s" s1 s2
+    Printf.sprintf "%s ⋅ %s" s1 s2
 
   | App (App (Var "eo.List__cons", t1), t2) ->
     let s1 = if is_arrow_app t1 || is_star_app t1 then Printf.sprintf "(%s)" (term_str t1) else term_str_arg t1 in
@@ -170,6 +173,8 @@ let rec term_str : term -> string =
 
   | App (t, t') ->
     Printf.sprintf "%s %s" (term_str t) (term_str_arg t')
+  | BracketApp (t, t') ->
+    Printf.sprintf "%s [%s]" (term_str t) (term_str t')
   | Arrow (t, t') ->
     Printf.sprintf "(%s → %s)"
       (term_str t) (term_str t')
