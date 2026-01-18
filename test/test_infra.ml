@@ -349,5 +349,7 @@ let print_suite_header name =
   println (Printf.sprintf "║  %s" (dim (Printf.sprintf "timeout: %.1fs per test" !test_timeout)));
   println "╚══════════════════════════════════════╝"
 
-(* No longer loading Core.eo - Prelude is generated, not parsed *)
-let load_core_sig () = []
+(* Load core prelude symbols *)
+let load_core_sig () =
+  Eo2lp.Parse_eo.ensure_core_prelude ();
+  !(Eo2lp.Syntax_eo.core_prelude)

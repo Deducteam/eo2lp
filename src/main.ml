@@ -77,8 +77,8 @@ symbol Type : Set;
 rule τ Type ↪ Set;
 
 // higher-order application.
-symbol ∗ [a b] : τ (a ⤳ b) → τ a → τ b;
-notation ∗ infix left 5;
+symbol ⋅ [a b] : τ (a ⤳ b) → τ a → τ b;
+notation ⋅ infix left 5;
 
 // inlined typechecking.
 symbol _as (a : Set) (x : τ a) : τ a;
@@ -93,6 +93,7 @@ symbol Z : Set ≔ int;
 rule τ Z ↪ ℤ;
 symbol Q : Set;
 rule τ Q ↪ ℚ;
+symbol mkrat : ℤ → ℤ → ℚ;
 
 // Eunoia builtins
 sequential symbol is_ok [T : Set]: τ (T ⤳ Bool);
@@ -127,6 +128,7 @@ sequential symbol to_z [T : Set]: τ (T ⤳ Z);
 sequential symbol to_q [T : Set]: τ (T ⤳ Q);
 sequential symbol to_bin [T : Set]: τ (Z ⤳ T ⤳ T);
 sequential symbol to_str [T : Set]: τ (T ⤳ String);
+sequential symbol quote [T : Set]: τ (T ⤳ T);
 sequential symbol nil [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ Type ⤳ T);
 sequential symbol cons [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ U ⤳ T ⤳ T);
 sequential symbol list_concat [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ T ⤳ T ⤳ T);
@@ -144,6 +146,7 @@ sequential symbol list_inter [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
 sequential symbol list_singleton_elim [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
 sequential symbol List : Set;
 sequential symbol List__nil : τ List;
+symbol ∎ ≔ List__nil;
 sequential symbol List__cons [T : Set]: τ (T ⤳ List ⤳ List);
 |}
 
@@ -169,8 +172,13 @@ let generate_lp_file graph pkg_name output_dir path =
       let prelude_module = pkg_name ^ ".Prelude" in
       let prelude_qualified = LP.RequireAs (prelude_module, "eo") in
       let deps = List.map (path_to_module pkg_name) node.node_includes in
-      let open_imports = LP.Require (stdlib_modules @ [prelude_module] @ deps) in
-      Api_lp.write_lp_file out_path (prelude_qualified :: open_imports :: lp_sig)
+      let open_imports =
+        if deps = [] then
+          LP.Require [prelude_module]
+        else
+          LP.Require deps
+      in
+        Api_lp.write_lp_file out_path (prelude_qualified :: open_imports :: lp_sig)
 
 let print_graph graph =
   Printf.printf "Signature graph (%d nodes):\n" (EO.PathMap.cardinal graph);

@@ -30,7 +30,7 @@
 ; return: >
 ;   The type of a lambda having the list of variables L and
 ;   body type B.
-(program $get_lambda_type ((x @List) (xs @List :list) (B Type))
+(program $get_lambda_type ((T Type) (x T) (xs @List :list) (B Type))
   :signature (@List Type) Type
   (
     (($get_lambda_type (@list x xs) B) (-> (eo::typeof x) ($get_lambda_type xs B)))
@@ -51,6 +51,6 @@
     ($assoc_nil_same_type @list xs) true
     Bool)
   :arg-list @list)
-  
+
 ; The purification skolem.
 (declare-parameterized-const @purify ((A Type :implicit) (t A :opaque)) A)

@@ -5,6 +5,7 @@ open Test_infra
 
 let red s = Printf.sprintf "\027[31m%s\027[0m" s
 let green s = Printf.sprintf "\027[32m%s\027[0m" s
+let yellow s = Printf.sprintf "\027[33m%s\027[0m" s
 
 let path_to_lp_module (pkg_name : string) (path : Syntax_eo.path) : string =
   pkg_name ^ "." ^ String.concat "." path
@@ -52,6 +53,11 @@ let generate_pkg_file (output_dir : string) (pkg_name : string) (root_path : str
   Printf.fprintf ch "root_path = %s\n" root_path;
   close_out ch
 
+type check_status =
+  | Passed
+  | Failed of string  (* error output *)
+  | Skipped of Syntax_eo.path  (* skipped because this dependency failed *)
+
 let run_lp_check (input_dir : string) : bool =
   let tmp_dir = Filename.concat (Filename.get_temp_dir_name ()) "eo2lp_check" in
   let rec rm_rf path =
@@ -97,32 +103,85 @@ let run_lp_check (input_dir : string) : bool =
       ) paths;
 
       Printf.printf "\nGenerated %d files. Running lambdapi check...\n\n" (List.length paths + 1);
+
+      (* Track status for each path *)
+      let status_map = Hashtbl.create (List.length paths) in
       let lp_pass = ref 0 in
       let lp_fail = ref 0 in
+      let lp_skip = ref 0 in
 
+      (* Check paths in topological order *)
       List.iter (fun path ->
-        let rel_path = String.concat "/" path ^ ".lp" in
-        let cmd = Printf.sprintf "cd %s && lambdapi check %s 2>&1" output_dir rel_path in
-        let ic = Unix.open_process_in cmd in
-        let output = Buffer.create 256 in
-        begin try while true do Buffer.add_channel output ic 1 done with End_of_file -> () end;
-        let status = Unix.close_process_in ic in
-        let output_str = Buffer.contents output in
-        match status with
-        | Unix.WEXITED 0 ->
-            incr lp_pass;
-            Printf.printf "  %-40s %s\n" (Syntax_eo.path_str path) (green "PASS")
-        | _ ->
-            incr lp_fail;
-            Printf.printf "  %-40s %s\n" (Syntax_eo.path_str path) (red "FAIL");
-            String.split_on_char '\n' output_str
-            |> List.iter (fun line -> if String.length line > 0 then Printf.printf "      %s\n" line)
+        (* Check if any dependency failed *)
+        let (node : Syntax_eo.sig_node) = Syntax_eo.PathMap.find path graph in
+        let failed_dep = List.find_opt (fun dep ->
+          match Hashtbl.find_opt status_map dep with
+          | Some (Failed _) | Some (Skipped _) -> true
+          | _ -> false
+        ) node.node_includes in
+
+        match failed_dep with
+        | Some dep ->
+            (* Skip this path because a dependency failed *)
+            incr lp_skip;
+            Hashtbl.add status_map path (Skipped dep);
+            Printf.printf "  %-40s %s\n"
+              (Syntax_eo.path_str path)
+              (yellow (Printf.sprintf "SKIP (dep %s failed)" (Syntax_eo.path_str dep)))
+        | None ->
+            (* All dependencies passed, run the check *)
+            let rel_path = String.concat "/" path ^ ".lp" in
+            (* Use -w to disable warnings *)
+            let cmd = Printf.sprintf "cd %s && lambdapi check -w -c %s 2>&1" output_dir rel_path in
+            let ic = Unix.open_process_in cmd in
+            let output = Buffer.create 256 in
+            begin try while true do Buffer.add_channel output ic 1 done with End_of_file -> () end;
+            let status = Unix.close_process_in ic in
+            let output_str = Buffer.contents output in
+            match status with
+            | Unix.WEXITED 0 ->
+                incr lp_pass;
+                Hashtbl.add status_map path Passed;
+                Printf.printf "  %-40s %s\n" (Syntax_eo.path_str path) (green "PASS")
+            | _ ->
+                incr lp_fail;
+                Hashtbl.add status_map path (Failed output_str);
+                Printf.printf "  %-40s %s\n" (Syntax_eo.path_str path) (red "FAIL");
+                String.split_on_char '\n' output_str
+                |> List.iter (fun line -> if String.length line > 0 then Printf.printf "      %s\n" line)
       ) paths;
 
+      (* Also check the top-level Cpc.lp if it exists *)
+      let cpc_path = Filename.concat output_dir "Cpc.lp" in
+      if Sys.file_exists cpc_path then begin
+        (* Check if any module failed - if so, skip Cpc *)
+        if !lp_fail > 0 then begin
+          incr lp_skip;
+          Printf.printf "  %-40s %s\n" "Cpc" (yellow "SKIP (dependencies failed)")
+        end else begin
+          let cmd = Printf.sprintf "cd %s && lambdapi check -w -c Cpc.lp 2>&1" output_dir in
+          let ic = Unix.open_process_in cmd in
+          let output = Buffer.create 256 in
+          begin try while true do Buffer.add_channel output ic 1 done with End_of_file -> () end;
+          let status = Unix.close_process_in ic in
+          let output_str = Buffer.contents output in
+          match status with
+          | Unix.WEXITED 0 ->
+              incr lp_pass;
+              Printf.printf "  %-40s %s\n" "Cpc" (green "PASS")
+          | _ ->
+              incr lp_fail;
+              Printf.printf "  %-40s %s\n" "Cpc" (red "FAIL");
+              String.split_on_char '\n' output_str
+              |> List.iter (fun line -> if String.length line > 0 then Printf.printf "      %s\n" line)
+        end
+      end;
+
       Printf.printf "\n%s\n" (String.make 50 '-');
-      Printf.printf "Results: %s %d passed, %s %d failed\n"
+      Printf.printf "Results: %s %d passed, %s %d failed, %s %d skipped\n"
         (green "✓") !lp_pass
-        (red "✗") !lp_fail;
+        (red "✗") !lp_fail
+        (yellow "⊘") !lp_skip;
       rm_rf tmp_dir;
       !lp_fail = 0
 
