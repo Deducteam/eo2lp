@@ -225,7 +225,7 @@ command:
     let ty = prog_ty (doms,ran) in
     let qs = prog_ty_params ty ps in
     let rs = prog_cs_params cs ps in
-    [(s, Prog ((qs, ty), (rs, cs)))]
+    [(s, Prog ((qs, ty), (rs, cs), ps))]
   }
 
   | LPAREN; REFERENCE;
@@ -499,7 +499,7 @@ command_no_include:
     let ty = prog_ty (doms,ran) in
     let qs = prog_ty_params ty ps in
     let rs = prog_cs_params cs ps in
-    [(s, Prog ((qs, ty), (rs, cs)))]
+    [(s, Prog ((qs, ty), (rs, cs), ps))]
   }
   | LPAREN; REFERENCE;
       str = STRING ;

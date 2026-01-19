@@ -11,7 +11,7 @@ let wrangle = fun s -> s
   |> replace ('/', "div")
 
 (* LambdaPi reserved keywords that need renaming *)
-let reserved_keywords = ["as"; "in"; "let"; "open"; "require"; "rule"; "symbol"; "with"]
+let reserved_keywords = ["as"; "in"; "plet"; "open"; "require"; "rule"; "symbol"; "with"]
 
 let eo_name : string -> string =
   function
@@ -30,6 +30,14 @@ let eo_name : string -> string =
   (* otherwise, replace forbidden chars. *)
   | s -> wrangle s
 
+(* Parameter context for looking up types of quoted symbols *)
+let param_ctx : EO.param list ref = ref []
+
+let lookup_param_type (s : string) : EO.term option =
+  match L.find_opt (fun (s', _, _) -> s = s') !param_ctx with
+  | Some (_, ty, _) -> Some ty
+  | None -> None
+
 let rec eo_tm : EO.term -> term =
   function
   (* return `var [s]`.*)
@@ -44,8 +52,12 @@ let rec eo_tm : EO.term -> term =
     | ("_") as s, [t1;t2] ->
       app_binop (Var "⋅") (eo_tm t1, eo_tm t2)
 
-    | "->", _ ->
-      app_arr (L.map eo_tm ts)
+    | ("as"|"eo::as") as s, [t1;t2] ->
+      (* swap arguments! *)
+      app_binop (Var "eo._as") (eo_tm t2, eo_tm t1)
+
+    | "->", ts ->
+      eo_arrow ts
 
     | _  ->
       app_list (Var (eo_name s)) (L.map eo_tm ts)
@@ -64,6 +76,22 @@ let rec eo_tm : EO.term -> term =
   | _ as t -> Printf.ksprintf failwith
     "Term not fully elaborated: %s" (EO.term_str t)
 
+and eo_arrow (ts: EO.term list) : term =
+  match ts with
+  | [] -> Var "eo.Type"
+  | [t] -> eo_tm t
+  | EO.Apply ("eo::quote", [EO.Symbol s]) :: rest ->
+    (* Dependent type: (-> (eo::quote f) T2) where f has type T1
+       becomes: T1 ⤳d (λ f, T2) *)
+    let param_ty = match lookup_param_type s with
+      | Some ty -> eo_tm ty
+      | None -> failwith (Printf.sprintf "Could not find type for quoted param: %s" s)
+    in
+    let f_body = eo_arrow rest in
+    let f = Bind (Lambda, [(eo_name s, tau_of param_ty, Explicit)], f_body) in
+    app_binop (Var "⤳d") (param_ty, f)
+  | t :: rest ->
+    app_binop (Var "⤳") (eo_tm t, eo_arrow rest)
 
 let eo_att (atts : EO.attr list) : attr =
   if L.mem EO.Implicit atts
@@ -103,7 +131,7 @@ let rec insert_explicits_lhs
   : term =
   (* Type params use BracketApp for [T] syntax in patterns *)
   let bracket_app_list head args =
-    L.fold_left (fun acc arg -> BracketApp (acc, arg)) head args
+    L.fold_left (fun acc arg -> Exp (acc, arg)) head args
   in
   let type_pvars = L.map (fun s -> PVar (eo_name s)) (get_type_params ps) in
 
@@ -221,11 +249,11 @@ let rec apply_fresh_type_params (param_map : (string * string) list) (t : term) 
   | Var s ->
     (* Check if this symbol needs a type param *)
     begin match L.find_opt (fun (sym, _) -> eo_name sym = s) param_map with
-    | Some (_, param_name) -> BracketApp (Var s, Var param_name)
+    | Some (_, param_name) -> Exp (Var s, Var param_name)
     | None -> t
     end
   | App (f, arg) -> App (apply_fresh_type_params param_map f, apply_fresh_type_params param_map arg)
-  | BracketApp (f, arg) -> BracketApp (apply_fresh_type_params param_map f, apply_fresh_type_params param_map arg)
+  | Exp (f, arg) -> Exp (apply_fresh_type_params param_map f, apply_fresh_type_params param_map arg)
   | Bind (b, ps, body) ->
     let ps' = L.map (fun (x, ty, attr) -> (x, apply_fresh_type_params param_map ty, attr)) ps in
     Bind (b, ps', apply_fresh_type_params param_map body)
@@ -250,7 +278,8 @@ let eo_const (s,k : string * EO.const) : command list =
         None, eo_name s,
         [],
         Some (Var "Set"),
-        Some (Var alias_target)
+        Some (Var alias_target),
+        None
       )
     ]
 
@@ -265,15 +294,20 @@ let eo_const (s,k : string * EO.const) : command list =
         Some Constant, eo_name s,
         fresh_params @ eo_prm ps,
         Some (tau_of ty_with_params),
+        None,
         None
       )
     ]
 
-    | Prog ((ps,ty),(qs,cs)) ->
+    | Prog ((ps,ty),(qs,cs),all_ps) ->
+    (* Set param context for looking up types of quoted symbols.
+       Use all_ps (full original params) since it has all value params like f, x, n. *)
+    param_ctx := all_ps;
     let sym = Symbol (
         Some Sequential, eo_name s,
         eo_prm ps,
         Some (tau_of @@ eo_tm ty),
+        None,
         None
       )
     in
@@ -298,7 +332,8 @@ let eo_const (s,k : string * EO.const) : command list =
     [
       Symbol (None, eo_name s,
         eo_prm ps, None,
-        Some (eo_tm t))
+        Some (eo_tm t),
+        None)
     ]
 
     | Rule _ -> []

@@ -42,9 +42,13 @@ let replace (c, s : char * string) (str : string) : string =
 type binder =
   | Lambda | Pi
 and term =
-  | Var of string | PVar of string | Lit of literal
+  (* leaves. *)
+  | Const of string * param list
+  | Var of string | PVar of string
+  | MVar of int | Lit of literal
+  (* constructors. *)
   | App of term * term
-  | BracketApp of term * term  (* f [t] - explicit type argument in patterns *)
+  | Exp of term * term  (* f [t] - explicit argument. *)
   | Bind of binder * param list * term
   | Arrow of term * term
   | Let of string * term * term
@@ -60,7 +64,7 @@ type modifier =
 type command =
   | Symbol of
       modifier option * string *
-      param list * term option * term option
+      param list * term option * term option * string option
   | Rule of
       case list
   | Require of
@@ -95,12 +99,14 @@ let map_param (f : term -> term) : param -> param =
 
 let rec map_vars (f : string -> term) : term -> term =
   function
-  | Lit _ | PVar _ as t -> t
+  | Lit _ | PVar _ | MVar _ as t -> t
+  | Const (s, ps) ->
+      Const (s, L.map (map_param @@ map_vars f) ps)
   | Var s -> f s
   | App (t,t') ->
       App (map_vars f t, map_vars f t')
-  | BracketApp (t,t') ->
-      BracketApp (map_vars f t, map_vars f t')
+  | Exp (t,t') ->
+      Exp (map_vars f t, map_vars f t')
   | Arrow (t,t') ->
       Arrow (map_vars f t, map_vars f t')
   | Let (s,t,t') ->
@@ -137,6 +143,7 @@ let is_star_app = function
 
 let is_arrow_app = function
   | App (App (Var "⤳", _), _) -> true
+  | App (App (Var "⤳d", _), _) -> true
   | _ -> false
 
 let rec term_str : term -> string =
@@ -145,6 +152,8 @@ let rec term_str : term -> string =
   | App (Var "τ", Var "eo.Type") -> "Set"
   | Var ("eo.List__nil") -> "∎"
 
+  | Const (s, ps) -> s
+  | MVar i -> "?" ^ (string_of_int i)
   | Lit l -> literal_str l
   | PVar s -> "$" ^ s
   | Var s -> s
@@ -171,10 +180,18 @@ let rec term_str : term -> string =
     let s2 = if is_star_app t2 then Printf.sprintf "(%s)" (term_str t2) else term_str t2 in
     Printf.sprintf "%s ⤳ %s" s1 s2
 
+  (* ⤳d is the dependent arrow - also infix, right-associative *)
+  | App (App (Var "⤳d", t1), t2) ->
+    let s1 = if is_arrow_app t1 || is_star_app t1 then Printf.sprintf "(%s)" (term_str t1) else term_str_arg t1 in
+    let s2 = if is_star_app t2 then Printf.sprintf "(%s)" (term_str t2) else term_str t2 in
+    Printf.sprintf "%s ⤳d %s" s1 s2
+
   | App (t, t') ->
     Printf.sprintf "%s %s" (term_str t) (term_str_arg t')
-  | BracketApp (t, t') ->
+
+  | Exp (t, t') ->
     Printf.sprintf "%s [%s]" (term_str t) (term_str t')
+
   | Arrow (t, t') ->
     Printf.sprintf "(%s → %s)"
       (term_str t) (term_str t')
@@ -184,12 +201,12 @@ let rec term_str : term -> string =
       (S.concat_map " " param_str xs)
       (term_str t)
   | Let (s,t,t') ->
-    Printf.sprintf "(let %s ≔ %s in %s)"
+    Printf.sprintf "let %s ≔ %s in %s"
       s (term_str t) (term_str t')
 
 (* Print a term as an argument - parenthesize if needed *)
 and term_str_arg : term -> string = function
-  | (Var _ | Lit _ | PVar _) as t -> term_str t
+  | (Var _ | Lit _ | PVar _ | MVar _) as t -> term_str t
   | t -> Printf.sprintf "(%s)" (term_str t)
 and param_str : param -> string =
   function
@@ -212,15 +229,12 @@ let modifier_str =
 
 let command_str =
   function
-  | Symbol (m_opt, str, xs, ty_opt, def_opt) ->
+  | Symbol (m_opt, str, xs, ty_opt, def_opt, _) ->
     let m_str = match m_opt with
       | None -> ""
       | Some m -> modifier_str m ^ " "
     in
-    let xs_str = match xs with
-      | [] -> ""
-      | xs -> S.concat_map " " param_str xs
-    in
+    let params_str = S.concat " " (L.map param_str xs) in
     let ty_str = match ty_opt with
       | None -> ""
       | Some ty -> ": " ^ (term_str ty)
@@ -229,19 +243,14 @@ let command_str =
       | None -> ""
       | Some def -> " ≔ " ^ (term_str def)
     in
-    Printf.sprintf "%ssymbol %s %s%s%s;"
-      m_str str xs_str ty_str def_str
-  (* printing `rule <r> <with r>*`  *)
+    Printf.sprintf "%ssymbol %s %s%s%s;" m_str str params_str ty_str def_str
   | Rule cs ->
-      S.concat_map "\nwith " case_str cs
-      |> Printf.sprintf "rule %s;"
-  (* printing `require open <path>+`  *)
+    let case_strs = L.map case_str cs in
+    Printf.sprintf "rule %s;" (S.concat "\nwith " case_strs)
   | Require ps ->
-    let ps_str = String.concat " " ps in
-    Printf.sprintf "require open %s;" ps_str
-  (* printing `require <path> as <alias>;` *)
+    Printf.sprintf "require open %s;" (String.concat " " ps)
   | RequireAs (path, alias) ->
     Printf.sprintf "require %s as %s;" path alias
 
 let sig_str : signature -> string =
-  S.concat_map "\n" command_str
+  S.concat_map "\n\n" command_str

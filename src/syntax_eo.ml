@@ -55,7 +55,8 @@ type param = string * term * (attr list)
 type const =
   | Decl of param list * term * attr option
   | Defn of param list * term
-  | Prog of (param list * term) * (param list * case list)
+  | Prog of (param list * term) * (param list * case list) * param list
+  (* Prog ((type_params, sig_type), (case_params, cases), all_params) *)
   | Rule of param list * term * term list * term list * case list * term
   (* Rule (ps,assm,prems,args,reqs,conc)  *)
 type signature = (string * const) list
@@ -175,15 +176,59 @@ let prog_ty
 =
   Apply ("->", List.append doms [ran])
 
-let prog_ty_params (t : term)
-  : param list -> param list =
-  let f (s,ty,_) =
-    if is_free s t then
-      Some (s, ty, [Implicit])
-    else
-      None
+(* Compute type parameters for a program signature, ordered by dependency.
+   Parameters that are used by other parameters must come first.
+   Uses params_in to find which params from ps occur free in a term.
+
+   For dependent types with eo::quote, we need to:
+   1. Find all params (including value params) referenced in the signature
+   2. For value params, transitively find type params in their types
+   3. Return only type params, properly ordered by dependency *)
+let prog_ty_params (t : term) (ps : param list) : param list =
+  let type_params = L.filter (fun (_,ty,_) -> ty = Symbol "Type") ps in
+  (* Find all params from ps that occur free in term *)
+  let all_free_params_in term =
+    let free_set = params_in ps term in
+    L.filter (fun (s,_,_) -> Set.mem s free_set) ps
   in
-    L.filter_map f
+  (* Find type params from type_params that occur free in term *)
+  let free_type_params_in term =
+    let free_set = params_in type_params term in
+    L.filter (fun (s,_,_) -> Set.mem s free_set) type_params
+  in
+  (* Get all params directly free in the type expression t *)
+  let direct_params = all_free_params_in t in
+  (* Collect type params: either directly referenced or via value param types *)
+  let rec collect_type_params visited acc = function
+    | [] -> acc
+    | (s, ty, atts) :: rest when Set.mem s visited ->
+        collect_type_params visited acc rest
+    | (s, ty, atts) :: rest ->
+        let visited' = Set.add s visited in
+        if ty = Symbol "Type" then
+          (* This is a type param - add it and recurse on its deps *)
+          let deps = free_type_params_in ty in
+          let acc' = collect_type_params visited' acc deps in
+          collect_type_params visited' (acc' @ [(s, ty, atts)]) rest
+        else
+          (* This is a value param - find type params in its type *)
+          let type_deps = free_type_params_in ty in
+          let acc' = collect_type_params visited' acc type_deps in
+          collect_type_params visited' acc' rest
+  in
+  let all_type_params = collect_type_params Set.empty [] direct_params in
+  (* Remove duplicates while preserving order (first occurrence wins) *)
+  let unique_params =
+    let seen = ref Set.empty in
+    L.filter (fun (s,_,_) ->
+      if Set.mem s !seen then false
+      else (seen := Set.add s !seen; true)
+    ) all_type_params
+  in
+  (* Mark all as implicit *)
+  unique_params
+  |> L.map (fun (s, ty, atts) ->
+       if L.mem Implicit atts then (s,ty,atts) else (s, ty, [Implicit]))
 
 let prog_cs_params (cs : case list)
   : param list -> param list =
@@ -334,7 +379,7 @@ let const_str : (string * const) -> string =
     Printf.sprintf "(defn %s (%s) %s)"
       s (list_str param_str ps)
       (term_str t)
-  | s, Prog ((ps,t), (qs,cs)) ->
+  | s, Prog ((ps,t), (qs,cs), _all_ps) ->
     Printf.sprintf "(prog %s ((%s) %s) (..))"
       s (list_str param_str ps)
       (term_str t)
