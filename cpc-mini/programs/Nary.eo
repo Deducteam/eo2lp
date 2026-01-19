@@ -25,7 +25,7 @@
    (f (-> T U V)) (n Int) (x1 W1) (x2 W2))
   :signature ((-> T U V) W Int) Type
   (
-  (($assoc_nil_nth_type f (f x1 x2) 0)   (eo::typeof x1))
+  (($assoc_nil_nth_type f (f x1 x2) 0)   T)
   (($assoc_nil_nth_type f (f x1 x2) n)   ($assoc_nil_nth_type f x2 (eo::add n -1)))
   )
 )

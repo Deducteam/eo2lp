@@ -44,7 +44,9 @@ let speclist = [
   ("-v", Arg.Unit (fun () -> config := { !config with verbose = true }),
    " Verbose output");
   ("--debug", Arg.Unit (fun () -> config := { !config with debug = true }),
-   " Debug mode: read from ./cpc-mini, write to ./cpc, verbose output");
+   " Debug mode: read from ./cpc-mini, write to ./cpc, run lambdapi check");
+  ("--verbose", Arg.Unit (fun () -> config := { !config with debug = true; verbose = true }),
+   " Debug mode with verbose lambdapi output (shows inference/unification)");
 ]
 
 (* ============================================================
@@ -91,7 +93,7 @@ let generate_lp_file graph pkg_name output_dir path =
   | Some node ->
       let full_sig = EO.full_sig_at graph path in
       let elab_sig = EO.elab_sig_with_ctx full_sig node.node_sig in
-      let lp_sig = LP.eo_sig elab_sig in
+      let lp_sig = LP.eo_sig_with_overloads elab_sig in
       let out_path = Filename.concat output_dir (String.concat "/" path ^ ".lp") in
       mkdir_p (Filename.dirname out_path);
       let prelude_module = pkg_name ^ ".Prelude" in
@@ -129,6 +131,12 @@ let translate input_dir output_dir =
    Debug mode with lambdapi checking
    ============================================================ *)
 
+(* Verbosity level for debug mode:
+   0 = quiet (just pass/fail)
+   1 = normal (show errors)
+   2 = verbose (show lambdapi debug info for failures) *)
+let debug_verbosity = ref 1
+
 let run_lambdapi_check graph output_dir paths =
   let pkg_name = Filename.basename output_dir in
   let total = List.length paths in
@@ -149,7 +157,9 @@ let run_lambdapi_check graph output_dir paths =
         Printf.printf "  - %s (skipped)\n" module_name
     | None ->
         let rel_path = String.concat "/" path ^ ".lp" in
-        let cmd = Printf.sprintf "cd %s && lambdapi check -w -v 0 %s 2>&1" output_dir rel_path in
+        (* Use debug flags for verbose mode: i=inference, u=unification *)
+        let debug_flags = if !debug_verbosity >= 2 then "--debug=iu" else "" in
+        let cmd = Printf.sprintf "cd %s && lambdapi check %s -w %s 2>&1" output_dir debug_flags rel_path in
         let ic = Unix.open_process_in cmd in
         let output = Buffer.create 256 in
         (try while true do Buffer.add_channel output ic 1 done with End_of_file -> ());
@@ -175,10 +185,12 @@ let run_lambdapi_check graph output_dir paths =
   end;
   List.length !failed = 0
 
-let debug_mode () =
+let debug_mode ~verbose =
   let input_dir = "./cpc-mini" in
   let output_dir = "./cpc" in
-  Printf.printf "eo2lp debug mode\n";
+  (* Set verbosity level based on verbose flag *)
+  debug_verbosity := if verbose then 2 else 1;
+  Printf.printf "eo2lp debug mode%s\n" (if verbose then " (verbose)" else "");
   Printf.printf "  input:  %s\n" input_dir;
   Printf.printf "  output: %s\n\n" output_dir;
   let graph = EO.build_sig_graph input_dir in
@@ -208,7 +220,7 @@ let main () =
   Arg.parse speclist (fun _ -> ()) usage;
   let cfg = !config in
   if cfg.debug then
-    debug_mode ()
+    debug_mode ~verbose:cfg.verbose
   else
     match cfg.input_dir, cfg.output_dir with
     | Some input_dir, Some output_dir ->

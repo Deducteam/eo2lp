@@ -3,6 +3,36 @@ open Syntax_lp
 
 let encode_hook = ref (fun _ f -> f ())
 
+(* Track overloaded symbol counts for name mangling.
+   Maps base name -> count of declarations seen so far.
+   First occurrence gets no suffix, second gets ', third gets '', etc. *)
+let overload_counts : (string, int) Hashtbl.t = Hashtbl.create 32
+
+let reset_overload_counts () = Hashtbl.clear overload_counts
+
+(* Get the mangled name for an overloaded symbol.
+   Returns the name with appropriate number of ' suffixes. *)
+let get_overloaded_name (base_name : string) : string =
+  let count = match Hashtbl.find_opt overload_counts base_name with
+    | Some n -> n
+    | None -> 0
+  in
+  Hashtbl.replace overload_counts base_name (count + 1);
+  if count = 0 then base_name
+  else base_name ^ String.make count '\''
+
+(* Lookup table for resolving overloaded symbols during elaboration.
+   Maps (base_name, index) -> mangled_name, where index is 0-based. *)
+let overload_table : (string * int, string) Hashtbl.t = Hashtbl.create 32
+
+let clear_overload_table () = Hashtbl.clear overload_table
+
+let add_overload_entry (base_name : string) (index : int) (mangled_name : string) : unit =
+  Hashtbl.add overload_table (base_name, index) mangled_name
+
+let get_overload_entry (base_name : string) (index : int) : string option =
+  Hashtbl.find_opt overload_table (base_name, index)
+
 let wrangle = fun s -> s
   |> replace ('.',"_")
   |> replace (':', "_")
@@ -51,7 +81,8 @@ let rec eo_tm : EO.term -> term =
     begin match s,ts with
     | ("_") as s, [t1;t2] ->
       app_binop (Var "⋅") (eo_tm t1, eo_tm t2)
-
+    | ("eo::requires", ([t1;t2;t3] as ts)) ->
+      app_list (Var "??") (L.map eo_tm ts)
     | ("as"|"eo::as") as s, [t1;t2] ->
       (* swap arguments! *)
       app_binop (Var "eo._as") (eo_tm t2, eo_tm t1)
@@ -115,6 +146,20 @@ let get_type_params (ps : EO.param list) : string list =
     | _ -> None
   ) ps
 
+(* Set of type constructor symbols (symbols whose type returns Type).
+   This is populated during encoding and used to determine whether
+   to use regular application or HO application in patterns. *)
+let type_constructors : (string, unit) Hashtbl.t = Hashtbl.create 32
+
+let is_type_constructor (s : string) : bool =
+  Hashtbl.mem type_constructors s
+
+let add_type_constructor (s : string) : unit =
+  Hashtbl.add type_constructors s ()
+
+let clear_type_constructors () : unit =
+  Hashtbl.clear type_constructors
+
 (* Insert explicit type args into pattern LHS.
    - For the program symbol itself, add type params as explicit args
    - For eo::List::cons, infer the type from the first argument
@@ -122,6 +167,7 @@ let get_type_params (ps : EO.param list) : string list =
    The term structure uses ⋅ for higher-order application, so:
    - (f ⋅ x ⋅ y) is represented as App(App(Var "⋅", App(App(Var "⋅", f), x)), y)
    - We need to find the "real" head symbol by looking through ⋅ applications
+   - Type constructors use regular application (no ⋅)
 *)
 let rec insert_explicits_lhs
     (ps : EO.param list)  (* program's type params *)
@@ -181,8 +227,12 @@ let rec insert_explicits_lhs
         rebuild_ho_app head_with_type args'
       | [] -> rebuild_ho_app real_head args'
       end
+    | Var s when is_type_constructor s ->
+      (* Type constructor - use regular application, not HO application *)
+      let args' = L.map (insert_explicits_lhs ps qs prog_sym) ho_args in
+      app_list real_head args'
     | _ ->
-      (* Other applications - recurse on args *)
+      (* Other applications - recurse on args using HO application *)
       let args' = L.map (insert_explicits_lhs ps qs prog_sym) ho_args in
       rebuild_ho_app real_head args'
     end
@@ -261,50 +311,117 @@ let rec apply_fresh_type_params (param_map : (string * string) list) (t : term) 
   | Arrow (t1, t2) -> Arrow (apply_fresh_type_params param_map t1, apply_fresh_type_params param_map t2)
   | _ -> t
 
-(* Types that should be aliased to Prelude/Stdlib types instead of being fresh constants *)
-let type_aliases = [
-  ("Int", "eo.Z");   (* Int -> Z (which is int from Stdlib) *)
-  ("Real", "eo.Q");  (* Real -> Q (rationals) *)
-]
+(* Mapping from literal categories to their Prelude type names *)
+let prelude_type_of_lit_category : Literal.lit_category -> string =
+  function
+  | Literal.NUM -> "eo.Z"    (* numerals are integers *)
+  | Literal.RAT -> "eo.Q"    (* rationals *)
+  | Literal.DEC -> "eo.Q"    (* decimals are rationals *)
+  | Literal.STR -> "eo.Str"  (* strings *)
+  | Literal.BIN -> "eo.Z"    (* binary literals - TODO: proper BitVec support *)
+  | Literal.HEX -> "eo.Z"    (* hex literals - TODO: proper BitVec support *)
 
-let eo_const (s,k : string * EO.const) : command list =
+(* Get the Prelude type alias for a user-defined type name, if it was
+   declared via `(declare-consts <category> <type>)`.
+   For example, if we have `(declare-consts <numeral> Int)`, then
+   `get_type_alias "Int"` returns `Some "eo.Z"`. *)
+let get_type_alias (type_name : string) : string option =
+  (* Check each literal category to see if this type was declared for it *)
+  let categories = [Literal.NUM; Literal.RAT; Literal.DEC; Literal.STR; Literal.BIN; Literal.HEX] in
+  L.find_map (fun cat ->
+    match EO.get_lit_type cat with
+    | Some declared_type when declared_type = type_name ->
+        Some (prelude_type_of_lit_category cat)
+    | _ -> None
+  ) categories
+
+(* Check if a type name should be aliased to a Prelude type *)
+let is_type_alias (type_name : string) : bool =
+  get_type_alias type_name <> None
+
+(* Check if a type returns Type (i.e., is a type constructor) *)
+let rec eo_returns_type : EO.term -> bool = function
+  | EO.Symbol "Type" -> true
+  | EO.Apply ("->", ts) when ts <> [] -> eo_returns_type (L.hd (L.rev ts))
+  | _ -> false
+
+(* Encode a single constant, returning the mangled name used *)
+let eo_const_with_name (s,k : string * EO.const) : (string * command list) =
   !encode_hook s (fun () ->
     match k with
-    | Decl (ps, EO.Symbol "Type", _) when L.mem_assoc s type_aliases ->
-    (* This is a type declaration that should be an alias *)
-    let alias_target = L.assoc s type_aliases in
-    [
+    | Decl ([], EO.Symbol "Type", _) when is_type_alias s ->
+    (* This is a type declaration that should be an alias based on declare-consts *)
+    let alias_target = Option.get (get_type_alias s) in
+    let mangled = get_overloaded_name (eo_name s) in
+    (* Generate ⊍ (type union) rules for numeric type aliases.
+       This is needed because ⊍ rules match syntactically, so Int ⊍ Int
+       won't reduce unless we add explicit rules for Int. *)
+    let union_rules =
+      if alias_target = "eo.Z" || alias_target = "eo.Q" then
+        (* Helper to build T1 ⊍ T2 *)
+        let union t1 t2 = App (App (Var "eo.⊍", t1), t2) in
+        (* Add rules: T ⊍ T ↪ T, and cross-rules with Z/Q if needed *)
+        let t = Var mangled in
+        let base_rules = [
+          (union t t, t);  (* T ⊍ T ↪ T *)
+        ] in
+        (* Add cross-rules with the base type and the other numeric type *)
+        let z = Var "eo.Z" in
+        let q = Var "eo.Q" in
+        let cross_rules =
+          if alias_target = "eo.Z" then [
+            (union t z, t);   (* T ⊍ Z ↪ T (since T = Z) *)
+            (union z t, t);   (* Z ⊍ T ↪ T *)
+            (union t q, q);   (* T ⊍ Q ↪ Q *)
+            (union q t, q);   (* Q ⊍ T ↪ Q *)
+          ]
+          else (* alias_target = "eo.Q" *) [
+            (union t q, t);   (* T ⊍ Q ↪ T (since T = Q) *)
+            (union q t, t);   (* Q ⊍ T ↪ T *)
+            (union t z, t);   (* T ⊍ Z ↪ T *)
+            (union z t, t);   (* Z ⊍ T ↪ T *)
+          ]
+        in
+        [Rule (base_rules @ cross_rules)]
+      else
+        []
+    in
+    (mangled, [
       Symbol (
-        None, eo_name s,
+        None, mangled,
         [],
         Some (Var "Set"),
         Some (Var alias_target),
         None
       )
-    ]
+    ] @ union_rules)
 
     | Decl (ps,ty,_) ->
+    (* Register type constructors (symbols whose type returns Type) *)
+    if eo_returns_type ty then add_type_constructor (eo_name s);
     (* Check if the type contains symbols that need fresh type parameters *)
     let poly_symbols = find_unapplied_poly_symbols ty in
     let fresh_params = L.map (fun (_, name) -> (name, Var "Set", Implicit)) poly_symbols in
     let ty_encoded = eo_tm ty in
     let ty_with_params = apply_fresh_type_params poly_symbols ty_encoded in
-    [
+    let mangled = get_overloaded_name (eo_name s) in
+    (mangled, [
       Symbol (
-        Some Constant, eo_name s,
+        Some Constant, mangled,
         fresh_params @ eo_prm ps,
         Some (tau_of ty_with_params),
         None,
         None
       )
-    ]
+    ])
 
     | Prog ((ps,ty),(qs,cs),all_ps) ->
     (* Set param context for looking up types of quoted symbols.
        Use all_ps (full original params) since it has all value params like f, x, n. *)
     param_ctx := all_ps;
+    let mangled = get_overloaded_name (eo_name s) in
     let sym = Symbol (
-        Some Sequential, eo_name s,
+        Some Sequential, mangled,
         eo_prm ps,
         Some (tau_of @@ eo_tm ty),
         None,
@@ -313,7 +430,7 @@ let eo_const (s,k : string * EO.const) : command list =
     in
     if cs = [] then
       (* Forward declaration with no cases - just emit the symbol *)
-      [sym]
+      (mangled, [sym])
     else
       (* Encode LHS with explicit type params, RHS without *)
       let encode_lhs t =
@@ -321,23 +438,115 @@ let eo_const (s,k : string * EO.const) : command list =
         insert_explicits_lhs ps qs s t'
       in
       let encode_rhs t = bind_pvars qs (eo_tm t) in
-      [sym; Rule (L.map (fun (lhs, rhs) -> (encode_lhs lhs, encode_rhs rhs)) cs)]
+      (mangled, [sym; Rule (L.map (fun (lhs, rhs) -> (encode_lhs lhs, encode_rhs rhs)) cs)])
 
     | Defn ([], EO.Symbol _) ->
     (* Skip encoding macro-like definitions: (define @foo () @@foo)
        These are expanded during elaboration and should not appear in LambdaPi. *)
-    []
+    ("", [])
+
+    | Defn ([], _) when is_type_alias s ->
+    (* Type definition that should be aliased to a Prelude type based on declare-consts *)
+    let alias_target = Option.get (get_type_alias s) in
+    let mangled = get_overloaded_name (eo_name s) in
+    (* Generate ⊍ (type union) rules for numeric type aliases.
+       This is needed because ⊍ rules match syntactically, so Int ⊍ Int
+       won't reduce unless we add explicit rules for Int. *)
+    let union_rules =
+      if alias_target = "eo.Z" || alias_target = "eo.Q" then
+        (* Helper to build T1 ⊍ T2 *)
+        let union t1 t2 = App (App (Var "eo.⊍", t1), t2) in
+        (* Add rules: T ⊍ T ↪ T, and cross-rules with Z/Q if needed *)
+        let t = Var mangled in
+        let base_rules = [
+          (union t t, t);  (* T ⊍ T ↪ T *)
+        ] in
+        (* Add cross-rules with the base type and the other numeric type *)
+        let z = Var "eo.Z" in
+        let q = Var "eo.Q" in
+        let cross_rules =
+          if alias_target = "eo.Z" then [
+            (union t z, t);   (* T ⊍ Z ↪ T (since T = Z) *)
+            (union z t, t);   (* Z ⊍ T ↪ T *)
+            (union t q, q);   (* T ⊍ Q ↪ Q *)
+            (union q t, q);   (* Q ⊍ T ↪ Q *)
+          ]
+          else (* alias_target = "eo.Q" *) [
+            (union t q, t);   (* T ⊍ Q ↪ T (since T = Q) *)
+            (union q t, t);   (* Q ⊍ T ↪ T *)
+            (union t z, t);   (* T ⊍ Z ↪ T *)
+            (union z t, t);   (* Z ⊍ T ↪ T *)
+          ]
+        in
+        [Rule (base_rules @ cross_rules)]
+      else
+        []
+    in
+    (mangled, [
+      Symbol (None, mangled,
+        [],
+        Some (Var "Set"),
+        Some (Var alias_target),
+        None)
+    ] @ union_rules)
 
     | Defn (ps,t) ->
-    [
-      Symbol (None, eo_name s,
+    let mangled = get_overloaded_name (eo_name s) in
+    (mangled, [
+      Symbol (None, mangled,
         eo_prm ps, None,
         Some (eo_tm t),
         None)
-    ]
+    ])
 
-    | Rule _ -> []
+    | Rule _ -> ("", [])
   )
+
+let eo_const (s,k : string * EO.const) : command list =
+  let (_, cmds) = eo_const_with_name (s, k) in cmds
 
 let eo_sig : EO.signature -> signature =
   L.concat_map eo_const
+
+(* Encode a signature while building the overload table.
+   Returns the encoded signature and populates the overload_table. *)
+let eo_sig_with_overloads (sgn : EO.signature) : signature =
+  reset_overload_counts ();
+  clear_overload_table ();
+  clear_type_constructors ();
+  (* Group symbols by base name to track overload indices *)
+  let name_indices : (string, int) Hashtbl.t = Hashtbl.create 32 in
+  let get_index name =
+    let idx = match Hashtbl.find_opt name_indices name with
+      | Some n -> n
+      | None -> 0
+    in
+    Hashtbl.replace name_indices name (idx + 1);
+    idx
+  in
+  L.concat_map (fun (s, k) ->
+    let base_name = eo_name s in
+    let idx = get_index s in  (* Use original name for index tracking *)
+    let (mangled, cmds) = eo_const_with_name (s, k) in
+    if mangled <> "" then
+      add_overload_entry base_name idx mangled;
+    cmds
+  ) sgn
+
+(* Get all mangled names for a given base symbol name *)
+let get_all_overloads (base_name : string) : string list =
+  let rec collect idx acc =
+    match get_overload_entry base_name idx with
+    | Some mangled -> collect (idx + 1) (mangled :: acc)
+    | None -> L.rev acc
+  in
+  collect 0 []
+
+(* Get the number of overloads for a symbol *)
+let get_overload_count (base_name : string) : int =
+  let rec count idx =
+    match get_overload_entry base_name idx with
+    | Some _ -> count (idx + 1)
+    | None -> idx
+  in
+  count 0

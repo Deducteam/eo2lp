@@ -111,7 +111,7 @@ sequential symbol cmp [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
 
 // `(is_var t)`: Equivalent to `(is_eq (var (nameof t) (typeof t)) t)`.
 sequential symbol is_var [T : Set]: τ (T ⤳ Bool);
-rule is_var (var $s _) ↪ true
+rule is_var (var _ _) ↪ true
 with is_var _          ↪ false;
 
 // `(is_z t)`: Equivalent to `(is_eq (to_z t) t)`.
@@ -287,7 +287,7 @@ sequential symbol nil [T1 T2]
 sequential symbol cons [U : Set] [T : Set] :
 	τ ((U ⤳ T ⤳ T) ⤳ U ⤳ T ⤳ T);
 rule cons $f $x ($f ⋅ $y ⋅ $ys)
-  ↪ $f $x ($f ⋅ $y ⋅ $ys)
+  ↪ $f ⋅ $x ⋅ ($f ⋅ $y ⋅ $ys)
 with cons [_] [$T] $f $x $xs
   ↪ requires $xs (nil $f $T) ($f ⋅ $x ⋅ $xs);
 
@@ -313,6 +313,9 @@ rule list_concat $f $xs $ys ↪ fold $f (unfold $f $xs L.++ unfold $f $ys);
 // `(list_len f t)`: If `t` is an `f`-list with children `t1 ... tn`, then
 // this returns `n`.
 symbol length [a] : L.𝕃 a → Int.ℤ;
+rule length L.□ ↪ 0
+with length (_ L.⸬ $xs) ↪ 1 Int.+ length $xs;
+
 sequential symbol list_len [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) :
   τ (T2 ⤳ <int>);
 rule list_len $f $xs ↪ length (unfold $f $xs);
@@ -320,7 +323,10 @@ rule list_len $f $xs ↪ length (unfold $f $xs);
 // `(list_nth f t1 t2)`: If `t1` is `(f s0 ... s{n-1})` and `t2` is a numeral
 // value such that `0<=t2<n`, then this returns `s_{t2}`. Otherwise, this
 // operator does not evaluate.
-symbol nth [a] : L.𝕃 a → Int.ℤ → τ a;
+sequential symbol nth [a] : L.𝕃 a → Int.ℤ → τ a;
+rule nth ($x L.⸬ _) 0 ↪ $x
+with nth (_ L.⸬ $xs) $n ↪ nth $xs ($n Int.+ -1);
+
 sequential symbol list_nth [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ <int> ⤳ T1);
 rule list_nth $f $xs $i ↪ nth (unfold $f $xs) $i;
 
@@ -329,40 +335,95 @@ rule list_nth $f $xs $i ↪ nth (unfold $f $xs) $i;
 // `si`, or `-1` if no such `si` can be found. Otherwise, this operator does
 // not evaluate.
 symbol index [a] : τ a → L.𝕃 a → Int.ℤ;
-rule index $x ($y L.⸬ $xs) ↪ ite (eq (index $x $xs)
-with index $x L.□ ↪ -1;
+rule index $x ($y L.⸬ $xs) ↪
+  ite (eq $x $y) 0 (1 Int.+ index $x $xs);
 
-compute index 4 (0 L.⸬ 1 L.⸬ 2 L.⸬ L.□);
+sequential symbol list_mem [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ Bool);
+rule list_mem [$T1] [_] $f $xs $x ↪ L.∈ (eq [$T1] [$T1]) $x (unfold $f $xs);
 
 sequential symbol list_find [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ <int>);
-rule list_find $f $t1 $t2 ↪ L.index (unfold $f $t1) $t2;
+rule list_find $f $xs $x
+  ↪ ite (list_mem $f $xs $x) (index $x (unfold $f $xs)) -1;
 
 // `(list_rev f t1)`: If `t1` is an `f`-list with children `t11 ... t1n`,
 // then this returns `(f t1n ... t11)`.
 sequential symbol list_rev [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
-// `(list_erase f t1 t2)`: If `t1` is an `f`-list, then this returns the
+rule list_rev $f $xs ↪ fold $f (L.rev (unfold $f $xs));
+
+// `(list_erase f t1 t2)`:
+// If `t1` is an `f`-list, then this returns the
 // result of removing the first occurrence of `t2` from `t1` if it exists.
 // Returns `t1` unchanged if it does not contain `t2`.
+symbol rem [a] : τ a → L.𝕃 a → L.𝕃 a;
+rule rem _ L.□ ↪ L.□
+with rem $x ($y L.⸬ $ys)
+  ↪ ite (eq $x $y) $ys ($y L.⸬ rem $x $ys);
+
 sequential symbol list_erase [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ T2);
+rule list_erase $f $xs $x ↪ fold $f (rem $x (unfold $f $xs));
+
 // `(list_erase_all f t1 t2)`: If `t1` is an `f`-list, then this returns the
 // result of removing all occurrences of `t2` from `t1`, where the remaining
 // elements are kept in order. Returns `t1` unchanged if it does not
 // contain `t2`.
 sequential symbol list_erase_all [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ T2);
+rule list_erase_all $f $xs $x
+  ↪ let ys ≔ unfold $f $xs in
+    let ys' ≔ L.filter (λ y, not (eq $x y)) ys in
+    fold $f ys';
+
 // `(list_setof f t1)`: If `t1` is an `f`-list with children `t11 ... t1n`,
 // this returns the `f`-list obtained by dropping each element from this list
 // beyond the first occurrence. Note that the remaining elements are kept in
 // order.
+
+// Helper: undup that keeps FIRST occurrence (stdlib's undup keeps last)
+// Eunoia spec says list_setof should keep first occurrence
+symbol undup_first [a] : L.𝕃 a → L.𝕃 a;
+rule undup_first L.□ ↪ L.□
+with undup_first ($x L.⸬ $xs) ↪
+  $x L.⸬ undup_first (L.filter (λ y, not (eq $x y)) $xs);
+
 sequential symbol list_setof [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
+rule list_setof $f $xs
+  ↪ let ys ≔ unfold $f $xs in
+    fold $f (undup_first ys);
+
+// Helper: count occurrences of an element in a list
+symbol count_occ [a] : τ a → L.𝕃 a → Int.ℤ;
+rule count_occ _ L.□ ↪ 0
+with count_occ $x ($y L.⸬ $ys) ↪ ite (eq $x $y) (1 Int.+ count_occ $x $ys) (count_occ $x $ys);
+
+
+
+// Helper: check if for all elements of first list, their count in first list
+// is <= their count in second list
+symbol minclude_check [a] : L.𝕃 a → L.𝕃 a → L.𝕃 a → 𝔹;
+rule minclude_check _ L.□ _ ↪ true
+with minclude_check $full ($x L.⸬ $xs) $ys ↪
+  and (not (isGt (count_occ $x $full Int.≐ count_occ $x $ys)))
+      (minclude_check $full $xs $ys);
+
+
 // `(list_minclude f t1 t2)`: (Multiset inclusion) If `t1` is an `f`-list
 // with children `t11 ... t1n` and `t2` is an `f`-list with children
 // `t21 ... t2m`, then this returns true if each unique element in
 // `t11 ... t1n` occurs with the greater than or equal multiplicity in
 // `t21 ... t2m`. Note that order of the elements does not matter.
 sequential symbol list_minclude [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ Bool);
+rule list_minclude $f $xs $ys ↪
+  let xs' ≔ unfold $f $xs in
+  let ys' ≔ unfold $f $ys in
+  minclude_check xs' xs' ys';
+
+
 // `(list_meq f t1 t2)`: (Multiset equal) Equivalent to
 // `(and (list_minclude f t1 t2) (list_minclude f t2 t1))`.
 sequential symbol list_meq [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ Bool);
+rule list_meq $f $xs $ys ↪ and (list_minclude $f $xs $ys) (list_minclude $f $ys $xs);
+
+
+
 // `(list_diff f t1 t2)`: (Difference) If `t1` is an `f`-list with children
 // `t11 ... t1n` and `t2` is an `f`-list with children `t21 ... t2m`, this
 // returns the result of erasing elements of `t11 ... t1n` that occur in
@@ -370,21 +431,55 @@ sequential symbol list_meq [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 �
 // `i = 1, ..., n`, if `t1i` occurs in `t21 ... t2m`, we remove one copy of
 // it from that list. Otherwise if `t1i` does not occur in `t21 ... t2m`,
 // we append it to the final result.
+// Helper: diff_aux xs ys returns (result, remaining_ys)
+// where result contains elements of xs not in ys (with multiplicity)
+symbol diff_aux [a] : L.𝕃 a → L.𝕃 a → L.𝕃 a;
+rule diff_aux L.□ _ ↪ L.□
+with diff_aux ($x L.⸬ $xs) $ys ↪
+  ite (L.∈ eq $x $ys)
+      (diff_aux $xs (rem $x $ys))
+      ($x L.⸬ diff_aux $xs $ys);
+
 sequential symbol list_diff [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
+rule list_diff $f $xs $ys ↪
+  fold $f (diff_aux (unfold $f $xs) (unfold $f $ys));
 // `(list_inter f t1 t2)`: (Intersection) If `t1` is an `f`-list with
 // children `t11 ... t1n` and `t2` is an `f`-list with children
 // `t21 ... t2m`, this returns the result of erasing elements of `t11 ... t1n`
 // that do not occur in `t21 ... t2m` where multiplicity is considered. In
 // detail, for each `i = 1, ..., n`, if `t1i` occurs in `t21 ... t2m`, we
 // erase one copy of it from that list and append it to the final result.
+// Helper: inter_aux xs ys returns elements of xs that are also in ys (with multiplicity)
+symbol inter_aux [a] : L.𝕃 a → L.𝕃 a → L.𝕃 a;
+rule inter_aux L.□ _ ↪ L.□
+with inter_aux ($x L.⸬ $xs) $ys ↪
+  ite (L.∈ eq $x $ys)
+      ($x L.⸬ inter_aux $xs (rem $x $ys))
+      (inter_aux $xs $ys);
+
 sequential symbol list_inter [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
+rule list_inter $f $xs $ys ↪
+  fold $f (inter_aux (unfold $f $xs) (unfold $f $ys));
 // `(list_singleton_elim f t1)`: (Singleton elimination) If `t1` is an
 // `f`-list containing a single child `t11`, this returns `t11`. All other
 // `f`-lists `t1` are returned unchanged. Otherwise, this operator does not
 // evaluate.
-sequential symbol list_singleton_elim [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
+// Note: In Eunoia, this can return T1 when singleton but T2 otherwise.
+// For our encoding, we restrict to the common case where T1 = T2.
+sequential symbol list_singleton_elim [T] (f : τ (T ⤳ T ⤳ T)) : τ (T ⤳ T);
+// Helper to check if unfolded list is a singleton and return element or original
+sequential symbol singleton_elim_aux [T] : τ (T ⤳ T ⤳ T) → L.𝕃 T → τ T → τ T;
+// If the list has exactly one element, return that element
+// Otherwise return the original term
+rule singleton_elim_aux _ ($x L.⸬ L.□) _ ↪ $x
+with singleton_elim_aux _ _ $orig ↪ $orig;
+
+rule list_singleton_elim $f $xs ↪ singleton_elim_aux $f (unfold $f $xs) $xs;
 
 // eo::List, eo::List::cons, eo::List::nil
 symbol List : τ Type;
 sequential symbol List__nil : τ List; symbol ∎ ≔ List__nil;
 sequential symbol List__cons [T : Set]: τ (T ⤳ List ⤳ List);
+
+// nil rule for List__cons
+rule nil List__cons List ↪ List__nil;
