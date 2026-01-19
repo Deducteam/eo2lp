@@ -45,15 +45,13 @@ function
   end
 (* ---- applications. ---- *)
 | Apply (s, ts) ->
-  (* if !debug then
-    Printf.printf "Elaborating: %s\n" (Syntax_eo.term_str (Apply (s, ts))); *)
+
   if is_builtin s then
     Apply (s, L.map (elab ctx) ts)
   else
     begin match prm_find s ps with
     | Some (s,ty,ao) ->
       app_ho_list (Symbol s) (L.map (elab ctx) ts)
-
     | None ->
       begin match
         sgn |> L.filter_map
@@ -203,7 +201,7 @@ and elab_const (ctx : context) : const -> const =
     let sgn, _ = ctx in
     let ctx' = (sgn, ps') in
     Defn (ps', elab ctx' t)
-  | Prog ((ps, ty), (qs, cs)) ->
+  | Prog ((ps, ty), (qs, cs), all_ps) ->
     let sgn, outer_ps = ctx in
     let ps' = elab_prm ctx ps in
     let ctx_ty = (sgn, outer_ps @ ps') in
@@ -211,7 +209,8 @@ and elab_const (ctx : context) : const -> const =
     let qs' = elab_prm ctx qs in
     let ctx_cs = (sgn, outer_ps @ ps' @ qs') in
     let cs' = elab_cs ctx_cs cs in
-    Prog ((ps', ty'), (qs', cs'))
+    let all_ps' = elab_prm ctx all_ps in
+    Prog ((ps', ty'), (qs', cs'), all_ps')
 
 let elab_hook : (string -> (unit -> 'a) -> 'a) ref = ref (fun _ f -> f ())
 

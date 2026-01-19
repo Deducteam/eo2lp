@@ -22,12 +22,14 @@ type config = {
   input_dir : string option;
   output_dir : string option;
   verbose : bool;
+  debug : bool;
 }
 
 let default_config = {
   input_dir = None;
   output_dir = None;
   verbose = false;
+  debug = false;
 }
 
 let config = ref default_config
@@ -41,6 +43,8 @@ let speclist = [
    "<dir> Output directory for LambdaPi package");
   ("-v", Arg.Unit (fun () -> config := { !config with verbose = true }),
    " Verbose output");
+  ("--debug", Arg.Unit (fun () -> config := { !config with debug = true }),
+   " Debug mode: read from ./cpc-mini, write to ./cpc, verbose output");
 ]
 
 (* ============================================================
@@ -62,98 +66,19 @@ let generate_pkg_file output_dir pkg_name =
   Printf.fprintf oc "package_name = %s\nroot_path = %s\n" pkg_name pkg_name;
   close_out oc
 
-let prelude_content = {|require open
-  Stdlib.Set
-  Stdlib.HOL
-  Stdlib.List
-  Stdlib.String
-  Stdlib.Z
-  Stdlib.Bool;
-
-symbol ℚ : TYPE;
-
-// the set of all Eunoia types.
-symbol Type : Set;
-rule τ Type ↪ Set;
-
-// higher-order application.
-symbol ⋅ [a b] : τ (a ⤳ b) → τ a → τ b;
-notation ⋅ infix left 5;
-
-// inlined typechecking.
-symbol _as (a : Set) (x : τ a) : τ a;
-rule _as _ $x ↪ $x;
-
-// Core types - use Stdlib types where possible
-symbol Bool : Set ≔ bool;
-rule τ Bool ↪ 𝔹;
-symbol String : Set ≔ string;
-rule τ String ↪ Stdlib.String.String;
-symbol Z : Set ≔ int;
-rule τ Z ↪ ℤ;
-symbol Q : Set;
-rule τ Q ↪ ℚ;
-symbol mkrat : ℤ → ℤ → ℚ;
-
-// Eunoia builtins
-sequential symbol is_ok [T : Set]: τ (T ⤳ Bool);
-sequential symbol ite [T : Set]: τ (Bool ⤳ T ⤳ T ⤳ T);
-sequential symbol eq [U : Set]: τ (U ⤳ U ⤳ Bool);
-sequential symbol is_eq [T : Set] [S : Set]: τ (T ⤳ S ⤳ Bool);
-sequential symbol requires [T : Set] [U : Set] [V : Set]: τ (T ⤳ U ⤳ V ⤳ V);
-sequential symbol hash [T : Set]: τ (T ⤳ Z);
-sequential symbol typeof [T : Set]: τ (T ⤳ Type);
-sequential symbol nameof [T : Set]: τ (T ⤳ String);
-sequential symbol var [T : Set]: τ (String ⤳ T ⤳ T);
-sequential symbol cmp [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
-sequential symbol is_var [T : Set]: τ (T ⤳ Bool);
-sequential symbol is_z [T : Set]: τ (T ⤳ Bool);
-sequential symbol and : τ (Bool ⤳ Bool ⤳ Bool);
-sequential symbol or : τ (Bool ⤳ Bool ⤳ Bool);
-sequential symbol xor : τ (Bool ⤳ Bool ⤳ Bool);
-sequential symbol not : τ (Bool ⤳ Bool);
-sequential symbol add [T : Set]: τ (T ⤳ T ⤳ T);
-sequential symbol mul [T : Set]: τ (T ⤳ T ⤳ T);
-sequential symbol neg [T : Set]: τ (T ⤳ T);
-sequential symbol qdiv [T : Set]: τ (T ⤳ T ⤳ T);
-sequential symbol zdiv [T : Set]: τ (T ⤳ T ⤳ T);
-sequential symbol zmod [T : Set]: τ (T ⤳ T ⤳ T);
-sequential symbol is_neg [T : Set]: τ (T ⤳ Bool);
-sequential symbol gt [T : Set] [U : Set]: τ (T ⤳ U ⤳ Bool);
-sequential symbol len [T : Set]: τ (T ⤳ Z);
-sequential symbol concat [T : Set]: τ (T ⤳ T ⤳ T);
-sequential symbol extract [T : Set]: τ (T ⤳ Z ⤳ Z ⤳ T);
-sequential symbol find : τ (String ⤳ String ⤳ Z);
-sequential symbol to_z [T : Set]: τ (T ⤳ Z);
-sequential symbol to_q [T : Set]: τ (T ⤳ Q);
-sequential symbol to_bin [T : Set]: τ (Z ⤳ T ⤳ T);
-sequential symbol to_str [T : Set]: τ (T ⤳ String);
-sequential symbol quote [T : Set]: τ (T ⤳ T);
-sequential symbol nil [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ Type ⤳ T);
-sequential symbol cons [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ U ⤳ T ⤳ T);
-sequential symbol list_concat [U : Set] [T : Set]: τ ((U ⤳ T ⤳ T) ⤳ T ⤳ T ⤳ T);
-sequential symbol list_len [F : Set] [T : Set]: τ (F ⤳ T ⤳ Z);
-sequential symbol list_nth [F : Set] [T : Set]: τ (F ⤳ T ⤳ Z ⤳ T);
-sequential symbol list_find [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Z);
-sequential symbol list_rev [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
-sequential symbol list_erase [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
-sequential symbol list_erase_all [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
-sequential symbol list_setof [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
-sequential symbol list_minclude [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Bool);
-sequential symbol list_meq [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ Bool);
-sequential symbol list_diff [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
-sequential symbol list_inter [F : Set] [T : Set]: τ (F ⤳ T ⤳ T ⤳ T);
-sequential symbol list_singleton_elim [F : Set] [T : Set]: τ (F ⤳ T ⤳ T);
-sequential symbol List : Set;
-sequential symbol List__nil : τ List;
-symbol ∎ ≔ List__nil;
-sequential symbol List__cons [T : Set]: τ (T ⤳ List ⤳ List);
-|}
-
 let generate_prelude output_dir =
-  let oc = open_out (Filename.concat output_dir "Prelude.lp") in
-  output_string oc prelude_content;
-  close_out oc
+  let src = "src/Prelude.lp" in
+  let dst = Filename.concat output_dir "Prelude.lp" in
+  let ic = open_in src in
+  let oc = open_out dst in
+  try
+    let rec copy () =
+      output_string oc (input_line ic ^ "\n");
+      copy ()
+    in copy ()
+  with End_of_file ->
+    close_in ic;
+    close_out oc
 
 let stdlib_modules = [
   "Stdlib.Set"; "Stdlib.HOL"; "Stdlib.List";
@@ -180,39 +105,100 @@ let generate_lp_file graph pkg_name output_dir path =
       in
         Api_lp.write_lp_file out_path (prelude_qualified :: open_imports :: lp_sig)
 
-let print_graph graph =
-  Printf.printf "Signature graph (%d nodes):\n" (EO.PathMap.cardinal graph);
-  EO.PathMap.iter (fun path node ->
-    Printf.printf "  %s -> [%s]\n"
-      (EO.path_str path)
-      (String.concat ", " (List.map EO.path_str node.EO.node_includes))
-  ) graph
-
 (* ============================================================
    Translation
    ============================================================ *)
 
-let translate input_dir output_dir verbose =
-  if verbose then Printf.printf "Building signature graph from %s...\n" input_dir;
+let translate input_dir output_dir =
   let graph = EO.build_sig_graph input_dir in
-  if verbose then print_graph graph;
   match EO.check_dag graph with
   | Error cycle ->
       Printf.printf "Error: Cycle detected in include graph:\n";
       List.iter (fun p -> Printf.printf "  -> %s\n" (EO.path_str p)) cycle;
       exit 1
   | Ok () ->
-      if verbose then Printf.printf "DAG check passed.\n";
       mkdir_p output_dir;
       let pkg_name = Filename.basename output_dir in
       generate_pkg_file output_dir pkg_name;
       generate_prelude output_dir;
       let paths = EO.topo_sort graph in
-      List.iter (fun path ->
-        if verbose then Printf.printf "Generating %s...\n" (EO.path_str path);
-        generate_lp_file graph pkg_name output_dir path
-      ) paths;
+      List.iter (generate_lp_file graph pkg_name output_dir) paths;
       Printf.printf "Generated %d LambdaPi files in %s\n" (List.length paths + 1) output_dir
+
+(* ============================================================
+   Debug mode with lambdapi checking
+   ============================================================ *)
+
+let run_lambdapi_check graph output_dir paths =
+  let pkg_name = Filename.basename output_dir in
+  let total = List.length paths in
+  let passed = ref 0 in
+  let skipped = ref 0 in
+  let failed = ref [] in
+  let failed_set = Hashtbl.create 16 in
+  Printf.printf "Checking with lambdapi...\n";
+  List.iter (fun path ->
+    let module_name = pkg_name ^ "." ^ String.concat "." path in
+    (* Check if any dependency failed *)
+    let node = EO.PathMap.find path graph in
+    let failed_dep = List.find_opt (Hashtbl.mem failed_set) node.EO.node_includes in
+    match failed_dep with
+    | Some dep ->
+        incr skipped;
+        Hashtbl.add failed_set path ();
+        Printf.printf "  - %s (skipped)\n" module_name
+    | None ->
+        let rel_path = String.concat "/" path ^ ".lp" in
+        let cmd = Printf.sprintf "cd %s && lambdapi check -w -v 0 %s 2>&1" output_dir rel_path in
+        let ic = Unix.open_process_in cmd in
+        let output = Buffer.create 256 in
+        (try while true do Buffer.add_channel output ic 1 done with End_of_file -> ());
+        let exit_status = Unix.close_process_in ic in
+        match exit_status with
+        | Unix.WEXITED 0 ->
+            incr passed;
+            Printf.printf "  ✓ %s\n" module_name
+        | _ ->
+            let err = Buffer.contents output |> String.trim in
+            Hashtbl.add failed_set path ();
+            failed := (module_name, err) :: !failed;
+            Printf.printf "  ✗ %s\n" module_name
+  ) paths;
+  Printf.printf "\n";
+  if !failed = [] then
+    Printf.printf "All %d modules passed.\n" total
+  else begin
+    Printf.printf "%d passed, %d skipped, %d failed\n\n" !passed !skipped (List.length !failed);
+    List.iter (fun (m, err) ->
+      Printf.printf "── %s ──\n%s\n\n" m err
+    ) (List.rev !failed)
+  end;
+  List.length !failed = 0
+
+let debug_mode () =
+  let input_dir = "./cpc-mini" in
+  let output_dir = "./cpc" in
+  Printf.printf "eo2lp debug mode\n";
+  Printf.printf "  input:  %s\n" input_dir;
+  Printf.printf "  output: %s\n\n" output_dir;
+  let graph = EO.build_sig_graph input_dir in
+  let n_modules = EO.PathMap.cardinal graph in
+  Printf.printf "Parsed %d modules.\n" n_modules;
+  match EO.check_dag graph with
+  | Error cycle ->
+      Printf.printf "Error: Cycle detected:\n";
+      List.iter (fun p -> Printf.printf "  -> %s\n" (EO.path_str p)) cycle;
+      exit 1
+  | Ok () ->
+      mkdir_p output_dir;
+      let pkg_name = Filename.basename output_dir in
+      generate_pkg_file output_dir pkg_name;
+      generate_prelude output_dir;
+      let paths = EO.topo_sort graph in
+      List.iter (generate_lp_file graph pkg_name output_dir) paths;
+      Printf.printf "Generated %d LambdaPi files.\n\n" (List.length paths + 1);
+      let success = run_lambdapi_check graph output_dir paths in
+      if not success then exit 1
 
 (* ============================================================
    Main entry point
@@ -221,10 +207,13 @@ let translate input_dir output_dir verbose =
 let main () =
   Arg.parse speclist (fun _ -> ()) usage;
   let cfg = !config in
-  match cfg.input_dir, cfg.output_dir with
-  | Some input_dir, Some output_dir ->
-      translate input_dir output_dir cfg.verbose
-  | _ ->
-      Printf.printf "%s\n" usage
+  if cfg.debug then
+    debug_mode ()
+  else
+    match cfg.input_dir, cfg.output_dir with
+    | Some input_dir, Some output_dir ->
+        translate input_dir output_dir
+    | _ ->
+        Printf.printf "%s\n" usage
 
 (* Note: main() is called from eo2lp_cli.ml *)
