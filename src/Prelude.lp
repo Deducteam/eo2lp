@@ -5,8 +5,7 @@ require Stdlib.String as Str;
 require Stdlib.Pos as Bin;
 require open Stdlib.Comp;
 require Stdlib.Z as Int;
-
-require prelude.Q as Rat;
+require Stdlib.Q as Rat;
 
 // the set of all Eunoia types.
 symbol Type : Set;
@@ -47,6 +46,9 @@ rule <int> ⊍ <int> ↪ <int>
 with <rat> ⊍ <rat> ↪ <rat>
 with <rat> ⊍ <int> ↪ <rat>
 with <int> ⊍ <rat> ↪ <rat>;
+
+
+symbol mkrat : Int.ℤ → Int.ℤ → Rat.ℚ;
 
 symbol ⊥ : Set;
 

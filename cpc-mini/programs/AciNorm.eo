@@ -33,8 +33,8 @@
 ; - id S: The nil terminator of f.
 ; - s S: The term to process.
 ; return: the result of normalizing s based on associative+identity reasoning.
-(program $get_a_norm_rec ((T Type) (S Type) (f (-> S S S)) (id T) (x T) (x1 T) (x2 T))
-  :signature ((-> S S S) T T) T
+(program $get_a_norm_rec ((T Type) (f (-> T T T)) (id T) (x T) (x1 T) (x2 T))
+  :signature ((-> T T T) T T) T
   (
     (($get_a_norm_rec f id (f x1 x2))  (eo::list_concat f ($get_a_norm_rec f id x1) ($get_a_norm_rec f id x2)))
     (($get_a_norm_rec f id id)         id)

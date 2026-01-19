@@ -82,6 +82,14 @@ let app_list : term -> term list -> term =
 let app_binop : term -> (term * term) -> term =
   fun f (t1,t2) -> App (App (f,t1),t2)
 
+let app_binop_list : term -> term list -> term =
+  fun f ts ->
+    match ts with
+    | [] | [_] -> failwith "app_binop_list requires at least two arguments"
+    | t1::t2::rest ->
+      let initial = app_binop f (t1, t2) in
+      List.fold_left (fun acc t -> app_binop f (acc, t)) initial rest
+
 let rec app_arr : term list -> term =
   function (* return `t1 ⤳ ... ⤳ tn` *)
   | [] -> failwith "No arrow type from empty list."

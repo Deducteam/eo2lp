@@ -112,7 +112,7 @@ let generate_lp_file graph pkg_name output_dir path =
    ============================================================ *)
 
 let translate input_dir output_dir =
-  let graph = EO.build_sig_graph input_dir in
+  let graph = EO.build_sig_graph input_dir None in
   match EO.check_dag graph with
   | Error cycle ->
       Printf.printf "Error: Cycle detected in include graph:\n";
@@ -131,71 +131,30 @@ let translate input_dir output_dir =
    Debug mode with lambdapi checking
    ============================================================ *)
 
-(* Verbosity level for debug mode:
-   0 = quiet (just pass/fail)
-   1 = normal (show errors)
-   2 = verbose (show lambdapi debug info for failures) *)
-let debug_verbosity = ref 1
-
-let run_lambdapi_check graph output_dir paths =
-  let pkg_name = Filename.basename output_dir in
-  let total = List.length paths in
-  let passed = ref 0 in
-  let skipped = ref 0 in
-  let failed = ref [] in
-  let failed_set = Hashtbl.create 16 in
-  Printf.printf "Checking with lambdapi...\n";
-  List.iter (fun path ->
-    let module_name = pkg_name ^ "." ^ String.concat "." path in
-    (* Check if any dependency failed *)
-    let node = EO.PathMap.find path graph in
-    let failed_dep = List.find_opt (Hashtbl.mem failed_set) node.EO.node_includes in
-    match failed_dep with
-    | Some dep ->
-        incr skipped;
-        Hashtbl.add failed_set path ();
-        Printf.printf "  - %s (skipped)\n" module_name
-    | None ->
-        let rel_path = String.concat "/" path ^ ".lp" in
-        (* Use debug flags for verbose mode: i=inference, u=unification *)
-        let debug_flags = if !debug_verbosity >= 2 then "--debug=iu" else "" in
-        let cmd = Printf.sprintf "cd %s && lambdapi check %s -w %s 2>&1" output_dir debug_flags rel_path in
-        let ic = Unix.open_process_in cmd in
-        let output = Buffer.create 256 in
-        (try while true do Buffer.add_channel output ic 1 done with End_of_file -> ());
-        let exit_status = Unix.close_process_in ic in
-        match exit_status with
-        | Unix.WEXITED 0 ->
-            incr passed;
-            Printf.printf "  ✓ %s\n" module_name
-        | _ ->
-            let err = Buffer.contents output |> String.trim in
-            Hashtbl.add failed_set path ();
-            failed := (module_name, err) :: !failed;
-            Printf.printf "  ✗ %s\n" module_name
-  ) paths;
-  Printf.printf "\n";
-  if !failed = [] then
-    Printf.printf "All %d modules passed.\n" total
-  else begin
-    Printf.printf "%d passed, %d skipped, %d failed\n\n" !passed !skipped (List.length !failed);
-    List.iter (fun (m, err) ->
-      Printf.printf "── %s ──\n%s\n\n" m err
-    ) (List.rev !failed)
-  end;
-  List.length !failed = 0
+let timed f =
+  let t0 = Sys.time () in
+  let res = f () in
+  let t1 = Sys.time () in
+  (res, t1 -. t0)
 
 let debug_mode ~verbose =
   let input_dir = "./cpc-mini" in
   let output_dir = "./cpc" in
-  (* Set verbosity level based on verbose flag *)
-  debug_verbosity := if verbose then 2 else 1;
   Printf.printf "eo2lp debug mode%s\n" (if verbose then " (verbose)" else "");
   Printf.printf "  input:  %s\n" input_dir;
   Printf.printf "  output: %s\n\n" output_dir;
-  let graph = EO.build_sig_graph input_dir in
+
+  let parsing_times_log = ref [] in
+  let graph =
+    try EO.build_sig_graph input_dir (Some parsing_times_log)
+    with Failure msg -> Printf.printf "Error during parsing: %s\n" msg; exit 1
+  in
+  let parsing_times = Hashtbl.create (List.length !parsing_times_log) in
+  List.iter (fun (file, time) -> Hashtbl.add parsing_times file time) !parsing_times_log;
+
   let n_modules = EO.PathMap.cardinal graph in
   Printf.printf "Parsed %d modules.\n" n_modules;
+
   match EO.check_dag graph with
   | Error cycle ->
       Printf.printf "Error: Cycle detected:\n";
@@ -207,10 +166,102 @@ let debug_mode ~verbose =
       generate_pkg_file output_dir pkg_name;
       generate_prelude output_dir;
       let paths = EO.topo_sort graph in
-      List.iter (generate_lp_file graph pkg_name output_dir) paths;
-      Printf.printf "Generated %d LambdaPi files.\n\n" (List.length paths + 1);
-      let success = run_lambdapi_check graph output_dir paths in
-      if not success then exit 1
+
+      let passed = ref 0 in
+      let skipped = ref 0 in
+      let failed = ref [] in
+      let failed_set = Hashtbl.create 16 in
+      Printf.printf "Processing and checking %d modules...\n" (List.length paths);
+
+      let process_path path =
+        let node = EO.PathMap.find path graph in
+        let module_name = pkg_name ^ "." ^ String.concat "." path in
+        let failed_dep = List.find_opt (Hashtbl.mem failed_set) node.EO.node_includes in
+
+        match failed_dep with
+        | Some dep ->
+            incr skipped;
+            Hashtbl.add failed_set path ();
+            let dep_name = pkg_name ^ "." ^ String.concat "." dep in
+            Printf.printf "  - %-40s (skipped due to failed dependency %s)\n" module_name dep_name
+
+        | None ->
+            let (elab_sig, elab_time), (lp_sig, enc_time) =
+              let (elab_sig, elab_time) = timed (fun () ->
+                let full_sig = EO.full_sig_at graph path in
+                EO.elab_sig_with_ctx full_sig node.node_sig
+              ) in
+              let (lp_sig, enc_time) = timed (fun () ->
+                LP.eo_sig_with_overloads elab_sig
+              ) in
+              (elab_sig, elab_time), (lp_sig, enc_time)
+            in
+
+            let out_path = Filename.concat output_dir (String.concat "/" path ^ ".lp") in
+            mkdir_p (Filename.dirname out_path);
+            let prelude_module = pkg_name ^ ".Prelude" in
+            let prelude_qualified = LP.RequireAs (prelude_module, "eo") in
+            let deps = List.map (path_to_module pkg_name) node.node_includes in
+            let open_imports = if deps = [] then LP.Require [prelude_module] else LP.Require deps in
+            Api_lp.write_lp_file out_path (prelude_qualified :: open_imports :: lp_sig);
+
+            let ((exit_status, output), check_time) = timed (fun () ->
+                let debug_flags = if verbose then "--debug=iu" else "" in
+                let rel_path = String.concat "/" path ^ ".lp" in
+                let cmd = Printf.sprintf "cd %s && lambdapi check %s -w %s 2>&1" output_dir debug_flags rel_path in
+                let ic = Unix.open_process_in cmd in
+                let output_buffer = Buffer.create 256 in
+                (try while true do Buffer.add_channel output_buffer ic 1 done with End_of_file -> ());
+                let exit_status = Unix.close_process_in ic in
+                (exit_status, Buffer.contents output_buffer |> String.trim)
+            ) in
+
+            let parsing_time = Hashtbl.find_opt parsing_times node.node_file |> Option.value ~default:0.0 in
+
+            let status_str, ok = match exit_status with
+              | Unix.WEXITED 0 -> "✓", true
+              | _ -> "✗", false
+            in
+            Printf.printf "  %s %-40s (parse: %.3fs, elab: %.3fs, enc: %.3fs, check: %.3fs)\n"
+              status_str module_name parsing_time elab_time enc_time check_time;
+
+            if ok then
+              incr passed
+            else begin
+              Hashtbl.add failed_set path ();
+              failed := (module_name, output) :: !failed;
+              if verbose then
+                Printf.printf "%s\n" output
+            end
+      in
+      List.iter (fun path ->
+        try process_path path
+        with Failure msg ->
+          let module_name = pkg_name ^ "." ^ String.concat "." path in
+          Printf.printf "  ✗ %-40s (error during elaboration/encoding)\n" module_name;
+          Printf.printf "    Error: %s\n" msg;
+          Hashtbl.add failed_set path ();
+          failed := (module_name, msg) :: !failed
+      ) paths;
+
+      Printf.printf "\n";
+      if !failed = [] then
+        Printf.printf "All %d modules passed.\n" n_modules
+      else begin
+        Printf.printf "%d passed, %d skipped, %d failed\n\n" !passed !skipped (List.length !failed);
+        if not verbose then begin
+          Printf.printf "Summary of failures:\n";
+          List.iter (fun (m, err) ->
+            let first_line = try String.split_on_char '\n' err |> List.hd with _ -> err in
+            Printf.printf "  - %s: %s\n" m first_line
+          ) (List.rev !failed)
+        end else begin
+          List.iter (fun (m, err) ->
+            Printf.printf "── %s ──\n%s\n\n" m err
+          ) (List.rev !failed)
+        end
+      end;
+      if List.length !failed > 0 then exit 1
 
 (* ============================================================
    Main entry point
