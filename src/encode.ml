@@ -40,6 +40,10 @@ let wrangle = fun s -> s
   |> replace ('@', "")
   |> replace ('/', "div")
 
+let is_nary_binop s = match s with
+  | "eo::and" | "eo::or" | "eo::xor" | "eo::add" | "eo::mul" | "eo::concat" -> true
+  | _ -> false
+
 (* LambdaPi reserved keywords that need renaming *)
 let reserved_keywords = ["as"; "in"; "plet"; "open"; "require"; "rule"; "symbol"; "with"]
 
@@ -47,6 +51,7 @@ let eo_name : string -> string =
   function
   (* qualify `Type`.  *)
   | "Type" -> "eo.Type"
+  | "Set" -> "eo_Set"
   (* `as` maps to the Prelude's _as function *)
   | "as" -> "eo._as"
   (* qualify `eo::` operators. *)
@@ -79,10 +84,16 @@ let rec eo_tm : EO.term -> term =
   (* dispatch. *)
   | Apply (s,ts) ->
     begin match s,ts with
+    | s, ts when is_nary_binop s ->
+        if List.length ts < 2 then
+            failwith ("n-ary operator " ^ s ^ " needs at least 2 arguments")
+        else
+            let ts' = L.map eo_tm ts in
+            app_binop_list (Var (eo_name s)) ts'
     | ("_") as s, [t1;t2] ->
       app_binop (Var "⋅") (eo_tm t1, eo_tm t2)
-    | ("eo::requires", ([t1;t2;t3] as ts)) ->
-      app_list (Var "??") (L.map eo_tm ts)
+    (* | ("eo::requires", ([t1;t2;t3] as ts)) ->
+      app_list (Var "??") (L.map eo_tm ts) *)
     | ("as"|"eo::as") as s, [t1;t2] ->
       (* swap arguments! *)
       app_binop (Var "eo._as") (eo_tm t2, eo_tm t1)
@@ -105,7 +116,7 @@ let rec eo_tm : EO.term -> term =
     end
 
   | _ as t -> Printf.ksprintf failwith
-    "Term not fully elaborated: %s" (EO.term_str t)
+  "Term not fully elaborated: %s" (EO.term_str t)
 
 and eo_arrow (ts: EO.term list) : term =
   match ts with
@@ -314,12 +325,12 @@ let rec apply_fresh_type_params (param_map : (string * string) list) (t : term) 
 (* Mapping from literal categories to their Prelude type names *)
 let prelude_type_of_lit_category : Literal.lit_category -> string =
   function
-  | Literal.NUM -> "eo.Z"    (* numerals are integers *)
-  | Literal.RAT -> "eo.Q"    (* rationals *)
-  | Literal.DEC -> "eo.Q"    (* decimals are rationals *)
-  | Literal.STR -> "eo.Str"  (* strings *)
-  | Literal.BIN -> "eo.Z"    (* binary literals - TODO: proper BitVec support *)
-  | Literal.HEX -> "eo.Z"    (* hex literals - TODO: proper BitVec support *)
+  | Literal.NUM -> "eo.<int>"    (* numerals are integers *)
+  | Literal.RAT -> "eo.<rat>"    (* rationals *)
+  | Literal.DEC -> "eo.<rat>"    (* decimals are rationals *)
+  | Literal.STR -> "eo.<str>"  (* strings *)
+  | Literal.BIN -> "eo.<bin>"    (* binary literals - TODO: proper BitVec support *)
+  | Literal.HEX -> "eo.<hex>"    (* hex literals - TODO: proper BitVec support *)
 
 (* Get the Prelude type alias for a user-defined type name, if it was
    declared via `(declare-consts <category> <type>)`.
@@ -357,7 +368,7 @@ let eo_const_with_name (s,k : string * EO.const) : (string * command list) =
        This is needed because ⊍ rules match syntactically, so Int ⊍ Int
        won't reduce unless we add explicit rules for Int. *)
     let union_rules =
-      if alias_target = "eo.Z" || alias_target = "eo.Q" then
+      if false then
         (* Helper to build T1 ⊍ T2 *)
         let union t1 t2 = App (App (Var "eo.⊍", t1), t2) in
         (* Add rules: T ⊍ T ↪ T, and cross-rules with Z/Q if needed *)
@@ -453,7 +464,7 @@ let eo_const_with_name (s,k : string * EO.const) : (string * command list) =
        This is needed because ⊍ rules match syntactically, so Int ⊍ Int
        won't reduce unless we add explicit rules for Int. *)
     let union_rules =
-      if alias_target = "eo.Z" || alias_target = "eo.Q" then
+      if false then
         (* Helper to build T1 ⊍ T2 *)
         let union t1 t2 = App (App (Var "eo.⊍", t1), t2) in
         (* Add rules: T ⊍ T ↪ T, and cross-rules with Z/Q if needed *)

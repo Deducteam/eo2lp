@@ -221,15 +221,27 @@ let collect_eo_files (dir : string) : string list =
     (fun fp -> Filename.check_suffix fp ".eo")
     (dir_contents dir_str)
 
-(* Build the signature graph from a directory *)
-let build_sig_graph (root : string) : sig_graph =
+let build_sig_graph (root : string) (time_log_opt: (string * float) list ref option) : sig_graph =
   ensure_core_prelude ();
   let root_abs = to_absolute (Fpath.v root) in
   let root_str = Fpath.to_string root_abs in
   let files = collect_eo_files root_str in
 
+  let timed f =
+    let t0 = Sys.time () in
+    let res = f () in
+    let t1 = Sys.time () in
+    (res, t1 -. t0)
+  in
+
   (* Parse all files to get file_parse_results *)
-  let parse_results = List.map (parse_file_local root_str) files in
+  let parse_results = List.map (fun file ->
+    let res, time = timed (fun () -> parse_file_local root_str file) in
+    (match time_log_opt with
+      | Some log -> log := (res.fpr_file, time) :: !log
+      | None -> ());
+    res
+  ) files in
 
   (* Build the graph *)
   List.fold_left (fun graph fpr ->
