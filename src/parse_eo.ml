@@ -80,16 +80,16 @@ let ensure_core_prelude () =
     core_prelude_initialized := true
   end
 
-(* Remove duplicate symbols, keeping the last occurrence, preserving order. *)
+(* Remove exact duplicate symbols (same name AND same const), preserving order.
+   Overloaded symbols (same name, different const) are preserved. *)
 let unique sgn =
-  let sgn_rev = List.rev sgn in
-  let seen = Hashtbl.create (List.length sgn_rev) in
-  let result_rev = List.filter (fun (s, _) ->
-    let fresh = not (Hashtbl.mem seen s) in
-    if fresh then Hashtbl.add seen s ();
+  let seen = Hashtbl.create (List.length sgn) in
+  List.filter (fun (s, c) ->
+    let key = (s, c) in
+    let fresh = not (Hashtbl.mem seen key) in
+    if fresh then Hashtbl.add seen key ();
     fresh
-  ) sgn_rev in
-  List.rev result_rev
+  ) sgn
 
 let rec parse_eo_file (root : string) (fp : string) : signature =
   let fp_abs = to_absolute (Fpath.v fp) in

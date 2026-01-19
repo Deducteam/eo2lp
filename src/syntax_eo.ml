@@ -256,6 +256,25 @@ let lit_cat_of : literal -> lit_category =
 
 (* ------------------------------------------------*)
 
+(* Mapping from literal categories to their declared types.
+   Populated by `(declare-consts <category> <type>)` commands.
+   Example: (declare-consts <numeral> Int) maps NUM -> "Int"
+            (declare-consts <string> String) maps STR -> "String" *)
+let lit_type_table : (lit_category, string) Hashtbl.t = Hashtbl.create 8
+
+let clear_lit_types () : unit =
+  Hashtbl.clear lit_type_table
+
+let set_lit_type (cat : lit_category) (ty_name : string) : unit =
+  Hashtbl.replace lit_type_table cat ty_name
+
+let get_lit_type (cat : lit_category) : string option =
+  Hashtbl.find_opt lit_type_table cat
+
+(* Get the type name for a literal based on declare-consts declarations *)
+let type_of_literal (l : literal) : string option =
+  get_lit_type (lit_cat_of l)
+
 (* ---- pretty printing -------- *)
 let opt_newline (f : 'a -> string) (x_opt : 'a option) =
   match x_opt with

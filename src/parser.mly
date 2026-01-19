@@ -157,7 +157,13 @@ command:
       l = lit_category;
       t = term;
     RPAREN
-  { [] }
+  {
+    (* Register the literal type mapping as a side effect *)
+    (match t with
+     | Symbol s -> Syntax_eo.set_lit_type l s
+     | _ -> ());
+    []
+  }
   | LPAREN; DECLARE_PARAM_CONST;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
@@ -452,7 +458,13 @@ command_no_include:
       l = lit_category;
       t = term;
     RPAREN
-  { [] }
+  {
+    (* Register the literal type mapping as a side effect *)
+    (match t with
+     | Symbol s -> Syntax_eo.set_lit_type l s
+     | _ -> ());
+    []
+  }
   | LPAREN; DECLARE_PARAM_CONST;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
