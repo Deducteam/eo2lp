@@ -1,0 +1,15 @@
+require cpc.Prelude as eo;
+require open cpc.programs.Utils cpc.theories.Builtin cpc.theories.Arith cpc.theories.Datatypes;
+constant symbol eo_Set : τ (eo.Type ⤳ eo.Type);
+constant symbol set_empty [T : Set]: τ (eo_Set T);
+constant symbol set_singleton [T : Set]: τ (T ⤳ eo_Set T);
+constant symbol set_union [T : Set]: τ ((eo_Set T) ⤳ (eo_Set T) ⤳ eo_Set T);
+constant symbol set_inter [T : Set]: τ ((eo_Set T) ⤳ (eo_Set T) ⤳ eo_Set T);
+constant symbol set_minus [T : Set]: τ ((eo_Set T) ⤳ (eo_Set T) ⤳ eo_Set T);
+constant symbol set_member [T : Set]: τ (T ⤳ (eo_Set T) ⤳ Bool);
+constant symbol set_subset [T : Set]: τ ((eo_Set T) ⤳ (eo_Set T) ⤳ Bool);
+constant symbol set_choose [T : Set]: τ ((eo_Set T) ⤳ T);
+constant symbol set_is_empty [T : Set]: τ ((eo_Set T) ⤳ Bool);
+constant symbol set_is_singleton [T : Set]: τ ((eo_Set T) ⤳ Bool);
+constant symbol set_insert [T : Set]: τ (eo.List ⤳ (eo_Set T) ⤳ eo_Set T);
+constant symbol sets_deq_diff [T : Set] (s : τ (eo_Set T)) (t : τ (eo_Set T)): τ T;
