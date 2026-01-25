@@ -11,6 +11,11 @@ benchmarks/
 .old/
 .ropeproject/
 
+# Temporary output directories
+output.lp/
+test.lp/
+tests/
+
 Dedukti
 cvc5
 ethos

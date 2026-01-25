@@ -1,2 +1,3 @@
-(* CLI entry point for eo2lp *)
-let () = Eo2lp.Main.main ()
+(* eo2lp_cli.ml - CLI entry point *)
+
+let () = Eo2lp.Main.run ()

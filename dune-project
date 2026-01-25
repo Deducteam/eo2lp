@@ -6,5 +6,5 @@
 
 (package
  (name eo2lp)
- (depends ocaml dune)
+ (depends ocaml dune alcotest)
 )

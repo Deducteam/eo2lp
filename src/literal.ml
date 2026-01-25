@@ -1,16 +1,18 @@
+(* literal.ml
+   Literal categories and values *)
 
 type lit_category =
-  NUM | DEC | RAT | BIN | HEX | STR
-and literal =
-  | Numeral of int
-  | Decimal of float
-  | Rational of int * int
-  | Binary of string
-  | Hexadecimal of string
-  | String of string
+  | NUM | DEC | RAT | BIN | HEX | STR
 
-let lit_category_str =
-  function
+and literal =
+  | Numeral     of int
+  | Decimal     of float
+  | Rational    of int * int
+  | Binary      of string
+  | Hexadecimal of string
+  | String      of string
+
+let lit_category_str = function
   | NUM -> "<numeral>"
   | DEC -> "<decimal>"
   | RAT -> "<decimal>"
@@ -18,17 +20,10 @@ let lit_category_str =
   | HEX -> "<hexadecimal>"
   | STR -> "<string>"
 
-let literal_str =
-  function
-  | Numeral n -> string_of_int n
-  | Decimal d -> string_of_float d
-  | Rational (n, d) ->
-    (* Represent rationals as (mkrat n d) since LambdaPi doesn't have native rational literals *)
-    Printf.sprintf "(mkrat %d %d)" n d
-  | String s -> "\"" ^ s ^ "\""
-  | Binary _ ->
-    (* Printf.printf "WARNING: unhandled binary.\n"; *)
-    ""
-  | Hexadecimal _ ->
-    (* Printf.printf "WARNING: unhandled hex.\n";  *)
-    ""
+let literal_str = function
+  | Numeral n   -> string_of_int n
+  | Decimal d   -> string_of_float d
+  | Rational (n, d) -> Printf.sprintf "(mkrat %d %d)" n d
+  | String s    -> "\"" ^ s ^ "\""
+  | Binary _    -> ""
+  | Hexadecimal _ -> ""

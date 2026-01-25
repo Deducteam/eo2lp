@@ -158,11 +158,7 @@ command:
       t = term;
     RPAREN
   {
-    (* Register the literal type mapping as a side effect *)
-    (match t with
-     | Symbol s -> Syntax_eo.set_lit_type l s
-     | _ -> ());
-    []
+    [(Literal.lit_category_str l, Ltrl (l, t))]
   }
   | LPAREN; DECLARE_PARAM_CONST;
       s = symbol ;
@@ -199,8 +195,7 @@ command:
         { prm = []; att = None; typ = None; def = None }
        !_sig; *)
     (* _sym(s, Rule (xs, r)); *)
-    if Option.is_some att_opt then
-      Printf.printf "WARNING: (:sorry, rule %s)\n" s;
+    ignore att_opt; (* :sorry attribute - ignored *)
 
     []
   }
@@ -228,10 +223,7 @@ command:
       cs_opt = option(cases);
     RPAREN
   { let cs = Option.fold ~none:[] ~some:(fun x -> x) cs_opt in
-    let ty = prog_ty (doms,ran) in
-    let qs = prog_ty_params ty ps in
-    let rs = prog_cs_params cs ps in
-    [(s, Prog ((qs, ty), (rs, cs), ps))]
+    [(s, Prog (ps, doms, ran, cs))]
   }
 
   | LPAREN; REFERENCE;
@@ -459,11 +451,7 @@ command_no_include:
       t = term;
     RPAREN
   {
-    (* Register the literal type mapping as a side effect *)
-    (match t with
-     | Symbol s -> Syntax_eo.set_lit_type l s
-     | _ -> ());
-    []
+    [(Literal.lit_category_str l, Ltrl (l, t))]
   }
   | LPAREN; DECLARE_PARAM_CONST;
       s = symbol ;
@@ -489,8 +477,7 @@ command_no_include:
         reqs = (match reqs_opt with Some cs -> cs | None -> []);
         conc = conc
       } in
-    if Option.is_some att_opt then
-      Printf.printf "WARNING: (:sorry, rule %s)\n" s;
+    ignore att_opt; (* :sorry attribute - ignored *)
     []
   }
   | LPAREN; DEFINE;
@@ -498,7 +485,7 @@ command_no_include:
       LPAREN; ps = list(param); RPAREN; t = term;
       ty_opt = option(defn_attr);
     RPAREN
-  { [(s, Defn (ps, t))] }
+  { ignore ty_opt; [(s, Defn (ps, t))] }
   | LPAREN; PROGRAM;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
@@ -508,10 +495,7 @@ command_no_include:
       cs_opt = option(cases);
     RPAREN
   { let cs = Option.fold ~none:[] ~some:(fun x -> x) cs_opt in
-    let ty = prog_ty (doms,ran) in
-    let qs = prog_ty_params ty ps in
-    let rs = prog_cs_params cs ps in
-    [(s, Prog ((qs, ty), (rs, cs), ps))]
+    [(s, Prog (ps, doms, ran, cs))]
   }
   | LPAREN; REFERENCE;
       str = STRING ;

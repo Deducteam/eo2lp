@@ -1,0 +1,9 @@
+(rule
+ (alias runtest)
+ (deps
+   (source_tree ../cpc-mini)
+   (source_tree ../src))
+ (action
+   (chdir %{project_root}
+     (with-accepted-exit-codes (or 0 1)
+       (run %{exe:../src/eo2lp_cli.exe} --debug -v --color)))))

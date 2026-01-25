@@ -1,12 +1,13 @@
 require cpc.Prelude as eo;
 require open cpc.theories.Arith;
-constant symbol div : τ (Int ⤳ Int ⤳ Int);
-constant symbol mod : τ (Int ⤳ Int ⤳ Int);
-constant symbol divisible : τ (Int ⤳ Int ⤳ Bool);
-constant symbol int_pow2 : τ (Int ⤳ Int);
-constant symbol int_log2 : τ (Int ⤳ Int);
-constant symbol int_ispow2 : τ (Int ⤳ Bool);
-constant symbol div_total : τ (Int ⤳ Int ⤳ Int);
-constant symbol mod_total : τ (Int ⤳ Int ⤳ Int);
-constant symbol int_div_by_zero : τ (Int ⤳ Int);
-constant symbol mod_by_zero : τ (Int ⤳ Int);
+
+constant symbol div : τ ({|eo::Int|} ⤳ ({|eo::Int|} ⤳ {|eo::Int|}));
+constant symbol mod : τ ({|eo::Int|} ⤳ ({|eo::Int|} ⤳ {|eo::Int|}));
+constant symbol divisible : τ ({|eo::Int|} ⤳ ({|eo::Int|} ⤳ Bool));
+constant symbol {|int.pow2|} : τ ({|eo::Int|} ⤳ {|eo::Int|});
+constant symbol {|int.log2|} : τ ({|eo::Int|} ⤳ {|eo::Int|});
+constant symbol {|int.ispow2|} : τ ({|eo::Int|} ⤳ Bool);
+constant symbol div_total : τ ({|eo::Int|} ⤳ ({|eo::Int|} ⤳ {|eo::Int|}));
+constant symbol mod_total : τ ({|eo::Int|} ⤳ ({|eo::Int|} ⤳ {|eo::Int|}));
+constant symbol {|@int_div_by_zero|} : τ ({|eo::Int|} ⤳ {|eo::Int|});
+constant symbol {|@mod_by_zero|} : τ ({|eo::Int|} ⤳ {|eo::Int|});

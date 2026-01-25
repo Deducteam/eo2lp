@@ -41,7 +41,7 @@
 ;   This function is overloaded in SMT-LIB and does not permit mixed arithmetic.
 ;   This function is declared to be :left-assoc in SMT-LIB. We declare
 ;   it with right-assoc-nil to model cvc5's treatment of variadic functions.
-(declare-parameterized-const + ((T Type :implicit) (U Type :implicit)) 
+(declare-parameterized-const + ((T Type :implicit) (U Type :implicit))
   (-> T U ($arith_typeunion T U)) :right-assoc-nil 0)
 ; disclaimer: This function is overloaded in SMT-LIB and does not permit mixed arithmetic.
 (declare-parameterized-const - ((T Type :implicit) (U Type :implicit))

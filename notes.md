@@ -1,3 +1,221 @@
+----------
+2026-01-24
+----------
+Thinking about automatic encoding of Eunoia in LambdaPi.
+
+When encoding terms, we need `enc_sym` to detect how
+many implicit args a symbol has in its type and apply
+as many wildcards as needed. We will use `lambdapi`'s
+internal mechanisms to infer the correct values of these
+wildcards.
+
+We should almost always use the flag `print_implicits` so
+that any lambdapi source we generate will always print
+symbols with the `@` prefix, forcing printing of either
+wildcards or solutions to those wildcards that we obtain
+via resolution.
+
+Consider some of the challenges of encoding `Utils.lp`:
+
+## $compare_geq
+Consider the following definition from `programs/Utils.eo`:
+```eo
+(define $compare_geq ((T Type :implicit) (x T) (y T))
+  (eo::ite (eo::eq x y) true (eo::gt x y)))
+```
+Easy one. This should encode as:
+```lp
+symbol {|$compare_geq|} ≔
+  λ [T : Set] (x : τ T) (y : τ T),
+    @{|eo::ite|} _ _ (@{|eo::eq|} _ _ x y) true (@{|eo::gt|} _ _ x y)
+```
+and resolve to:
+```lp
+symbol {|$compare_geq|} ≔
+  λ [T : Set] (x : τ T) (y : τ T),
+    @{|eo::ite|} Bool Bool (@{|eo::eq|} T T x y) true (@{|eo::gt|} T T x y)
+```
+
+## Pair type constructors
+Consider the :
+```eo
+(declare-const @@Pair (-> Type Type Type))
+(define @Pair () @@Pair)
+(declare-parameterized-const @@pair
+  ((U Type :implicit) (T Type :implicit))
+  (-> U T (@Pair U T)))
+(define @pair () @@pair)
+```
+Whose encodings produce the following source:
+```lp
+constant symbol {|@@Pair|} : Set → Set → Set;
+symbol {|@Pair|} ≔ {|@@Pair|};
+constant symbol {|@@pair|} : Π [U T],  τ (U ⤳ T ⤳ ({|@@Pair|} U T));
+symbol {|@pair|} ≔ @{|@@pair|} _ _;
+```
+The definition of `@pair` fails because of unsolved mvars.
+Really, we should have:
+```lp
+symbol {|@pair|} ≔ λ [v1 v2], (@{|@@pair|} v1 v2);
+```
+where `v1` and `v2` are fresh names.
+
+## eo::List and @list
+Now, consider the following declarations in `Prelude.lp`.
+```lp
+constant symbol {|eo::List|} : Set;
+constant symbol {|eo::List::nil|} : τ {|eo::List|};
+constant symbol {|eo::List::cons|} : Π [T], El (T ⤳ {|eo::List|} ⤳ {|eo::List|});
+```
+Then in `Utils.eo` we have:
+```eo
+(define @List () eo::List)
+(define @list.nil () eo::List::nil)
+(define @list () eo::List::cons)
+```
+So we do:
+```lp
+symbol {|@List|} ≔ {|eo::List|};
+symbol {|@list.nil|} ≔ {|eo::List::nil|};
+symbol {|@list|} ≔ @{|eo::List::cons|} _;
+```
+Defining `@list` has the same problem as `@pair`.
+The fix is the same.
+```lp
+symbol {|@list|} ≔ λ [v1], @{|eo::List::cons|} v1;
+```
+
+Also, `eo::List::cons` has the `:right-assoc-nil` attribute
+with terminator `eo::List::nil`, but I am not sure whether
+applications of `@list` inherit the attribute from the
+underlying symbol.
+
+Can you please run some tests with `ethos` and check?
+
+The easiest way to handle this may just be expanding
+'macro'-like definitions like `@list` and `@pair` during
+elaboration-time. That way, any nary applications will
+be handled correctly and we don't need to insert implicits
+for the unsolved metavars.
+
+## Encoding a program using Eunoia parameter information.
+
+This example involves encoding the following Eunoia program:
+```eo
+(program $evaluate_internal ((T Type) (t T) (tev T))
+  :signature (T @List) T
+  (
+    (($evaluate_internal t (@list tev)) tev)
+  )
+)
+```
+First, note that the `:signature` attribute provides a type
+that (naively) encodes to `El (T ⤳ {|eo::List|} ⤳ T)`.
+But we need to bind `T` too.
+
+To handle these (frequently occurring cases), the encoding
+of a the type of Eunoia program is calculated with respect
+to its list of parameters, where the parameters that appear
+free in the signature are bound as implicit. e.g.,
+```lp
+sequential symbol {|$evaluate_internal|}
+  : Π [T : Set], El (T ⤳ {|eo::List|} ⤳ T);
+```
+
+Now consider encoding the rules of the (elaborated) program.
+The raw encoding produces the following:
+```lp
+rule @{|$evaluate_internal|} _ $t
+        (@{|eo::List::cons|} _ $tev {|eo::List::nil|})
+    ↪ $tev;
+```
+The list of parameters `(T Type) (t T) (tev T)` given by the
+Eunoia specification of `$evaluate_internal` provides some
+type constraints which are utilized for resolution:
+```lp
+rule @{|$evaluate_internal|} T $t
+        (@{|eo::List::cons|} T $tev {|eo::List::nil|})
+    ↪ $tev;
+```
+During resolution, the wildcards of `$evaluate_internal`
+and `eo::List::cons` generate metavariables:
+  `?1 : Set` and `?2 : Set` resp.
+
+Without the Eunoia type information, `lambdapi` would infer:
+  `$t : El ?1`
+  `$tev : El ?2`
+and hence fail to provide type preservation because:
+  `?lhs := $evaluate_internal ... : El ?1`
+  `?rhs := $tev : El ?2`
+
+The Eunoia parameters should introduce a pattern variable
+`$T : Set` and constraints `$t : El $T`, `$tev : El $T`.
+
+Then lambdapi should infer `?1 = $T` and `?2 = $T` and
+produce the following output:
+```lp
+rule @{|$evaluate_internal|} $T $t
+        (@{|eo::List::cons|} $T $tev {|eo::List::nil|})
+    ↪ $tev;
+```
+
+
+
+
+----------
+2026-01-23
+----------
+
+We can't do anything useful with lambdapi string literals
+other than pattern match on them in rewrite rules.
+So really, we need to identify `eo::String` with lists of lambdapi string literals.
+Then we can implement `eo::len` by just taking the length of the list, etc.
+
+
+
+Contemplating `eo::add`. Arithmetic literals. Overloading. etc.
+
+In this declaration, see `eo::add`
+```
+(declare-parameterized-const concat ((n Int :implicit) (m Int :implicit))
+  (-> (BitVec n) (BitVec m) (BitVec (eo::add n m)))
+  :right-assoc-nil @bv_empty)
+```
+It is `eo::add [Int] [Int] n m : el Int`
+
+
+
+Consider adopting the policy:
+After `(declare-consts <numeral> Int)`, we introduce a
+coercion `toInt : el (eo::Int -> Int)`. Hereinafter,
+whenever we see an integer literal, we wrap in `toInt`.
+
+Then we can do mixed `eo::add`:
+```lambdapi
+type (λ x : τ Int, {|eo::add|} (toInt 0) x);
+```
+
+See
+```
+(define $arith_eval_qsub ((U Type :implicit) (T Type :implicit) (x U) (y T))
+  (eo::add (eo::to_q x) (eo::neg (eo::to_q y)))
+)
+```
+
+See
+```
+(program $arith_eval_int_log_2_rec ((x Int))
+  :signature (Int) Int
+  (
+  (($arith_eval_int_log_2_rec 1) 0)
+  (($arith_eval_int_log_2_rec x) (eo::add 1 ($arith_eval_int_log_2_rec (eo::zdiv x 2))))
+  )
+)
+```
+
+
+
+
 -----------------
 # 2026-01-06
 -----------------
