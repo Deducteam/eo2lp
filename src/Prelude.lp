@@ -27,6 +27,9 @@ rule {|eo::as|} _ $x ↪ $x;
 symbol Bool : Set;
 rule τ Bool ↪ 𝔹;
 
+// Proof type: Proof F is the type of proofs of formula F
+injective symbol Proof : τ Bool → TYPE;
+
 symbol FAIL [a] : τ a;
 
 // type-level ite.

@@ -9,6 +9,15 @@
 
 open Syntax_eo
 
+(* Error handling with context *)
+let current_symbol = ref ""
+
+let fail msg =
+  if !current_symbol = "" then failwith msg
+  else failwith (Printf.sprintf "[elaborate:%s] %s" !current_symbol msg)
+
+let failf fmt = Printf.ksprintf fail fmt
+
 let is_nary_binop = function
   | "eo::and" | "eo::or" | "eo::xor"
   | "eo::add" | "eo::mul" | "eo::concat" -> true
@@ -72,8 +81,7 @@ and elab_inner (sgn, ps as ctx : context) = function
         with
         | t' :: _ -> t'
         | [] ->
-          Printf.ksprintf failwith
-            "Symbol `%s` not found in context." s
+          failf "Symbol `%s` not found" s
         end
     end
 
@@ -100,8 +108,7 @@ and elab_inner (sgn, ps as ctx : context) = function
     with
     | t' :: _ -> t'
     | [] ->
-      Printf.ksprintf failwith
-        "Symbol `%s` not found in context." s
+      failf "Binder `%s` not found" s
     end
 
 (* N-ary application elaboration *)
@@ -206,7 +213,7 @@ and elab_nary (sgn, ps as ctx : context) (s, k, ts) =
     end
 
   | Ltrl _ | Rule _ ->
-    failwith "Cannot elaborate Ltrl/Rule as nary"
+    fail "Cannot elaborate Ltrl/Rule as nary"
 
 (* Binder elaboration *)
 
@@ -223,7 +230,7 @@ and elab_binder ctx (s, k, xs, t) =
     let ctx' = (sgn, outer_ps @ bound_params) in
     Apply (s, [Apply (t_cons, L.map mk_var xs); elab ctx' t])
   | _ ->
-    failwith "No :binder attribute."
+    failf "No :binder attribute for `%s`" s
 
 (* Auxiliary elaborators *)
 
@@ -265,6 +272,15 @@ and elab_const ctx = function
           elab_cs ctx' reqs,
           elab ctx' conc)
 
+  | Assume formula ->
+    Assume (elab ctx formula)
+
+  | Step (rule_name, prems, args, conc_opt) ->
+    Step (rule_name,
+          L.map (elab ctx) prems,
+          L.map (elab ctx) args,
+          Option.map (elab ctx) conc_opt)
+
 (* Signature elaboration *)
 
 let elab_hook : (string -> (unit -> 'a) -> 'a) ref =
@@ -275,8 +291,10 @@ let elab_sig sgn =
     | [] ->
       List.rev sgn_acc
     | (s, c) :: sgn_rest ->
+      current_symbol := s;
       let ctx = (sgn_acc @ [(s, c)] @ sgn_rest, []) in
       let c' = !elab_hook s (fun () -> elab_const ctx c) in
+      current_symbol := "";
       aux ((s, c') :: sgn_acc) sgn_rest
   in
   aux [] sgn
@@ -286,10 +304,12 @@ let elab_sig_with_ctx ctx_sig local_sig =
     | [] ->
       List.rev sgn_acc
     | (s, c) :: sgn_rest ->
+      current_symbol := s;
       let ctx =
         (ctx_sig @ sgn_acc @ [(s, c)] @ sgn_rest, [])
       in
       let c' = !elab_hook s (fun () -> elab_const ctx c) in
+      current_symbol := "";
       aux ((s, c') :: sgn_acc) sgn_rest
   in
   aux [] local_sig

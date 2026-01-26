@@ -19,6 +19,9 @@ type config = {
   debug      : bool;
   no_color   : bool;
   only       : string option;
+  proof_mode : string option;  (* Legacy: Path to logic package for proof mode *)
+  proofs_dir : string option;  (* Directory containing proof .eo files to process after logic *)
+  survey_dir : string option;  (* Directory to survey for rules needed *)
 }
 
 let default_config = {
@@ -28,6 +31,9 @@ let default_config = {
   debug      = false;
   no_color   = false;
   only       = None;
+  proof_mode = None;
+  proofs_dir = None;
+  survey_dir = None;
 }
 
 let config = ref default_config
@@ -66,12 +72,58 @@ let speclist = [
    Arg.String (fun s ->
      config := { !config with only = Some s }),
    "<pat> Process only modules matching pattern");
+  ("--proof",
+   Arg.String (fun s ->
+     config := { !config with proof_mode = Some s }),
+   "<lp_path>,<eo_path> Proof mode: use logic LP package at <lp_path> and EO source at <eo_path>");
+  ("--proofs",
+   Arg.String (fun s ->
+     config := { !config with proofs_dir = Some s }),
+   "<dir> Process proof .eo files in <dir> after encoding the logic");
+  ("--survey",
+   Arg.String (fun s ->
+     config := { !config with survey_dir = Some s }),
+   "<dir> Survey proof files in <dir> to build minimal CPC (filter unused symbols)");
 ]
 
 (* Helpers *)
 
 let path_to_module pkg path =
   pkg ^ "." ^ String.concat "." path
+
+(* Survey proof files to find which rules are needed *)
+let survey_proofs_dir dir =
+  let files = Sys.readdir dir in
+  let eo_files =
+    Array.to_list files
+    |> List.filter (fun f -> Filename.check_suffix f ".eo")
+  in
+  (* Parse each proof file and collect rules *)
+  let all_rules =
+    List.fold_left (fun acc f ->
+      let path = Filename.concat dir f in
+      try
+        (* Read file and strip outer parens if present (cvc5 wraps proofs) *)
+        let content = In_channel.with_open_text path In_channel.input_all in
+        let content = String.trim content in
+        let content =
+          if String.length content > 2 &&
+             content.[0] = '(' &&
+             content.[String.length content - 1] = ')' &&
+             content.[1] <> 'd' (* not starting with (declare... *)
+          then
+            String.sub content 1 (String.length content - 2)
+          else content
+        in
+        let proof_sig = EO.parse_eo_string content in
+        let rules = EO.rules_in_signature proof_sig in
+        EO.Set.union acc rules
+      with e ->
+        Printf.eprintf "Warning: Failed to parse %s: %s\n" path (Printexc.to_string e);
+        acc
+    ) EO.Set.empty eo_files
+  in
+  all_rules
 
 (* LambdaPi initialization *)
 
@@ -88,6 +140,23 @@ let init_lambdapi ~output_dir ~pkg_name =
   Sys.chdir cwd;
   sign
 
+(* Initialize for proof mode: load an existing logic package's Main.lp *)
+let init_lambdapi_proof ~logic_dir ~output_dir ~pkg_name =
+  LP.mkdir_p output_dir;
+  LP.generate_pkg_file output_dir pkg_name;
+  (* Don't generate Prelude - we use the logic's *)
+  let cwd = Sys.getcwd () in
+  Sys.chdir logic_dir;
+  LP.init_library ();
+  LP.apply_package_config ".";
+  (* Compile Main.lp which imports everything from the logic.
+     Use force:true to recompile since .lpo files may be from different process *)
+  let logic_pkg = Filename.basename logic_dir in
+  let main_path = [logic_pkg; "Main"] in
+  let sign = LP.compile ~force:true main_path in
+  Sys.chdir cwd;
+  sign
+
 (* Module processing *)
 
 type process_result =
@@ -98,11 +167,12 @@ type process_result =
 let processed_modules : (EO.path, bool) Hashtbl.t =
   Hashtbl.create 32
 
-let process_module ~pkg_name ~output_dir ~verbose graph path =
+let process_module ~pkg_name ~output_dir ~verbose ?logic_pkg ?(logic_eo_sig=[]) graph path =
   let node = EO.PathMap.find path graph in
 
-  (* Check dependencies *)
+  (* Check dependencies - skip in proof mode since we use the logic package *)
   let deps_ok =
+    logic_pkg <> None ||
     List.for_all (fun dep ->
       match Hashtbl.find_opt processed_modules dep with
       | Some true -> true
@@ -122,62 +192,83 @@ let process_module ~pkg_name ~output_dir ~verbose graph path =
       (path_to_module pkg_name failed_dep))
   end
   else begin
+    let phase = ref "init" in
     try
       let module_name = path_to_module pkg_name path in
       LP.set_current_module module_name;
       let t0 = Unix.gettimeofday () in
 
+      phase := "deps";
       let full_sig = EO.full_sig_at graph path in
+      (* In proof mode, prepend the logic's Eunoia signature *)
+      let full_sig = logic_eo_sig @ full_sig in
       let t1 = Unix.gettimeofday () in
 
+      phase := "elaborate";
       let elab_sig =
         Elab.elab_sig_with_ctx full_sig node.EO.node_sig
       in
       let t2 = Unix.gettimeofday () in
 
+      phase := "encode";
       let module_path = pkg_name :: path in
-      let dep_paths =
-        List.map (fun dep -> pkg_name :: dep)
-          node.EO.node_includes
+      (* In proof mode, use the logic's Main as dependency *)
+      let dep_paths = match logic_pkg with
+        | Some lp -> [[lp; "Main"]]
+        | None ->
+          List.map (fun dep -> pkg_name :: dep)
+            node.EO.node_includes
       in
       let sign = LP.init_sign ~deps:dep_paths module_path in
-      let (rules, after_rules_map) = Enc.enc_signature elab_sig in
+      let enc_result = Enc.enc_signature elab_sig in
       let t3 = Unix.gettimeofday () in
 
-      let out_path =
-        Filename.concat output_dir
-          (String.concat "/" path ^ ".lp")
-      in
-      LP.mkdir_p (Filename.dirname out_path);
-      let prelude_module = pkg_name ^ ".Prelude" in
-      let deps =
-        List.map (path_to_module pkg_name)
-          node.EO.node_includes
-      in
-      LP.write_lp_file out_path
-        ~prelude_module ~deps sign rules ~after_rules_map;
-
-      let rel_path = String.concat "/" path ^ ".lp" in
-      let check_result =
-        LP.check_file ~verbose output_dir rel_path
-      in
-      let t4 = Unix.gettimeofday () in
-
-      match check_result with
-      | LP.Check_ok ->
-        Hashtbl.replace processed_modules path true;
-        Success (t1-.t0, t2-.t1, t3-.t2, t4-.t3)
-      | LP.Check_error msg ->
+      (* Check for encoding errors *)
+      if enc_result.Enc.errors <> [] then begin
         Hashtbl.replace processed_modules path false;
-        Error msg
+        let first_err = List.hd enc_result.Enc.errors in
+        Error (snd first_err)
+      end
+      else begin
+        phase := "write";
+        let out_path =
+          Filename.concat output_dir
+            (String.concat "/" path ^ ".lp")
+        in
+        LP.mkdir_p (Filename.dirname out_path);
+        (* In proof mode, import logic.Main; otherwise import own deps *)
+        let (prelude_module, deps) = match logic_pkg with
+          | Some lp -> (lp ^ ".Main", [lp ^ ".Main"])
+          | None ->
+            (pkg_name ^ ".Prelude",
+             List.map (path_to_module pkg_name) node.EO.node_includes)
+        in
+        LP.write_lp_file out_path
+          ~prelude_module ~deps sign enc_result.Enc.rules ~after_rules_map:enc_result.Enc.after_rules_map;
+
+        phase := "check";
+        let rel_path = String.concat "/" path ^ ".lp" in
+        let check_result =
+          LP.check_file ~verbose output_dir rel_path
+        in
+        let t4 = Unix.gettimeofday () in
+
+        match check_result with
+        | LP.Check_ok ->
+          Hashtbl.replace processed_modules path true;
+          Success (t1-.t0, t2-.t1, t3-.t2, t4-.t3)
+        | LP.Check_error msg ->
+          Hashtbl.replace processed_modules path false;
+          Error (Printf.sprintf "[check] %s" msg)
+      end
 
     with
     | Failure msg ->
       Hashtbl.replace processed_modules path false;
-      Error msg
+      Error (Printf.sprintf "[%s] %s" !phase msg)
     | exn ->
       Hashtbl.replace processed_modules path false;
-      Error (Printexc.to_string exn)
+      Error (Printf.sprintf "[%s] %s" !phase (Printexc.to_string exn))
   end
 
 (* Error formatting *)
@@ -304,6 +395,104 @@ let format_failure name msg =
 
   Buffer.contents buf
 
+(* Process a single proof file using existing logic signatures *)
+let process_proof ~pkg_name ~output_dir ~logic_eo_sig ~verbose proof_file =
+  let proof_name = Filename.chop_extension (Filename.basename proof_file) in
+  let module_name = pkg_name ^ ".proofs." ^ proof_name in
+
+  let phase = ref "init" in
+  try
+    LP.set_current_module module_name;
+    let t0 = Unix.gettimeofday () in
+
+    (* Parse the proof file *)
+    phase := "parse";
+    let proof_sig = EO.parse_file proof_file in
+    let t1 = Unix.gettimeofday () in
+
+    (* Elaborate with full logic signature context *)
+    phase := "elaborate";
+    let elab_sig = Elab.elab_sig_with_ctx logic_eo_sig proof_sig in
+    let t2 = Unix.gettimeofday () in
+
+    (* Create LambdaPi signature that depends on cpc.Main *)
+    phase := "encode";
+    let module_path = [pkg_name; "proofs"; proof_name] in
+    let dep_paths = [[pkg_name; "Main"]] in
+    let _sign = LP.init_sign ~deps:dep_paths module_path in
+    let enc_result = Enc.enc_signature elab_sig in
+    let t3 = Unix.gettimeofday () in
+
+    (* Check for encoding errors *)
+    if enc_result.Enc.errors <> [] then begin
+      let first_err = List.hd enc_result.Enc.errors in
+      Error (snd first_err)
+    end
+    else begin
+      (* Write output file *)
+      phase := "write";
+      let out_path = Filename.concat output_dir ("proofs/" ^ proof_name ^ ".lp") in
+      LP.mkdir_p (Filename.dirname out_path);
+      let prelude_module = pkg_name ^ ".Main" in
+      let deps = [pkg_name ^ ".Main"] in
+      LP.write_lp_file out_path ~prelude_module ~deps _sign enc_result.Enc.rules ~after_rules_map:enc_result.Enc.after_rules_map;
+
+      (* Check the output *)
+      phase := "check";
+      let rel_path = "proofs/" ^ proof_name ^ ".lp" in
+      let check_result = LP.check_file ~verbose output_dir rel_path in
+      let t4 = Unix.gettimeofday () in
+
+      match check_result with
+      | LP.Check_ok -> Success (t1-.t0, t2-.t1, t3-.t2, t4-.t3)
+      | LP.Check_error msg -> Error (Printf.sprintf "[check] %s" msg)
+    end
+  with
+  | Failure msg -> Error (Printf.sprintf "[%s] %s" !phase msg)
+  | exn -> Error (Printf.sprintf "[%s] %s" !phase (Printexc.to_string exn))
+
+(* Process all proof files in a directory *)
+let process_proofs ~pkg_name ~output_dir ~logic_eo_sig ~verbose proofs_dir =
+  (* Find all .eo files in the proofs directory *)
+  let files = Sys.readdir proofs_dir in
+  let eo_files =
+    Array.to_list files
+    |> List.filter (fun f -> Filename.check_suffix f ".eo")
+    |> List.sort compare
+  in
+
+  if eo_files = [] then begin
+    (0, 0, [])
+  end
+  else begin
+    let passed = ref 0 in
+    let failed = ref 0 in
+    let failures = ref [] in
+
+    List.iter (fun eo_file ->
+      let proof_path = Filename.concat proofs_dir eo_file in
+      let proof_name = Filename.chop_extension eo_file in
+      let module_name = pkg_name ^ ".proofs." ^ proof_name in
+
+      let result = process_proof ~pkg_name ~output_dir ~logic_eo_sig ~verbose proof_path in
+      match result with
+      | Success (t_parse, t_elab, t_enc, t_check) ->
+        incr passed;
+        if verbose then
+          Printf.printf "\n  %s %s (%.0f+%.0f+%.0f+%.0fms)"
+            (green "ok") proof_name
+            (t_parse *. 1000.) (t_elab *. 1000.)
+            (t_enc *. 1000.) (t_check *. 1000.)
+      | Skipped _ ->
+        () (* Proofs don't get skipped *)
+      | Error msg ->
+        incr failed;
+        failures := (module_name, msg) :: !failures)
+    eo_files;
+
+    (!passed, !failed, List.rev !failures)
+  end
+
 (* Main entry point *)
 
 let run () =
@@ -321,7 +510,51 @@ let run () =
   in
 
   let pkg_name = Filename.basename output_dir in
+
+  (* Stage 1: Parse logic files *)
+  let t_parse_start = Unix.gettimeofday () in
+  Printf.printf "parsing %s... " input_dir;
+  flush stdout;
   let graph = EO.build_sig_graph input_dir None in
+  let t_parse = Unix.gettimeofday () -. t_parse_start in
+  Printf.printf "%s (%.0fms)\n" (green "ok") (t_parse *. 1000.);
+
+  (* Stage 2: Survey proofs if specified *)
+  let graph = match !config.survey_dir with
+    | None -> graph
+    | Some survey_dir ->
+      let t_survey_start = Unix.gettimeofday () in
+      Printf.printf "surveying %s... " survey_dir;
+      flush stdout;
+      let needed_rules = survey_proofs_dir survey_dir in
+      if !config.verbose then
+        Printf.printf "\n  Rules needed: %s\n"
+          (String.concat ", " (EO.Set.elements needed_rules));
+
+      (* Get full signature from graph *)
+      let full_sig = EO.full_sig graph in
+      let full_count = List.length full_sig in
+
+      (* Compute transitive closure of dependencies *)
+      (* Start with needed rules + fundamental types that are always needed *)
+      let fundamental = [
+        "Type"; "Bool"; "Int"; "true"; "false"; "not"; "and"; "or"; "=>";
+        "="; "ite"; "Proof"; "->"; "@List"; "eo::List"; "eo::List::cons"; "eo::List::nil"
+      ] in
+      let seeds = EO.Set.of_list (EO.Set.elements needed_rules @ fundamental) in
+      let dep_map = EO.build_dependency_map full_sig in
+      let closure = EO.transitive_closure dep_map seeds in
+      let closure_count = EO.Set.cardinal closure in
+      let t_survey = Unix.gettimeofday () -. t_survey_start in
+      Printf.printf "%s %d/%d symbols (%.0fms)\n"
+        (green "ok") closure_count full_count (t_survey *. 1000.);
+
+      (* Filter each node's signature to only include symbols in closure *)
+      EO.PathMap.map (fun node ->
+        let filtered_sig = EO.filter_signature node.EO.node_sig closure in
+        { node with EO.node_sig = filtered_sig }
+      ) graph
+  in
 
   (* Check for cycles *)
   (match EO.check_dag graph with
@@ -333,10 +566,34 @@ let run () =
      exit 1
    | Ok () -> ());
 
-  (* Initialize lambdapi with prelude *)
-  let prelude_sign = init_lambdapi ~output_dir ~pkg_name in
-  LP.init prelude_sign;
+  (* Stage 3: Initialize lambdapi *)
+  let t_init_start = Unix.gettimeofday () in
+  Printf.printf "initializing lambdapi... ";
+  flush stdout;
+  let (logic_pkg, logic_eo_sig) = match !config.proof_mode with
+    | Some proof_arg ->
+      (* Parse "lp_path,eo_path" *)
+      let (logic_dir, logic_eo_dir) = match String.split_on_char ',' proof_arg with
+        | [lp; eo] -> (lp, eo)
+        | _ ->
+          Printf.eprintf "Error: --proof requires format: <lp_path>,<eo_path>\n";
+          exit 1
+      in
+      let logic_pkg = Filename.basename logic_dir in
+      let main_sign = init_lambdapi_proof ~logic_dir ~output_dir ~pkg_name in
+      LP.init main_sign;
+      (* Load the logic's Eunoia signature for elaboration *)
+      let logic_graph = EO.build_sig_graph logic_eo_dir None in
+      let logic_full_sig = EO.full_sig logic_graph in
+      (Some logic_pkg, logic_full_sig)
+    | None ->
+      let prelude_sign = init_lambdapi ~output_dir ~pkg_name in
+      LP.init prelude_sign;
+      (None, [])
+  in
   LP.set_verbose false;
+  let t_init = Unix.gettimeofday () -. t_init_start in
+  Printf.printf "%s (%.0fms)\n" (green "ok") (t_init *. 1000.);
 
   (* Process modules in topological order *)
   Hashtbl.clear processed_modules;
@@ -359,8 +616,10 @@ let run () =
       order
   in
 
+  (* Stage 4: Encode modules *)
   let total = List.length order in
-  Printf.printf "eo2lp: processing %d modules\n" total;
+  let t_encode_start = Unix.gettimeofday () in
+  Printf.printf "encoding %d modules... " total;
   flush stdout;
 
   let passed  = ref 0 in
@@ -372,13 +631,13 @@ let run () =
     let module_name = path_to_module pkg_name path in
     let result =
       process_module ~pkg_name ~output_dir
-        ~verbose:!config.verbose graph path
+        ~verbose:!config.verbose ?logic_pkg ~logic_eo_sig graph path
     in
     match result with
     | Success (t_deps, t_elab, t_enc, t_check) ->
       incr passed;
       if !config.verbose then
-        Printf.printf "  %s %s (%.0f+%.0f+%.0f+%.0fms)\n"
+        Printf.printf "\n  %s %s (%.0f+%.0f+%.0f+%.0fms)"
           (green "ok") module_name
           (t_deps *. 1000.) (t_elab *. 1000.)
           (t_enc *. 1000.) (t_check *. 1000.)
@@ -386,49 +645,113 @@ let run () =
       incr skipped
     | Error msg ->
       incr failed;
-      failures := (module_name, msg) :: !failures;
-      Printf.printf "  %s %s\n" (red "X") module_name)
+      failures := (module_name, msg) :: !failures)
   order;
 
-  (* Print failures with context *)
+  let t_encode = Unix.gettimeofday () -. t_encode_start in
+  if !config.verbose then Printf.printf "\n";
+  if !failed > 0 then
+    Printf.printf "%s %d/%d failed (%.0fms)\n" (red "FAIL") !failed total (t_encode *. 1000.)
+  else
+    Printf.printf "%s (%.0fms)\n" (green "ok") (t_encode *. 1000.);
+
+  (* Print failures *)
   if !failures <> [] then begin
-    Printf.printf "\n";
+    Printf.printf "  Failed modules:\n";
     List.iter (fun (name, msg) ->
-      print_string (format_failure name msg);
-      print_newline ())
-    (List.rev !failures)
+      Printf.printf "    %s %s: %s\n" (red "X") name msg)
+      (List.rev !failures)
   end;
 
-  (* Summary *)
+  (* Generate Main.lp if we have proofs to process (and not in proof_mode) *)
+  (match (!config.proofs_dir, !config.proof_mode) with
+  | (Some _, None) ->
+    (* Generate Main.lp that imports all successfully processed modules *)
+    let main_path = Filename.concat output_dir "Main.lp" in
+    let oc = open_out main_path in
+    Printf.fprintf oc "// Auto-generated: imports all %s modules\n" pkg_name;
+    Printf.fprintf oc "require open %s.Prelude;\n" pkg_name;
+    List.iter (fun path ->
+      if Hashtbl.find_opt processed_modules path = Some true then
+        Printf.fprintf oc "require open %s;\n" (path_to_module pkg_name path))
+    order;
+    close_out oc;
+    Printf.printf "Generated %s\n" main_path;
+
+    (* Compile Main.lp to make it available for proofs *)
+    let cwd = Sys.getcwd () in
+    Sys.chdir output_dir;
+    let main_module_path = [pkg_name; "Main"] in
+    ignore (LP.compile ~force:true main_module_path);
+    Sys.chdir cwd
+  | _ -> ());
+
+  (* Stage 5: Process proof files if --proofs was specified *)
+  let (proof_passed, proof_failed, proof_failures) =
+    match (!config.proofs_dir, !config.proof_mode) with
+    | (Some proofs_dir, None) ->
+      (* Get full logic signature for elaboration context *)
+      let logic_eo_sig = EO.full_sig graph in
+      let eo_files = Array.to_list (Sys.readdir proofs_dir)
+        |> List.filter (fun f -> Filename.check_suffix f ".eo")
+      in
+      let proof_count = List.length eo_files in
+      let t_proofs_start = Unix.gettimeofday () in
+      Printf.printf "encoding %d proofs... " proof_count;
+      flush stdout;
+      let (p, f, failures) =
+        process_proofs ~pkg_name ~output_dir ~logic_eo_sig ~verbose:!config.verbose proofs_dir
+      in
+      let t_proofs = Unix.gettimeofday () -. t_proofs_start in
+      if f > 0 then
+        Printf.printf "%s %d/%d failed (%.0fms)\n" (red "FAIL") f proof_count (t_proofs *. 1000.)
+      else
+        Printf.printf "%s (%.0fms)\n" (green "ok") (t_proofs *. 1000.);
+      (* Print failures *)
+      if failures <> [] then begin
+        Printf.printf "  Failed proofs:\n";
+        List.iter (fun (name, msg) ->
+          Printf.printf "    %s %s: %s\n" (red "X") name msg)
+          failures
+      end;
+      (p, f, failures)
+    | _ -> (0, 0, [])
+  in
+
+  (* Combine results *)
+  let total_passed = !passed + proof_passed in
+  let total_failed = !failed + proof_failed in
+  let all_failures = List.rev !failures @ proof_failures in
+
+  (* Summary line *)
   let status_str, status_color =
-    if !failed > 0 then ("FAIL", red)
+    if total_failed > 0 then ("FAIL", red)
     else ("OK", green)
   in
-  Printf.printf "%s: %s"
+  Printf.printf "%s: %d passed"
     (status_color status_str)
-    (green (Printf.sprintf "%d passed" !passed));
+    total_passed;
   if !skipped > 0 then
-    Printf.printf ", %s"
-      (yellow (Printf.sprintf "%d skipped" !skipped));
-  if !failed > 0 then
-    Printf.printf ", %s"
-      (red (Printf.sprintf "%d failed" !failed));
+    Printf.printf ", %d skipped" !skipped;
+  if total_failed > 0 then
+    Printf.printf ", %d failed" total_failed;
   Printf.printf "\n";
 
-  if !failures <> [] then begin
+  (* Print failed names for easy parsing by benchmark runner *)
+  if all_failures <> [] then begin
     let failed_names =
-      List.rev_map (fun (name, _) ->
+      List.map (fun (name, _) ->
         match String.split_on_char '.' name with
         | _ :: rest -> String.concat "/" rest
         | [] -> name)
-      !failures
+      all_failures
     in
     Printf.printf "Failed: %s\n"
       (String.concat ", " failed_names)
   end;
 
   LP.reset ();
-  if !failed > 0 then exit 1;
+  if total_failed > 0 then exit 1;
   (* Exit cleanly to avoid LambdaPi cleanup issues *)
   exit 0
 

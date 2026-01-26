@@ -40,11 +40,15 @@ let parse_command lx =
   try Some (Parser.toplevel_eof Lexer.token lx)
   with Parser.Error ->
     let pos = lx.lex_curr_p in
-    Printf.printf
-      "Parser error at line %d, column %d: token '%s'\n"
+    let file = if pos.pos_fname = "" then "<string>" else pos.pos_fname in
+    let token = Lexing.lexeme lx in
+    let token_display = if String.length token > 20 then String.sub token 0 17 ^ "..." else token in
+    Printf.eprintf
+      "Parse error in %s at line %d, column %d: unexpected token '%s'\n%!"
+      file
       pos.pos_lnum
       (pos.pos_cnum - pos.pos_bol + 1)
-      (Lexing.lexeme lx);
+      token_display;
     Parse_ctx.had_parse_error := true;
     None
 
@@ -70,6 +74,36 @@ let parse_eo_string src =
     done;
     assert false
   with Exit -> List.rev !_sig
+
+(* Parse a standalone file (for proof scripts) *)
+let parse_file path =
+  if not (Sys.file_exists path) then
+    failwith (Printf.sprintf "File not found: %s" path);
+  let ch =
+    try open_in path
+    with Sys_error msg -> failwith (Printf.sprintf "Cannot open %s: %s" path msg)
+  in
+  let lx = Lexing.from_channel ch in
+  lx.lex_curr_p <- { lx.lex_curr_p with pos_fname = path };
+  let _sig = ref [] in
+  let parse_errors = ref 0 in
+  let result =
+    try
+      while true do
+        match parse_command lx with
+        | Some (Some syms) ->
+          _sig := List.rev_append syms !_sig
+        | Some None -> raise Exit
+        | None ->
+          incr parse_errors;
+          if !parse_errors > 10 then raise Exit
+      done;
+      assert false
+    with
+    | Exit -> close_in ch; List.rev !_sig
+    | exn  -> close_in ch; raise exn
+  in
+  result
 
 (* Core prelude *)
 
@@ -172,11 +206,15 @@ let parse_command_v2 lx =
   try Some (Parser.toplevel_eof_v2 Lexer.token lx)
   with Parser.Error ->
     let pos = lx.lex_curr_p in
-    Printf.printf
-      "Parser error at line %d, column %d: token '%s'\n"
+    let file = if pos.pos_fname = "" then "<string>" else pos.pos_fname in
+    let token = Lexing.lexeme lx in
+    let token_display = if String.length token > 20 then String.sub token 0 17 ^ "..." else token in
+    Printf.eprintf
+      "Parse error in %s at line %d, column %d: unexpected token '%s'\n%!"
+      file
       pos.pos_lnum
       (pos.pos_cnum - pos.pos_bol + 1)
-      (Lexing.lexeme lx);
+      token_display;
     Parse_ctx.had_parse_error := true;
     None
 

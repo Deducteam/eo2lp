@@ -144,14 +144,14 @@ command:
       t = term;
     RPAREN
   {
-    []
+    [(s, Assume t)]
   }
   | LPAREN; ASSUME_PUSH;
       s = symbol ;
       t = term;
     RPAREN
   {
-    []
+    [(s, Assume t)]  (* Treat assume-push same as assume for now *)
   }
   | LPAREN; DECLARE_CONSTS;
       l = lit_category;
@@ -179,25 +179,27 @@ command:
       conc = conclusion;
       att_opt = option(rule_attr);
     RPAREN
-  { let r =
-      {
-        assm = assm_opt;
-        prem = prems_opt;
-        args = flatten args_opt;
-        reqs = (
-          match reqs_opt with
-          | Some cs -> cs
-          | None -> []);
-        conc = conc
-      }
-    in
-      (* _sig := M.add s
-        { prm = []; att = None; typ = None; def = None }
-       !_sig; *)
-    (* _sym(s, Rule (xs, r)); *)
+  {
     ignore att_opt; (* :sorry attribute - ignored *)
-
-    []
+    let assm = match assm_opt with
+      | Some t -> t
+      | None -> Symbol "eo::nil_assumption"  (* placeholder for no assumption *)
+    in
+    let prems = match prems_opt with
+      | Some (Simple ts) -> ts
+      | Some (PremiseList (t, op)) -> [Apply ("eo::premise_list", [t; op])]
+      | None -> []
+    in
+    let args = flatten args_opt in
+    let reqs = match reqs_opt with
+      | Some cs -> cs
+      | None -> []
+    in
+    let conc_term = match conc with
+      | Conclusion t -> t
+      | ConclusionExplicit t -> t  (* TODO: handle explicit conclusions differently *)
+    in
+    [(s, Rule (xs, assm, prems, args, reqs, conc_term))]
   }
   | LPAREN; DEFINE;
       s = symbol ;
@@ -241,9 +243,7 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
-
-    []
+    [(s1, Step (s2, xs, ys, Some t))]
   }
 
   | LPAREN; STEP;
@@ -254,9 +254,7 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    (* (s1, Step (s2, xs, ys, Symbol "true")) |> _sym; *)
-
-    []
+    [(s1, Step (s2, xs, ys, None))]
   }
 
   | LPAREN; STEP_POP;
@@ -268,9 +266,7 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    Printf.printf "WARNING. (step-pop ...)\n";
-    (* (s1, Step (s2, xs, ys, t)) |> _sym; *)
-    []
+    [(s1, Step (s2, xs, ys, Some t))]  (* Treat step-pop same as step for now *)
   }
 
   | LPAREN; STEP_POP;
@@ -281,9 +277,7 @@ command:
     RPAREN
   {
     let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    Printf.printf "WARNING. (step-pop ...)\n";
-    (* (s1, Step (s2, xs, ys, Symbol "true")) |> _sym; *)
-    []
+    [(s1, Step (s2, xs, ys, None))]  (* Treat step-pop same as step for now *)
   }
 
   | c = common_command
@@ -440,12 +434,12 @@ command_no_include:
       s = symbol ;
       t = term;
     RPAREN
-  { [] }
+  { [(s, Assume t)] }
   | LPAREN; ASSUME_PUSH;
       s = symbol ;
       t = term;
     RPAREN
-  { [] }
+  { [(s, Assume t)] }
   | LPAREN; DECLARE_CONSTS;
       l = lit_category;
       t = term;
@@ -470,15 +464,27 @@ command_no_include:
       conc = conclusion;
       att_opt = option(rule_attr);
     RPAREN
-  { let _ = {
-        assm = assm_opt;
-        prem = prems_opt;
-        args = flatten args_opt;
-        reqs = (match reqs_opt with Some cs -> cs | None -> []);
-        conc = conc
-      } in
+  {
     ignore att_opt; (* :sorry attribute - ignored *)
-    []
+    let assm = match assm_opt with
+      | Some t -> t
+      | None -> Symbol "eo::nil_assumption"
+    in
+    let prems = match prems_opt with
+      | Some (Simple ts) -> ts
+      | Some (PremiseList (t, op)) -> [Apply ("eo::premise_list", [t; op])]
+      | None -> []
+    in
+    let args = flatten args_opt in
+    let reqs = match reqs_opt with
+      | Some cs -> cs
+      | None -> []
+    in
+    let conc_term = match conc with
+      | Conclusion t -> t
+      | ConclusionExplicit t -> t
+    in
+    [(s, Rule (xs, assm, prems, args, reqs, conc_term))]
   }
   | LPAREN; DEFINE;
       s = symbol ;
@@ -509,14 +515,16 @@ command_no_include:
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { let _ = (flatten prem_opt, flatten args_opt) in [] }
+  { let (xs, ys) = (flatten prem_opt, flatten args_opt) in
+    [(s1, Step (s2, xs, ys, Some t))] }
   | LPAREN; STEP;
       s1 = symbol ;
       RULE; s2 = symbol ;
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { let _ = (flatten prem_opt, flatten args_opt) in [] }
+  { let (xs, ys) = (flatten prem_opt, flatten args_opt) in
+    [(s1, Step (s2, xs, ys, None))] }
   | LPAREN; STEP_POP;
       s1 = symbol ;
       t = term;
@@ -524,15 +532,15 @@ command_no_include:
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { let _ = (flatten prem_opt, flatten args_opt) in
-    Printf.printf "WARNING. (step-pop ...)\n"; [] }
+  { let (xs, ys) = (flatten prem_opt, flatten args_opt) in
+    [(s1, Step (s2, xs, ys, Some t))] }
   | LPAREN; STEP_POP;
       s1 = symbol ;
       RULE; s2 = symbol ;
       prem_opt = option(simple_premises);
       args_opt = option(arguments);
     RPAREN
-  { let _ = (flatten prem_opt, flatten args_opt) in
-    Printf.printf "WARNING. (step-pop ...)\n"; [] }
+  { let (xs, ys) = (flatten prem_opt, flatten args_opt) in
+    [(s1, Step (s2, xs, ys, None))] }
   | c = common_command
   { c }

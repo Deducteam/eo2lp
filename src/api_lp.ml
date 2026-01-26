@@ -7,11 +7,24 @@ let set_verbose v = verbose := v
 (* Debug context: tracks what symbol/module is currently being encoded *)
 let current_module = ref ""
 let current_symbol = ref ""
+let current_phase = ref ""   (* e.g., "elaborate", "encode", "resolve" *)
 let set_current_module m = current_module := m
 let set_current_symbol s = current_symbol := s
+let set_current_phase p = current_phase := p
 let get_current_context () =
-  if !current_module = "" then !current_symbol
-  else !current_module ^ ":" ^ !current_symbol
+  let parts = [!current_module; !current_symbol; !current_phase]
+    |> List.filter (fun s -> s <> "")
+  in
+  String.concat ":" parts
+
+(* Error formatting with context *)
+let format_error msg =
+  let ctx = get_current_context () in
+  if ctx = "" then msg
+  else Printf.sprintf "[%s] %s" ctx msg
+
+let fail msg = failwith (format_error msg)
+let failf fmt = Printf.ksprintf fail fmt
 
 (* LambdaPi modules *)
 module Term      = Core.Term
@@ -104,17 +117,18 @@ let resolve_term ?(debug=false) ?(ctx=[]) ?expected_ty t =
       in
       match result with
       | Some (resolved, ty) ->
-        let solved = Core.Unif.solve_noexn prob in
-        (* Only print debug output on failure *)
-        if debug && not solved then begin
+        let _ = Core.Unif.solve_noexn prob in
+        let cleaned = try Term.cleanup resolved with _ -> resolved in
+        (* Only print debug output if there are still unsolved metas in the result *)
+        if debug && has_unsolved_metas cleaned then begin
           Timed.(Print.print_implicits := true);
           Timed.(Print.do_not_qualify := true);
           Format.eprintf "  @[<v 2>\027[33m[%s]\027[0m resolve failed:@," (get_current_context ());
           Format.eprintf "term: %a@," Print.term t;
-          Format.eprintf "got:  %a@," Print.term resolved;
+          Format.eprintf "got:  %a@," Print.term cleaned;
           Format.eprintf "type: %a@]@.@." Print.term ty
         end;
-        (try Term.cleanup resolved with _ -> resolved)
+        cleaned
       | None ->
         if debug then begin
           Timed.(Print.print_implicits := true);
@@ -244,6 +258,12 @@ let reset_symbol_storage () =
   Hashtbl.clear symbol_types;
   Hashtbl.clear symbol_defs
 
+(* Check if a type is a Proof type *)
+let is_proof_type ty =
+  match ty with
+  | Term.Appl (Term.Symb s, _) -> s.Term.sym_name = "Proof"
+  | _ -> false
+
 (* Check for Stdlib.Nat symbols *)
 let rec contains_nat_symbol = function
   | Term.Symb s ->
@@ -291,16 +311,12 @@ let add_symbol_to_sign
   let sign = get_sign () in
   let ty_resolved = resolve_term ty in
   if has_plac ty_resolved then
-    failwith (Printf.sprintf
-      "Cannot add symbol '%s': unresolved placeholders"
-      name);
+    failf "unresolved placeholders in type of '%s'" name;
   let ty_final, extra_impl =
     if has_unsolved_metas ty_resolved then
       let ty', new_params = bind_unsolved_metas ty_resolved in
       if List.length new_params > 3 then
-        failwith (Printf.sprintf
-          "Symbol '%s' has too many unsolved metas"
-          name)
+        failf "too many unsolved metas (%d) in '%s'" (List.length new_params) name
       else
         let ty_wrapped =
           List.fold_right
@@ -491,13 +507,7 @@ let get_sym name =
   match find_sym name with
   | Some s -> s
   | None ->
-    (* Debug: show what signatures are loaded *)
-    let loaded_paths =
-      Path.Map.fold (fun p _ acc -> String.concat "." p :: acc)
-        Timed.(!(Sign.loaded)) []
-    in
-    failwith (Printf.sprintf "Symbol not found: %s (loaded: %s)"
-      name (String.concat ", " loaded_paths))
+    failf "Symbol `%s` not found" name
 
 (* Symbol application with implicits *)
 let rec count_leading_impl = function
@@ -652,7 +662,9 @@ let print_symbol ppf sym =
      (* Print definition if present *)
      (match sym_def with
       | Some def ->
-        set_print_implicits false;
+        (* Keep print_implicits ON for proof steps (type is Proof ...) *)
+        if not (is_proof_type ret_ty) then
+          set_print_implicits false;
         Format.fprintf ppf " ≔ %a" print_term (unwrap_lambdas n def)
       | None -> ()));
   set_print_implicits false;
@@ -713,7 +725,6 @@ let print_rules ppf rules =
     end
 
 let print_signature ppf ~prelude_module ~deps _sign rules ~after_rules_map =
-  Format.fprintf ppf "require %s as eo;@." prelude_module;
   let open_deps =
     if deps = [] then [prelude_module] else deps
   in

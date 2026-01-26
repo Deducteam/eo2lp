@@ -2,7 +2,7 @@ admin/
 hs/
 notes/
 benchmarks/
-
+.lpo
 .png
 .ocamlinit
 

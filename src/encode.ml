@@ -8,6 +8,10 @@ open Api_lp
 let verbose     = Api_lp.verbose
 let set_verbose = Api_lp.set_verbose
 
+(* Error handling with context *)
+let fail msg = Api_lp.fail msg
+let failf fmt = Api_lp.failf fmt
+
 (* Overload management *)
 let overload_counts : (string, int) Hashtbl.t =
   Hashtbl.create 32
@@ -109,7 +113,7 @@ let rec enc_term ctx = function
 
 and enc_arrow ctx = function
   | [] ->
-    failwith "Empty arrow type"
+    fail "Empty arrow type"
   | [t] ->
     enc_term ctx t
   | EO.Apply ("eo::quote", [EO.Symbol s]) :: rest ->
@@ -122,7 +126,10 @@ and enc_arrow ctx = function
     let type_of_s =
       match List.find_opt (fun (v, _, _) -> base_name v = s_esc) ctx with
       | Some (_, ty, _) -> ty
-      | None -> failwith ("enc_arrow: variable not in context: " ^ s)
+      | None ->
+        let ctx_vars = List.map (fun (v, _, _) -> base_name v) ctx in
+        failf "enc_arrow: variable `%s` not in context. Available: [%s]"
+          s (String.concat ", " ctx_vars)
     in
     (* Unwrap τ from type_of_s to get the Eunoia type for ⤳d's first arg *)
     let eo_type_of_s = un_tau type_of_s in
@@ -343,6 +350,253 @@ let enc_ltrl cat ty =
   | _ ->
     empty_result
 
+(* Rule encoding for declare-rule *)
+
+(* Get the Proof symbol from prelude *)
+let proof_sym () = find "Proof"
+
+(* Build Proof(t) application *)
+let mk_proof t = mk_Appl (mk_Symb (proof_sym ()), t)
+
+(* Encode a declare-rule.
+
+   For rules with :args, we generate:
+
+     symbol <name>_aux [<type_params>] : τ T1 → ... → τ Tn → TYPE;
+     rule <name>_aux <pattern1> ... <patternN>
+       ↪ Proof <prem1> → ... → Proof <premM> → Proof <conclusion>;
+
+     symbol <name> [<type_params>] :
+       Π x1 : τ T1, ... Π xn : τ Tn, <name>_aux x1 ... xn;
+
+   For rules without :args (only :premises), we generate:
+
+     symbol <name> [<type_params>] (p1 : τ T1) ... :
+       Proof <prem1> → ... → Proof <premM> → Proof <conclusion>;
+*)
+let enc_rule str ps assm prems args reqs conc =
+  (* Ignore assumption for now - used for scope rules with assume-push/step-pop *)
+  let _ = assm in
+  (* Ignore reqs for now - should wrap conclusion in eo::requires *)
+  let _ = reqs in
+
+  (* Handle :premise-list - extract the pattern from eo::premise_list wrapper.
+     :premise-list F and means the rule takes an arbitrary number of premises,
+     which are combined using 'and' at proof time. For the encoding, we just
+     use the pattern F as a single premise. *)
+  let prems = List.map (function
+    | EO.Apply ("eo::premise_list", [pattern; _op]) -> pattern
+    | p -> p) prems
+  in
+
+  let ctx, _ = enc_params ps in
+
+  (* Helper: build Proof p1 → Proof p2 → ... → Proof conclusion *)
+  let build_proof_arrow prems conc_term =
+    let conc_proof = mk_proof conc_term in
+    List.fold_right
+      (fun prem acc ->
+         let prem_proof = mk_proof prem in
+         mk_Prod (prem_proof, bind_var (new_var "_") acc))
+      prems conc_proof
+  in
+
+  (* Check if an arg is a simple variable reference (not a pattern) *)
+  let is_simple_arg = function
+    | EO.Symbol s -> EO.prm_mem s ps  (* It's a parameter reference *)
+    | _ -> false
+  in
+
+  (* Check if ALL args are simple variable references *)
+  let all_args_simple = List.for_all is_simple_arg args in
+
+  if args = [] || all_args_simple then begin
+    (* No :args - simple rule with just premises and conclusion *)
+    (* Encode premises and conclusion *)
+    let prems_enc = List.map (fun p -> enc_term ctx p |> resolve_term ~ctx) prems in
+    let conc_enc = enc_term ctx conc |> resolve_term ~ctx in
+
+    (* Build the type: Proof prem1 → ... → Proof premN → Proof conclusion *)
+    let body_ty = build_proof_arrow prems_enc conc_enc in
+
+    (* Find free type variables for implicit params *)
+    let free_vars = Api_lp.LibTerm.free_vars body_ty in
+    let impl_ctx =
+      List.filter (fun (v, _, _) -> Core.Term.VarSet.mem v free_vars) ctx
+    in
+    let impl = List.map (fun _ -> true) impl_ctx in
+    let ty, _ = Core.Ctxt.to_prod impl_ctx body_ty in
+
+    let sym = add_constant ~impl (unique_name str) ty in
+    { sym = Some sym; rules = []; after_rules = [] }
+
+  end else begin
+    (* Has :args - need auxiliary symbol with rewrite rule *)
+
+    (* Create context for encoding args - need all params *)
+    let arg_ctx, _ = enc_params ps in
+
+    (* Infer the type of each arg by encoding and using LambdaPi's type inference.
+       We encode the arg term, then use Infer to get its type. *)
+    let infer_arg_type arg =
+      let encoded = enc_term arg_ctx arg in
+      let resolved = resolve_term ~ctx:arg_ctx encoded in
+      (* Use LambdaPi's infer to get the type *)
+      let prob = Core.Term.new_problem () in
+      match Core.Infer.infer_noexn prob arg_ctx resolved with
+      | Some (_, ty) ->
+        (* ty is the LambdaPi type (e.g., τ U). We want just U (the Set). *)
+        (* If ty = τ X, extract X. Otherwise use ty as-is. *)
+        un_tau ty
+      | None ->
+        (* Fallback: use a placeholder *)
+        failf "Cannot infer type of arg: %s" (EO.term_str arg)
+    in
+
+    let arg_lp_types = List.map infer_arg_type args in
+
+    (* Build the _aux symbol type: τ T1 → τ T2 → ... → TYPE *)
+    let aux_body_ty =
+      List.fold_right
+        (fun arg_ty acc ->
+           let ty_enc = tau_of arg_ty in
+           mk_Prod (ty_enc, bind_var (new_var "_") acc))
+        arg_lp_types
+        (mk_Type)
+    in
+
+    (* Find implicit type params for _aux *)
+    let aux_free_vars = Api_lp.LibTerm.free_vars aux_body_ty in
+    let aux_impl_ctx =
+      List.filter (fun (v, _, _) -> Core.Term.VarSet.mem v aux_free_vars) arg_ctx
+    in
+    let aux_impl = List.map (fun _ -> true) aux_impl_ctx in
+    let aux_ty, _ = Core.Ctxt.to_prod aux_impl_ctx aux_body_ty in
+
+    let aux_name = unique_name (str ^ "_aux") in
+    let aux_sym = add_sequential ~impl:aux_impl aux_name aux_ty in
+
+    (* Build the rewrite rule for _aux using enc_case.
+       We construct synthetic Eunoia terms:
+         LHS: (aux_name arg1 arg2 ...)
+         RHS: a term that will encode to Proof prem1 → ... → Proof conclusion
+
+       For the RHS, we build the proof arrow directly since there's no
+       Eunoia syntax for Proof types. *)
+
+    (* Build LHS as an Eunoia Apply term *)
+    let lhs_eo = EO.Apply (aux_name, args) in
+
+    (* For RHS, we need to encode it specially since Proof is not in Eunoia.
+       We'll encode the premises and conclusion, then build the arrow. *)
+    let enc t = t
+      |> enc_term arg_ctx
+      |> resolve_term ~debug:true ~ctx:arg_ctx
+      |> bind_pvars arg_ctx
+    in
+
+    let prems_enc = List.map enc prems in
+    let conc_enc = enc conc in
+    let rhs = build_proof_arrow prems_enc conc_enc in
+
+    (* For LHS, use enc_case's encoding pattern *)
+    let l = lhs_eo
+      |> enc_term arg_ctx
+      |> resolve_term ~debug:true ~ctx:arg_ctx
+      |> bind_pvars arg_ctx
+    in
+    let _, lhs_args = Core.Term.get_args l in
+
+    let names = List.rev_map (fun (v, _, _) -> base_name v) arg_ctx |> Array.of_list in
+    let vars_nb = List.length arg_ctx in
+
+    let aux_rule : rule = {
+      lhs = lhs_args;
+      rhs;
+      arity = List.length lhs_args;
+      arities = Array.make vars_nb 0;
+      vars_nb;
+      xvars_nb = 0;
+      names;
+      rule_pos = None;
+    } in
+
+    (* Build the main symbol type:
+       Π x1 : τ T1, ... Π xn : τ Tn, <name>_aux x1 ... xn *)
+
+    (* Create fresh variables for the Π-bound args *)
+    let arg_vars = List.mapi (fun i _ -> new_var (Printf.sprintf "x%d" (i + 1))) arg_lp_types in
+
+    (* Build _aux applied to the arg variables.
+       Use enc_sym to insert placeholders for implicit type parameters. *)
+    let aux_applied =
+      List.fold_left
+        (fun acc v -> mk_Appl (acc, mk_Vari v))
+        (enc_sym aux_sym)
+        arg_vars
+    in
+
+    (* Build Π x1 : τ T1, ... Π xn : τ Tn, aux_applied *)
+    let main_body_ty =
+      List.fold_right2
+        (fun arg_ty v acc ->
+           let ty_enc = tau_of arg_ty in
+           mk_Prod (ty_enc, bind_var v acc))
+        arg_lp_types arg_vars aux_applied
+    in
+
+    (* Find implicit type params for main symbol *)
+    let main_free_vars = Api_lp.LibTerm.free_vars main_body_ty in
+    let main_impl_ctx =
+      List.filter (fun (v, _, _) -> Core.Term.VarSet.mem v main_free_vars) arg_ctx
+    in
+    let main_impl = List.map (fun _ -> true) main_impl_ctx in
+    let main_ty, _ = Core.Ctxt.to_prod main_impl_ctx main_body_ty in
+
+    let main_sym = add_constant ~impl:main_impl (unique_name str) main_ty in
+
+    { sym = Some main_sym;
+      rules = [(aux_sym, aux_rule)];
+      after_rules = [] }
+  end
+
+(* Encode an assume command.
+   (assume s F) becomes: symbol s : Proof F; *)
+let enc_assume str formula =
+  let ctx = empty_ctxt in
+  let formula_enc = enc_term ctx formula |> resolve_term ~ctx in
+  let ty = mk_proof formula_enc in
+  let sym = add_constant ~impl:[] (unique_name str) ty in
+  { sym = Some sym; rules = []; after_rules = [] }
+
+(* Encode a step command.
+   (step s F :rule r :premises (p1 ... pn) :args (a1 ... am))
+   becomes: symbol s ≔ r p1 ... pn a1 ... am; (with optional : Proof F) *)
+let enc_step str rule_name premises args conc_opt =
+  let ctx = empty_ctxt in
+  (* Build the application: (rule_name premise1 ... premiseN arg1 ... argM) *)
+  let rule_sym = get_sym rule_name in
+  let head = enc_sym rule_sym in
+  (* Encode premises (which are proof term references) *)
+  let prems_enc = List.map (fun p -> enc_term ctx p |> resolve_term ~ctx) premises in
+  (* Encode args *)
+  let args_enc = List.map (fun a -> enc_term ctx a |> resolve_term ~ctx) args in
+  (* Build the full application *)
+  let body_raw = List.fold_left (fun acc arg -> mk_Appl (acc, arg)) head (prems_enc @ args_enc) in
+  (* Determine expected type if conclusion provided, and resolve body with it *)
+  let body, expected_ty = match conc_opt with
+    | Some conc ->
+      let conc_enc = enc_term ctx conc |> resolve_term ~ctx in
+      let exp_ty = mk_proof conc_enc in
+      (* Resolve body with expected type to help unification *)
+      let body_resolved = resolve_term ~ctx ~expected_ty:exp_ty body_raw in
+      (body_resolved, Some exp_ty)
+    | None ->
+      (resolve_term ~ctx body_raw, None)
+  in
+  let sym = add_definition ~impl:[] (unique_name str) expected_ty body in
+  { sym = Some sym; rules = []; after_rules = [] }
+
 let enc_const name = function
   | EO.Decl (ps, ty, attr) ->
     enc_decl name ps ty attr
@@ -352,8 +606,19 @@ let enc_const name = function
     enc_prog name ps doms ran cases
   | EO.Ltrl (cat, ty) ->
     enc_ltrl cat ty
-  | EO.Rule _ ->
-    empty_result
+  | EO.Rule (ps, assm, prems, args, reqs, conc) ->
+    enc_rule name ps assm prems args reqs conc
+  | EO.Assume formula ->
+    enc_assume name formula
+  | EO.Step (rule_name, premises, args, conc_opt) ->
+    enc_step name rule_name premises args conc_opt
+
+(* Signature encoding result *)
+type enc_sig_result = {
+  rules : (sym * rule) list;
+  after_rules_map : (sym, (sym * rule) list) Hashtbl.t;
+  errors : (string * string) list;  (* (symbol_name, error_message) *)
+}
 
 (* Signature encoding *)
 let enc_signature sig_ =
@@ -361,10 +626,12 @@ let enc_signature sig_ =
   let all_rules = ref [] in
   (* after_rules_map: symbol -> list of rules to print after that symbol *)
   let after_rules_map = Hashtbl.create 16 in
+  let errors = ref [] in
   List.iter
     (fun (name, const) ->
        try
          set_current_symbol name;
+         set_current_phase "encode";
          let result = enc_const name const in
          all_rules := !all_rules @ result.rules;
          (* Associate after_rules with the symbol that was created *)
@@ -372,8 +639,12 @@ let enc_signature sig_ =
           | Some sym when result.after_rules <> [] ->
             Hashtbl.add after_rules_map sym result.after_rules
           | _ -> ())
-       with Failure msg ->
-         Printf.eprintf "Warning: %s: encoding failed: %s\n%!" name msg)
+       with
+       | Failure msg ->
+         errors := (name, msg) :: !errors
+       | exn ->
+         errors := (name, Printexc.to_string exn) :: !errors)
     sig_;
   set_current_symbol "";
-  (!all_rules, after_rules_map)
+  set_current_phase "";
+  { rules = !all_rules; after_rules_map; errors = List.rev !errors }

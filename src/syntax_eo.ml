@@ -74,6 +74,9 @@ type const =
   | Prog of param list * term list * term * case list
   | Rule of param list * term * term list
          * term list * case list * term
+  | Assume of term                            (* formula being assumed *)
+  | Step of string * term list * term list * term option
+         (* rule_name, premises, args, optional conclusion *)
 
 type signature = (string * const) list
 type context   = signature * param list
@@ -799,3 +802,145 @@ let full_sig_at graph path =
     end
   in
   !core_prelude @ collect path
+
+(* Get the full signature for all modules in a graph (for proof mode) *)
+let full_sig graph =
+  let all_sigs =
+    PathMap.fold (fun _ node acc -> node.node_sig @ acc) graph []
+  in
+  !core_prelude @ all_sigs
+
+(* ============================================================
+   Symbol dependency analysis for minimal CPC generation
+   ============================================================ *)
+
+(* Extract all symbol references from a term *)
+let rec symbols_in_term acc = function
+  | Symbol s -> Set.add s acc
+  | Literal _ -> acc
+  | Apply (s, ts) ->
+    let acc = Set.add s acc in
+    L.fold_left symbols_in_term acc ts
+  | Bind (b, vs, body) ->
+    let acc = Set.add b acc in
+    let acc = L.fold_left (fun a (_, ty) -> symbols_in_term a ty) acc vs in
+    symbols_in_term acc body
+
+(* Extract all symbol references from a list of terms *)
+let symbols_in_terms ts =
+  L.fold_left symbols_in_term Set.empty ts
+
+(* Extract all symbol references from a case *)
+let symbols_in_case (lhs, rhs) =
+  Set.union (symbols_in_term Set.empty lhs) (symbols_in_term Set.empty rhs)
+
+(* Extract all symbol references from params *)
+let symbols_in_params ps =
+  L.fold_left (fun acc (_, ty, _) -> symbols_in_term acc ty) Set.empty ps
+
+(* Extract all symbol references from a rule_dec *)
+let symbols_in_rule_dec rd =
+  let acc = Set.empty in
+  let acc = match rd.assm with Some t -> symbols_in_term acc t | None -> acc in
+  let acc = match rd.prem with
+    | Some (Simple ts) -> L.fold_left symbols_in_term acc ts
+    | Some (PremiseList (t1, t2)) ->
+      symbols_in_term (symbols_in_term acc t1) t2
+    | None -> acc
+  in
+  let acc = L.fold_left symbols_in_term acc rd.args in
+  let acc = L.fold_left (fun a c -> Set.union a (symbols_in_case c)) acc rd.reqs in
+  match rd.conc with
+  | Conclusion t | ConclusionExplicit t -> symbols_in_term acc t
+
+(* Extract all symbol references from attr *)
+let symbols_in_attr = function
+  | RightAssocNil t | LeftAssocNil t
+  | LeftAssocNilNSN t | RightAssocNilNSN t
+  | RightAssocNSN t | LeftAssocNSN t
+  | Syntax t | Restrict t | LetBinder t -> symbols_in_term Set.empty t
+  | ArgList s | Chainable s | Pairwise s | Binder s -> Set.singleton s
+  | _ -> Set.empty
+
+(* Extract all symbol dependencies from a const definition *)
+let symbols_in_const = function
+  | Decl (ps, ty, attr_opt) ->
+    let acc = symbols_in_params ps in
+    let acc = symbols_in_term acc ty in
+    (match attr_opt with
+     | Some attr -> Set.union acc (symbols_in_attr attr)
+     | None -> acc)
+  | Defn (ps, body, ty_opt) ->
+    let acc = symbols_in_params ps in
+    let acc = symbols_in_term acc body in
+    (match ty_opt with
+     | Some ty -> symbols_in_term acc ty
+     | None -> acc)
+  | Ltrl (_, ty) -> symbols_in_term Set.empty ty
+  | Prog (ps, sig_tys, ret_ty, cases) ->
+    let acc = symbols_in_params ps in
+    let acc = L.fold_left symbols_in_term acc sig_tys in
+    let acc = symbols_in_term acc ret_ty in
+    L.fold_left (fun a c -> Set.union a (symbols_in_case c)) acc cases
+  | Rule (ps, assm, prems, args, reqs, conc) ->
+    let acc = symbols_in_params ps in
+    let acc = symbols_in_term acc assm in
+    let acc = L.fold_left symbols_in_term acc prems in
+    let acc = L.fold_left symbols_in_term acc args in
+    let acc = L.fold_left (fun a c -> Set.union a (symbols_in_case c)) acc reqs in
+    symbols_in_term acc conc
+  | Assume t -> symbols_in_term Set.empty t
+  | Step (rule_name, prems, args, conc_opt) ->
+    let acc = Set.singleton rule_name in
+    let acc = L.fold_left symbols_in_term acc prems in
+    let acc = L.fold_left symbols_in_term acc args in
+    (match conc_opt with
+     | Some conc -> symbols_in_term acc conc
+     | None -> acc)
+
+(* Build a map from symbol name to its dependencies *)
+let build_dependency_map (sig_ : signature) : Set.t M.t =
+  L.fold_left (fun map (name, const) ->
+    let deps = symbols_in_const const in
+    (* Remove self-reference *)
+    let deps = Set.remove name deps in
+    M.add name deps map
+  ) M.empty sig_
+
+(* Compute transitive closure of dependencies from a set of seed symbols *)
+let transitive_closure (dep_map : Set.t M.t) (seeds : Set.t) : Set.t =
+  let rec go visited frontier =
+    if Set.is_empty frontier then visited
+    else
+      let new_visited = Set.union visited frontier in
+      let new_deps =
+        Set.fold (fun sym acc ->
+          match M.find_opt sym dep_map with
+          | Some deps -> Set.union acc deps
+          | None -> acc
+        ) frontier Set.empty
+      in
+      let new_frontier = Set.diff new_deps new_visited in
+      go new_visited new_frontier
+  in
+  go Set.empty seeds
+
+(* Filter a signature to only include symbols in the given set *)
+let filter_signature (sig_ : signature) (keep : Set.t) : signature =
+  L.filter (fun (name, _) -> Set.mem name keep) sig_
+
+(* Given a signature and a set of seed symbol names, compute the minimal
+   signature containing only those symbols and their transitive dependencies *)
+let minimal_signature (sig_ : signature) (seeds : string list) : signature =
+  let seed_set = Set.of_list seeds in
+  let dep_map = build_dependency_map sig_ in
+  let closure = transitive_closure dep_map seed_set in
+  filter_signature sig_ closure
+
+(* Extract all rule names used in a proof signature (from Step commands) *)
+let rules_in_signature (sig_ : signature) : Set.t =
+  L.fold_left (fun acc (_, (c : const)) ->
+    match c with
+    | Step (rule_name, _, _, _) -> Set.add rule_name acc
+    | _ -> acc
+  ) Set.empty sig_
