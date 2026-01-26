@@ -1,0 +1,5 @@
+(job
+  (name QF_UF)
+  (logic cpc-mini)
+  (proofs (dir proofs/QF_UF/eq_diamond))
+)
