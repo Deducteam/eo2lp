@@ -644,6 +644,72 @@ let graph_modules (g : symbol_graph) : path list =
 let graph_union (g1 : symbol_graph) (g2 : symbol_graph) : symbol_graph =
   SymbolMap.fold (fun _ node acc -> graph_add node acc) g2.sg_nodes g1
 
+(* Topological sort of symbols in the graph *)
+let graph_topo_sort (g : symbol_graph) : symbol_id list =
+  let visiting = Hashtbl.create (graph_cardinal g) in
+  let visited = Hashtbl.create (graph_cardinal g) in
+  let result = ref [] in
+
+  let rec visit sid =
+    if Hashtbl.mem visited sid then ()
+    else if Hashtbl.mem visiting sid then
+      (* Cycle - just skip for now *)
+      ()
+    else begin
+      Hashtbl.add visiting sid ();
+      (match graph_find g sid with
+       | Some node ->
+         SymbolSet.iter visit node.sn_deps
+       | None -> ());
+      Hashtbl.remove visiting sid;
+      Hashtbl.add visited sid ();
+      result := sid :: !result
+    end
+  in
+  SymbolMap.iter (fun sid _ -> visit sid) g.sg_nodes;
+  L.rev !result
+
+(* Topological sort of modules based on symbol dependencies *)
+let graph_module_order (g : symbol_graph) : path list =
+  let symbol_order = graph_topo_sort g in
+  (* Extract unique modules in order *)
+  let seen = Hashtbl.create 16 in
+  L.filter_map (fun sid ->
+    if Hashtbl.mem seen sid.sid_module then None
+    else begin
+      Hashtbl.add seen sid.sid_module ();
+      Some sid.sid_module
+    end
+  ) symbol_order
+
+(* Get symbols for a specific module as a list (for elaboration/encoding) *)
+let graph_module_symbols (g : symbol_graph) (mod_path : path) : signature =
+  SymbolMap.fold (fun sid node acc ->
+    if sid.sid_module = mod_path then (sid.sid_name, node.sn_def) :: acc
+    else acc
+  ) g.sg_nodes []
+
+(* Get all symbols up to (but not including) a module as context *)
+let graph_context_for_module (g : symbol_graph) (mod_path : path) : signature =
+  let order = graph_module_order g in
+  let rec collect acc = function
+    | [] -> acc
+    | p :: rest ->
+      if p = mod_path then acc
+      else collect (acc @ graph_module_symbols g p) rest
+  in
+  collect [] order
+
+(* Find all symbol_ids matching a name *)
+let graph_find_all_by_name (g : symbol_graph) (name : string) : SymbolSet.t =
+  SymbolSet.of_list (graph_find_by_name g name)
+
+(* Convert a set of symbol names to symbol_ids (finding all matches) *)
+let graph_resolve_names (g : symbol_graph) (names : Set.t) : SymbolSet.t =
+  Set.fold (fun name acc ->
+    SymbolSet.union acc (graph_find_all_by_name g name)
+  ) names SymbolSet.empty
+
 (* ============================================================
    Legacy types (for gradual migration)
    ============================================================ *)
