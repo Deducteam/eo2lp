@@ -15,7 +15,7 @@
 ; - m Int: The bitwidth.
 ; return: The bitvector of width m containing all ones.
 (define $bv_ones ((m Int))
-  (eo::to_bin m (eo::add ($arith_eval_int_pow_2 m) -1)))
+  (eo::to_bin (eo::to_z m) (eo::add (eo::to_z ($arith_eval_int_pow_2 m)) -1)))
 
 ; define: $bv_to_signed_int
 ; args:
@@ -75,7 +75,7 @@
 ; return: true if the i^th bit of a is set.
 (define $bv_bit_set ((n Int :implicit) (a (BitVec n)) (i Int))
   (eo::eq (eo::extract a i i) #b1))
-  
+
 ; define: $nary_app
 ; args:
 ; - f (-> T U V): The function to apply, which is assumed to be

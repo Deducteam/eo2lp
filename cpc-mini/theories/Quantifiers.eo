@@ -28,5 +28,5 @@
 )
 
 ; skolems
-(declare-parameterized-const @quantifiers_skolemize ((F Bool :opaque) (i Int :opaque))
+(declare-parameterized-const @quantifiers_skolemize ((F Bool :opaque) (i eo::Int :opaque))
   ($assoc_nil_nth_type @list ($get_var_list F) i))
