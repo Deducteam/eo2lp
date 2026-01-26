@@ -67,7 +67,7 @@ and path  = string list
 
 type param = string * term * attr list
 
-type const =
+type symbol =
   | Decl of param list * term * attr option
   | Defn of param list * term * term option  (* params, body, optional :type *)
   | Ltrl of lit_category * term
@@ -78,7 +78,7 @@ type const =
   | Step of string * term list * term list * term option
          (* rule_name, premises, args, optional conclusion *)
 
-type signature = (string * const) list
+type signature = (string * symbol) list
 type context   = signature * param list
 
 (* Builtins *)
@@ -289,7 +289,7 @@ let list_suffix_str f = function
 let rec var_str (str, t) =
   Printf.sprintf "(%s %s)" str (term_str t)
 
-and const_attr_str = function
+and symbol_attr_str = function
   | RightAssoc -> ":right-assoc"
   | LeftAssoc  -> ":left-assoc"
   | RightAssocNil t ->
@@ -343,7 +343,7 @@ and term_list_str ts =
 let param_str (s, t, atts) =
   Printf.sprintf "(%s %s%s)"
     s (term_str t)
-    (list_suffix_str const_attr_str atts)
+    (list_suffix_str symbol_attr_str atts)
 
 let case_str (t, t') =
   Printf.sprintf "(%s %s)" (term_str t) (term_str t')
@@ -380,11 +380,11 @@ let rule_dec_str { assm; prem; args; reqs; conc } =
     (opt_newline reqs_str (Some reqs))
     (opt_newline conclusion_str (Some conc))
 
-let const_str = function
+let symbol_str = function
   | s, Decl (ps, t, ao) ->
     Printf.sprintf "(decl %s (%s) %s (%s))"
       s (list_str param_str ps)
-      (term_str t) (opt_str const_attr_str ao)
+      (term_str t) (opt_str symbol_attr_str ao)
   | s, Defn (ps, t, ty_opt) ->
     Printf.sprintf "(defn %s (%s) %s%s)"
       s (list_str param_str ps) (term_str t)
@@ -401,7 +401,7 @@ let const_str = function
     Printf.sprintf "(rule %s ...)" s
 
 let sig_str sgn =
-  S.concat "\n" (L.map const_str sgn)
+  S.concat "\n" (L.map symbol_str sgn)
 
 (* Datatype declarations *)
 
@@ -463,7 +463,7 @@ type command =
 let common_command_str = function
   | DeclareConst (s, t, att) ->
     Printf.sprintf "(declare-const %s %s %s)"
-      s (term_str t) (opt_suffix_str const_attr_str att)
+      s (term_str t) (opt_suffix_str symbol_attr_str att)
   | DeclareDatatype (s, dt) ->
     Printf.sprintf "(declare-datatype %s %s)"
       s (dt_dec_str dt)
@@ -489,7 +489,7 @@ let command_str = function
   | DeclareParamConst (s, ps, t, att_opt) ->
     Printf.sprintf "(declare-parameterized-const %s (%s) %s%s)"
       s (list_str param_str ps)
-      (term_str t) (opt_suffix_str const_attr_str att_opt)
+      (term_str t) (opt_suffix_str symbol_attr_str att_opt)
   | DeclareRule (s, xs, rdec, sorry_opt) ->
     Printf.sprintf "(declare-rule %s (%s)\n%s\n%s)"
       s (list_str param_str xs)
@@ -542,6 +542,75 @@ type file_parse_result = {
   fpr_includes : path list;
   fpr_sig      : signature;
 }
+
+(* ============================================================
+   Symbol-level indexing for fine-grained dependency tracking
+   ============================================================ *)
+
+(* Symbol identifier: module path + symbol name *)
+type symbol_id = {
+  sid_module : path;   (* e.g., ["theories"; "Arith"] *)
+  sid_name   : string; (* e.g., "+" *)
+}
+
+module SymbolId = struct
+  type t = symbol_id
+  let compare a b =
+    match compare a.sid_module b.sid_module with
+    | 0 -> String.compare a.sid_name b.sid_name
+    | n -> n
+  let equal a b = compare a b = 0
+  let hash a = Hashtbl.hash (a.sid_module, a.sid_name)
+  let to_string a = String.concat "." a.sid_module ^ "." ^ a.sid_name
+end
+
+module SymbolMap = Map.Make(SymbolId)
+module SymbolSet = Stdlib.Set.Make(SymbolId)
+
+(* Symbol with its dependencies tracked *)
+type symbol_entry = {
+  se_id   : symbol_id;
+  se_def  : symbol;        (* the definition itself *)
+  se_deps : SymbolSet.t;   (* symbols this one references *)
+}
+
+(* Global symbol index: fast lookup by name or id *)
+type symbol_index = {
+  (* name → list of symbol_ids with that name (for overloading) *)
+  si_by_name : symbol_id list M.t;
+  (* symbol_id → entry *)
+  si_by_id : symbol_entry SymbolMap.t;
+}
+
+let empty_symbol_index = {
+  si_by_name = M.empty;
+  si_by_id = SymbolMap.empty;
+}
+
+let add_symbol_entry (idx : symbol_index) (entry : symbol_entry) : symbol_index =
+  let name = entry.se_id.sid_name in
+  let existing = Option.value ~default:[] (M.find_opt name idx.si_by_name) in
+  {
+    si_by_name = M.add name (entry.se_id :: existing) idx.si_by_name;
+    si_by_id = SymbolMap.add entry.se_id entry idx.si_by_id;
+  }
+
+let find_symbol_by_id (idx : symbol_index) (sid : symbol_id) : symbol_entry option =
+  SymbolMap.find_opt sid idx.si_by_id
+
+let find_symbols_by_name (idx : symbol_index) (name : string) : symbol_id list =
+  Option.value ~default:[] (M.find_opt name idx.si_by_name)
+
+(* Resolve a symbol name to a symbol_id, preferring the given module context *)
+let resolve_symbol_name (idx : symbol_index) (context : path) (name : string) : symbol_id option =
+  match find_symbols_by_name idx name with
+  | [] -> None  (* unknown symbol *)
+  | [single] -> Some single  (* unique *)
+  | multiple ->
+    (* Prefer symbol from same module *)
+    match L.find_opt (fun sid -> sid.sid_module = context) multiple with
+    | Some found -> Some found
+    | None -> Some (L.hd multiple)  (* fallback to first *)
 
 let sig_node_str n =
   Printf.sprintf
@@ -862,8 +931,8 @@ let symbols_in_attr = function
   | ArgList s | Chainable s | Pairwise s | Binder s -> Set.singleton s
   | _ -> Set.empty
 
-(* Extract all symbol dependencies from a const definition *)
-let symbols_in_const = function
+(* Extract all symbol dependencies from a symbol definition *)
+let symbols_in_symbol = function
   | Decl (ps, ty, attr_opt) ->
     let acc = symbols_in_params ps in
     let acc = symbols_in_term acc ty in
@@ -900,8 +969,8 @@ let symbols_in_const = function
 
 (* Build a map from symbol name to its dependencies *)
 let build_dependency_map (sig_ : signature) : Set.t M.t =
-  L.fold_left (fun map (name, const) ->
-    let deps = symbols_in_const const in
+  L.fold_left (fun map (name, sym) ->
+    let deps = symbols_in_symbol sym in
     (* Remove self-reference *)
     let deps = Set.remove name deps in
     M.add name deps map
@@ -939,8 +1008,183 @@ let minimal_signature (sig_ : signature) (seeds : string list) : signature =
 
 (* Extract all rule names used in a proof signature (from Step commands) *)
 let rules_in_signature (sig_ : signature) : Set.t =
-  L.fold_left (fun acc (_, (c : const)) ->
+  L.fold_left (fun acc (_, (c : symbol)) ->
     match c with
     | Step (rule_name, _, _, _) -> Set.add rule_name acc
     | _ -> acc
   ) Set.empty sig_
+
+(* ============================================================
+   Symbol-level dependency analysis (using symbol_id)
+   ============================================================ *)
+
+(* Build a symbol index from a module graph *)
+let build_symbol_index (modules : sig_node PathMap.t) : symbol_index =
+  PathMap.fold (fun mod_path node idx ->
+    L.fold_left (fun idx (name, def) ->
+      let sid = { sid_module = mod_path; sid_name = name } in
+      (* For now, store empty deps - we'll compute them in a second pass *)
+      let entry = { se_id = sid; se_def = def; se_deps = SymbolSet.empty } in
+      add_symbol_entry idx entry
+    ) idx node.node_sig
+  ) modules empty_symbol_index
+
+(* Resolve symbol references in a term to symbol_ids *)
+let rec resolve_symbols_in_term (idx : symbol_index) (context : path) (acc : SymbolSet.t) = function
+  | Symbol s ->
+    (match resolve_symbol_name idx context s with
+     | Some sid -> SymbolSet.add sid acc
+     | None -> acc)  (* unresolved - might be builtin or parameter *)
+  | Literal _ -> acc
+  | Apply (s, ts) ->
+    let acc = match resolve_symbol_name idx context s with
+      | Some sid -> SymbolSet.add sid acc
+      | None -> acc
+    in
+    L.fold_left (resolve_symbols_in_term idx context) acc ts
+  | Bind (b, vs, body) ->
+    let acc = match resolve_symbol_name idx context b with
+      | Some sid -> SymbolSet.add sid acc
+      | None -> acc
+    in
+    let acc = L.fold_left (fun a (_, ty) -> resolve_symbols_in_term idx context a ty) acc vs in
+    resolve_symbols_in_term idx context acc body
+
+(* Resolve all symbol references in a symbol definition *)
+let resolve_symbols_in_def (idx : symbol_index) (context : path) (def : symbol) : SymbolSet.t =
+  let resolve = resolve_symbols_in_term idx context in
+  let resolve_params ps =
+    L.fold_left (fun acc (_, ty, _) -> resolve acc ty) SymbolSet.empty ps
+  in
+  let resolve_case acc (lhs, rhs) =
+    SymbolSet.union (resolve acc lhs) (resolve SymbolSet.empty rhs)
+  in
+  match def with
+  | Decl (ps, ty, _) ->
+    SymbolSet.union (resolve_params ps) (resolve SymbolSet.empty ty)
+  | Defn (ps, body, ty_opt) ->
+    let acc = SymbolSet.union (resolve_params ps) (resolve SymbolSet.empty body) in
+    (match ty_opt with Some ty -> resolve acc ty | None -> acc)
+  | Ltrl (_, ty) -> resolve SymbolSet.empty ty
+  | Prog (ps, sig_tys, ret_ty, cases) ->
+    let acc = resolve_params ps in
+    let acc = L.fold_left resolve acc sig_tys in
+    let acc = resolve acc ret_ty in
+    L.fold_left resolve_case acc cases
+  | Rule (ps, assm, prems, args, reqs, conc) ->
+    let acc = resolve_params ps in
+    let acc = resolve acc assm in
+    let acc = L.fold_left resolve acc prems in
+    let acc = L.fold_left resolve acc args in
+    let acc = L.fold_left resolve_case acc reqs in
+    resolve acc conc
+  | Assume t -> resolve SymbolSet.empty t
+  | Step (rule_name, prems, args, conc_opt) ->
+    let acc = match resolve_symbol_name idx context rule_name with
+      | Some sid -> SymbolSet.singleton sid
+      | None -> SymbolSet.empty
+    in
+    let acc = L.fold_left resolve acc prems in
+    let acc = L.fold_left resolve acc args in
+    (match conc_opt with Some t -> resolve acc t | None -> acc)
+
+(* Compute dependencies for all symbols in the index *)
+let compute_symbol_deps (modules : sig_node PathMap.t) (idx : symbol_index) : symbol_index =
+  SymbolMap.fold (fun sid entry new_idx ->
+    let deps = resolve_symbols_in_def idx sid.sid_module entry.se_def in
+    (* Remove self-reference *)
+    let deps = SymbolSet.remove sid deps in
+    let new_entry = { entry with se_deps = deps } in
+    { new_idx with si_by_id = SymbolMap.add sid new_entry new_idx.si_by_id }
+  ) idx.si_by_id idx
+
+(* Compute transitive closure from seed symbol_ids *)
+let transitive_closure_ids (idx : symbol_index) (seeds : SymbolSet.t) : SymbolSet.t =
+  let rec go visited frontier =
+    if SymbolSet.is_empty frontier then visited
+    else
+      let new_visited = SymbolSet.union visited frontier in
+      let new_deps =
+        SymbolSet.fold (fun sid acc ->
+          match find_symbol_by_id idx sid with
+          | Some entry -> SymbolSet.union acc entry.se_deps
+          | None -> acc
+        ) frontier SymbolSet.empty
+      in
+      let new_frontier = SymbolSet.diff new_deps new_visited in
+      go new_visited new_frontier
+  in
+  go SymbolSet.empty seeds
+
+(* Filter a module graph to only include symbols in the closure *)
+let filter_graph_by_symbols (modules : sig_node PathMap.t) (keep : SymbolSet.t) : sig_node PathMap.t =
+  PathMap.map (fun node ->
+    let filtered_sig = L.filter (fun (name, _) ->
+      let sid = { sid_module = node.node_path; sid_name = name } in
+      SymbolSet.mem sid keep
+    ) node.node_sig in
+    { node with node_sig = filtered_sig }
+  ) modules
+  |> PathMap.filter (fun _ node -> node.node_sig <> [])
+
+(* Build complete symbol index with dependencies from a module graph *)
+let build_complete_symbol_index (modules : sig_node PathMap.t) : symbol_index =
+  let idx = build_symbol_index modules in
+  compute_symbol_deps modules idx
+
+(* Combined module graph with symbol index *)
+type indexed_graph = {
+  ig_modules : sig_node PathMap.t;
+  ig_symbols : symbol_index;
+}
+
+(* Build an indexed graph from a module graph *)
+let index_graph (modules : sig_node PathMap.t) : indexed_graph = {
+  ig_modules = modules;
+  ig_symbols = build_complete_symbol_index modules;
+}
+
+(* Given an indexed graph and seed symbol names, compute minimal graph *)
+let minimal_indexed_graph (ig : indexed_graph) (seed_names : string list) : indexed_graph =
+  (* Resolve seed names to symbol_ids *)
+  let seeds = L.filter_map (fun name ->
+    match find_symbols_by_name ig.ig_symbols name with
+    | [] -> None
+    | sids -> Some (L.hd sids)  (* take first if multiple *)
+  ) seed_names in
+  let seed_set = SymbolSet.of_list seeds in
+
+  (* Compute transitive closure *)
+  let closure = transitive_closure_ids ig.ig_symbols seed_set in
+
+  (* Filter modules *)
+  let filtered_modules = filter_graph_by_symbols ig.ig_modules closure in
+
+  (* Rebuild symbol index for filtered graph *)
+  let filtered_symbols = build_complete_symbol_index filtered_modules in
+
+  { ig_modules = filtered_modules; ig_symbols = filtered_symbols }
+
+(* ============================================================
+   Job specification for benchmarking
+   ============================================================ *)
+
+(* Source of proof files *)
+type proof_source =
+  | ProofDir of string        (* directory containing .eo files *)
+  | ProofFiles of string list (* explicit list of files *)
+
+(* Job specification *)
+type job = {
+  job_name   : string;
+  job_logic  : string;        (* path to logic source directory *)
+  job_proofs : proof_source;
+}
+
+let job_str j =
+  let proofs_str = match j.job_proofs with
+    | ProofDir d -> Printf.sprintf "(dir %s)" d
+    | ProofFiles fs -> Printf.sprintf "(files %s)" (String.concat " " fs)
+  in
+  Printf.sprintf "(job\n  (name %s)\n  (logic %s)\n  (proofs %s))"
+    j.job_name j.job_logic proofs_str

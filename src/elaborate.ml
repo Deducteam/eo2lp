@@ -240,7 +240,7 @@ and elab_prm ctx =
 and elab_cs ctx =
   L.map (fun (t, t') -> (elab ctx t, elab ctx t'))
 
-and elab_const ctx = function
+and elab_symbol ctx = function
   | Decl (m, t, ao) ->
     Decl (m, elab ctx t, ao)
 
@@ -293,7 +293,7 @@ let elab_sig sgn =
     | (s, c) :: sgn_rest ->
       current_symbol := s;
       let ctx = (sgn_acc @ [(s, c)] @ sgn_rest, []) in
-      let c' = !elab_hook s (fun () -> elab_const ctx c) in
+      let c' = !elab_hook s (fun () -> elab_symbol ctx c) in
       current_symbol := "";
       aux ((s, c') :: sgn_acc) sgn_rest
   in
@@ -308,7 +308,7 @@ let elab_sig_with_ctx ctx_sig local_sig =
       let ctx =
         (ctx_sig @ sgn_acc @ [(s, c)] @ sgn_rest, [])
       in
-      let c' = !elab_hook s (fun () -> elab_const ctx c) in
+      let c' = !elab_hook s (fun () -> elab_symbol ctx c) in
       current_symbol := "";
       aux ((s, c') :: sgn_acc) sgn_rest
   in

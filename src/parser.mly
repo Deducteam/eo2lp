@@ -72,12 +72,12 @@ let lit_cat_to_str = function
   SIGNATURE
   RULE
 
-%start <(string * const) list option> toplevel_eof
+%start <(string * symbol) list option> toplevel_eof
 %start <term> term
 %start <param list> params
 
 (* New entry point that separates includes from signature entries *)
-%start <[ `Sig of (string * const) list | `Include of string ] option> toplevel_eof_v2
+%start <[ `Sig of (string * symbol) list | `Include of string ] option> toplevel_eof_v2
 
 %%
 toplevel_eof:
@@ -108,7 +108,7 @@ common_command:
   | LPAREN; DECLARE_CONST;
       s = symbol ;
       t = term;
-      ao = option(const_attr);
+      ao = option(symbol_attr);
     RPAREN
   {
     [(s, Decl ([], t, ao))]
@@ -164,7 +164,7 @@ command:
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
       ty = term;
-      att_opt = option(const_attr);
+      att_opt = option(symbol_attr);
     RPAREN
   {
     [(s, Decl (ps, ty, att_opt))]
@@ -283,7 +283,7 @@ command:
   | c = common_command
   { c }
 
-const_attr:
+symbol_attr:
   | RIGHT_ASSOC_NIL; t = term { RightAssocNil t }
   | RIGHT_ASSOC_NIL_NSN; t = term { RightAssocNilNSN t }
   | LEFT_ASSOC_NIL; t = term  { LeftAssocNil t }
@@ -451,7 +451,7 @@ command_no_include:
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;
       ty = term;
-      att_opt = option(const_attr);
+      att_opt = option(symbol_attr);
     RPAREN
   { [(s, Decl (ps, ty, att_opt))] }
   | LPAREN; DECLARE_RULE;

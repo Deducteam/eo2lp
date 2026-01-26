@@ -1,3 +1,4 @@
+; Default test: debug mode (cpc-tiny -> cpc)
 (rule
  (alias runtest)
  (deps
@@ -7,3 +8,25 @@
    (chdir %{project_root}
      (with-accepted-exit-codes (or 0 1)
        (run %{exe:../src/eo2lp_cli.exe} --debug -v --color)))))
+
+; Job-based test: run all jobs in test/jobs/
+(rule
+ (alias test-jobs)
+ (deps
+   (source_tree ../cpc-tiny)
+   (source_tree jobs)
+   (source_tree ../src))
+ (action
+   (chdir %{project_root}
+     (run %{exe:../src/eo2lp_cli.exe} --jobs test/jobs -o %{project_root}/_build/test-jobs))))
+
+; Individual job test for debugging
+(rule
+ (alias test-cpc-tiny-job)
+ (deps
+   (source_tree ../cpc-tiny)
+   jobs/cpc-tiny.job
+   (source_tree ../src))
+ (action
+   (chdir %{project_root}
+     (run %{exe:../src/eo2lp_cli.exe} --job test/jobs/cpc-tiny.job -o %{project_root}/_build/test-jobs))))

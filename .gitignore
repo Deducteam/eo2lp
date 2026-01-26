@@ -1,24 +1,39 @@
+# Editor/IDE
+.zed/
+.vscode/
+.merlin
+.ocamlinit
+
+# Old/temporary directories
+.old/
+.ropeproject/
 admin/
 hs/
 notes/
-benchmarks/
-.lpo
-.png
-.ocamlinit
 
-.zed/
-.vscode/
-.old/
-.ropeproject/
+# CPC sources (fetched via scripts/setup-cpc.sh)
+cpc-source/
+cpc-upstream
 cpc-mini/
-# Temporary output directories
+
+# Generated output directories
+cpc/
 output.lp/
 test.lp/
 tests/
+benchmarks/
 
+# External tools
 Dedukti
 cvc5
 ethos
+
+# Generated files
+*.eo
+*.pkg
+*.lp
+*.lpo
+*.png
 
 cspell.json
 tex/luatex.*

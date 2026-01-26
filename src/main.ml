@@ -22,6 +22,8 @@ type config = {
   proof_mode : string option;  (* Legacy: Path to logic package for proof mode *)
   proofs_dir : string option;  (* Directory containing proof .eo files to process after logic *)
   survey_dir : string option;  (* Directory to survey for rules needed *)
+  job_file   : string option;  (* Single job file to process *)
+  jobs_dir   : string option;  (* Directory containing job files *)
 }
 
 let default_config = {
@@ -34,6 +36,8 @@ let default_config = {
   proof_mode = None;
   proofs_dir = None;
   survey_dir = None;
+  job_file   = None;
+  jobs_dir   = None;
 }
 
 let config = ref default_config
@@ -84,6 +88,14 @@ let speclist = [
    Arg.String (fun s ->
      config := { !config with survey_dir = Some s }),
    "<dir> Survey proof files in <dir> to build minimal CPC (filter unused symbols)");
+  ("--job",
+   Arg.String (fun s ->
+     config := { !config with job_file = Some s }),
+   "<file> Process a single job file");
+  ("--jobs",
+   Arg.String (fun s ->
+     config := { !config with jobs_dir = Some s }),
+   "<dir> Process all job files in directory");
 ]
 
 (* Helpers *)
@@ -495,9 +507,150 @@ let process_proofs ~pkg_name ~output_dir ~logic_eo_sig ~verbose proofs_dir =
 
 (* Main entry point *)
 
+(* Process a single job *)
+let process_job (job : EO.job) (base_output_dir : string) =
+  let output_dir = Filename.concat base_output_dir job.job_name in
+  let pkg_name = job.job_name in
+
+  Printf.printf "\n=== Job: %s ===\n" job.job_name;
+  Printf.printf "  Logic: %s\n" job.job_logic;
+  Printf.printf "  Output: %s\n" output_dir;
+
+  (* Stage 1: Parse logic *)
+  let t_parse_start = Unix.gettimeofday () in
+  Printf.printf "parsing %s... " job.job_logic;
+  flush stdout;
+  let graph = EO.build_sig_graph job.job_logic None in
+  let t_parse = Unix.gettimeofday () -. t_parse_start in
+  Printf.printf "%s (%.0fms)\n" (green "ok") (t_parse *. 1000.);
+
+  (* Stage 2: Get proof files and survey for needed rules *)
+  let proof_files = match job.job_proofs with
+    | EO.ProofDir dir ->
+      Sys.readdir dir
+      |> Array.to_list
+      |> List.filter (fun f -> Filename.check_suffix f ".eo")
+      |> List.map (Filename.concat dir)
+    | EO.ProofFiles files -> files
+  in
+
+  Printf.printf "found %d proof files\n" (List.length proof_files);
+
+  (* Survey proofs for needed rules *)
+  let t_survey_start = Unix.gettimeofday () in
+  Printf.printf "surveying proofs... ";
+  flush stdout;
+  let needed_rules =
+    List.fold_left (fun acc f ->
+      try
+        let content = In_channel.with_open_text f In_channel.input_all in
+        let proof_sig = EO.parse_eo_string content in
+        let rules = EO.rules_in_signature proof_sig in
+        EO.Set.union acc rules
+      with _ -> acc
+    ) EO.Set.empty proof_files
+  in
+
+  (* Compute minimal graph *)
+  let full_sig = EO.full_sig graph in
+  let fundamental = [
+    "Type"; "Bool"; "Int"; "true"; "false"; "not"; "and"; "or"; "=>";
+    "="; "ite"; "Proof"; "->"; "@List"; "eo::List"; "eo::List::cons"; "eo::List::nil"
+  ] in
+  let seeds = EO.Set.of_list (EO.Set.elements needed_rules @ fundamental) in
+  let dep_map = EO.build_dependency_map full_sig in
+  let closure = EO.transitive_closure dep_map seeds in
+  let t_survey = Unix.gettimeofday () -. t_survey_start in
+  Printf.printf "%s %d rules -> %d symbols (%.0fms)\n"
+    (green "ok") (EO.Set.cardinal needed_rules) (EO.Set.cardinal closure) (t_survey *. 1000.);
+
+  (* Filter graph *)
+  let graph = EO.PathMap.map (fun node ->
+    let filtered_sig = EO.filter_signature node.EO.node_sig closure in
+    { node with EO.node_sig = filtered_sig }
+  ) graph in
+
+  (* Check for cycles *)
+  (match EO.check_dag graph with
+   | Error cycle ->
+     Printf.printf "Error: Cycle detected in %s\n" job.job_name;
+     List.iter (fun p -> Printf.printf "  -> %s\n" (EO.path_str p)) cycle;
+     (0, 1)
+   | Ok () ->
+     (* Initialize lambdapi *)
+     let t_init_start = Unix.gettimeofday () in
+     Printf.printf "initializing lambdapi... ";
+     flush stdout;
+     let prelude_sign = init_lambdapi ~output_dir ~pkg_name in
+     LP.init prelude_sign;
+     LP.set_verbose false;
+     let t_init = Unix.gettimeofday () -. t_init_start in
+     Printf.printf "%s (%.0fms)\n" (green "ok") (t_init *. 1000.);
+
+     (* Process modules *)
+     Hashtbl.clear processed_modules;
+     let order = EO.topo_sort graph in
+     let total = List.length order in
+
+     let t_encode_start = Unix.gettimeofday () in
+     Printf.printf "encoding %d modules... " total;
+     flush stdout;
+
+     let passed = ref 0 in
+     let failed = ref 0 in
+
+     List.iter (fun path ->
+       let result = process_module ~pkg_name ~output_dir ~verbose:!config.verbose graph path in
+       match result with
+       | Success _ -> incr passed
+       | Skipped _ -> ()
+       | Error _ -> incr failed
+     ) order;
+
+     let t_encode = Unix.gettimeofday () -. t_encode_start in
+     if !failed > 0 then
+       Printf.printf "%s %d/%d (%.0fms)\n" (red "FAIL") !failed total (t_encode *. 1000.)
+     else
+       Printf.printf "%s (%.0fms)\n" (green "ok") (t_encode *. 1000.);
+
+     LP.reset ();
+     (!passed, !failed))
+
 let run () =
   Arg.parse speclist (fun _ -> ()) usage;
 
+  (* Job mode: process job files *)
+  (match !config.job_file, !config.jobs_dir with
+  | Some job_file, _ ->
+    let output_dir = match !config.output_dir with
+      | Some d -> d
+      | None -> "_build/jobs"
+    in
+    let job = EO.parse_job_file job_file in
+    let (passed, failed) = process_job job output_dir in
+    Printf.printf "\nTotal: %d passed, %d failed\n" passed failed;
+    if failed > 0 then exit 1 else exit 0
+  | None, Some jobs_dir ->
+    let output_dir = match !config.output_dir with
+      | Some d -> d
+      | None -> "_build/jobs"
+    in
+    let job_files = EO.find_job_files jobs_dir in
+    Printf.printf "Found %d job files in %s\n" (List.length job_files) jobs_dir;
+    let total_passed = ref 0 in
+    let total_failed = ref 0 in
+    List.iter (fun jf ->
+      let job = EO.parse_job_file jf in
+      let (p, f) = process_job job output_dir in
+      total_passed := !total_passed + p;
+      total_failed := !total_failed + f
+    ) job_files;
+    Printf.printf "\n=== Summary ===\n";
+    Printf.printf "Total: %d passed, %d failed\n" !total_passed !total_failed;
+    if !total_failed > 0 then exit 1 else exit 0
+  | None, None -> ());
+
+  (* Legacy mode: -d/-o flags *)
   let input_dir, output_dir =
     if !config.debug then ("./cpc-tiny", "./cpc")
     else
@@ -505,7 +658,7 @@ let run () =
       | Some i, Some o -> (i, o)
       | _ ->
         Printf.eprintf
-          "Error: Both -d and -o are required\n";
+          "Error: Both -d and -o are required (or use --job/--jobs)\n";
         exit 1
   in
 

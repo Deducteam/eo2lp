@@ -1,0 +1,5 @@
+(job
+  (name cpc-tiny)
+  (logic cpc-tiny)
+  (proofs (dir cpc-tiny/proofs))
+)

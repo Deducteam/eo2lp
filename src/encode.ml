@@ -597,7 +597,7 @@ let enc_step str rule_name premises args conc_opt =
   let sym = add_definition ~impl:[] (unique_name str) expected_ty body in
   { sym = Some sym; rules = []; after_rules = [] }
 
-let enc_const name = function
+let enc_symbol name = function
   | EO.Decl (ps, ty, attr) ->
     enc_decl name ps ty attr
   | EO.Defn (ps, body, ty_opt) ->
@@ -628,11 +628,11 @@ let enc_signature sig_ =
   let after_rules_map = Hashtbl.create 16 in
   let errors = ref [] in
   List.iter
-    (fun (name, const) ->
+    (fun (name, sym) ->
        try
          set_current_symbol name;
          set_current_phase "encode";
-         let result = enc_const name const in
+         let result = enc_symbol name sym in
          all_rules := !all_rules @ result.rules;
          (* Associate after_rules with the symbol that was created *)
          (match result.sym with
