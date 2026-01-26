@@ -43,7 +43,7 @@ and elab_inner (sgn, ps as ctx : context) = function
   (* symbols *)
   | Symbol s ->
     begin match L.assoc_opt s sgn with
-    | Some (Defn ([], Symbol s')) ->
+    | Some (Defn ([], Symbol s', _)) ->
       elab ctx (Symbol s')
     | _ ->
       Symbol s
@@ -52,7 +52,12 @@ and elab_inner (sgn, ps as ctx : context) = function
   (* applications *)
   | Apply (s, ts) ->
     if is_builtin s then
-      Apply (s, L.map (elab ctx) ts)
+      (* Handle n-ary builtins like eo::add, eo::mul by folding to binary *)
+      if is_nary_binop s && L.length ts > 2 then
+        let ts' = L.map (elab ctx) ts in
+        L.fold_left (fun acc t -> Apply (s, [acc; t])) (L.hd ts') (L.tl ts')
+      else
+        Apply (s, L.map (elab ctx) ts)
     else begin
       match prm_find s ps with
       | Some (s, ty, ao) ->
@@ -103,12 +108,12 @@ and elab_inner (sgn, ps as ctx : context) = function
 
 and elab_nary (sgn, ps as ctx : context) (s, k, ts) =
   match k with
-  (* program constants: HO application *)
+  (* program constants: shallow application. *)
   | Prog _ ->
-    app_ho_list (Symbol s) (L.map (elab ctx) ts)
+    Apply (s, (L.map (elab ctx) ts))
 
   (* nullary macro - expand *)
-  | Defn ([], body) ->
+  | Defn ([], body, _) ->
     begin match body with
     | Symbol s' when ts = [] ->
       elab ctx (Symbol s')
@@ -120,10 +125,10 @@ and elab_nary (sgn, ps as ctx : context) (s, k, ts) =
       Apply (s, L.map (elab ctx) ts)
     end
 
-  | Defn (qs, t) ->
+  | Defn (qs, t, _) ->
     Apply (s, L.map (elab ctx) ts)
 
-  (* object-level constants *)
+  (* object-level constants. deep application using `_`. *)
   | Decl (_, ty, ao) ->
     let ts' = L.map (elab ctx) ts in
     if returns_type ty then
@@ -232,11 +237,11 @@ and elab_const ctx = function
   | Decl (m, t, ao) ->
     Decl (m, elab ctx t, ao)
 
-  | Defn (ps, t) ->
+  | Defn (ps, t, ty_opt) ->
     let ps' = elab_prm ctx ps in
     let sgn, _ = ctx in
     let ctx' = (sgn, ps') in
-    Defn (ps', elab ctx' t)
+    Defn (ps', elab ctx' t, Option.map (elab ctx') ty_opt)
 
   | Prog (ps, doms, ran, cs) ->
     let sgn, outer_ps = ctx in

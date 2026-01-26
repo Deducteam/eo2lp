@@ -123,6 +123,8 @@ let process_module ~pkg_name ~output_dir ~verbose graph path =
   end
   else begin
     try
+      let module_name = path_to_module pkg_name path in
+      LP.set_current_module module_name;
       let t0 = Unix.gettimeofday () in
 
       let full_sig = EO.full_sig_at graph path in
@@ -139,7 +141,7 @@ let process_module ~pkg_name ~output_dir ~verbose graph path =
           node.EO.node_includes
       in
       let sign = LP.init_sign ~deps:dep_paths module_path in
-      let rules = Enc.enc_signature elab_sig in
+      let (rules, after_rules_map) = Enc.enc_signature elab_sig in
       let t3 = Unix.gettimeofday () in
 
       let out_path =
@@ -153,7 +155,7 @@ let process_module ~pkg_name ~output_dir ~verbose graph path =
           node.EO.node_includes
       in
       LP.write_lp_file out_path
-        ~prelude_module ~deps sign rules;
+        ~prelude_module ~deps sign rules ~after_rules_map;
 
       let rel_path = String.concat "/" path ^ ".lp" in
       let check_result =
@@ -308,7 +310,7 @@ let run () =
   Arg.parse speclist (fun _ -> ()) usage;
 
   let input_dir, output_dir =
-    if !config.debug then ("./cpc-mini", "./cpc")
+    if !config.debug then ("./cpc-tiny", "./cpc")
     else
       match !config.input_dir, !config.output_dir with
       | Some i, Some o -> (i, o)
@@ -426,6 +428,8 @@ let run () =
   end;
 
   LP.reset ();
-  if !failed > 0 then exit 1
+  if !failed > 0 then exit 1;
+  (* Exit cleanly to avoid LambdaPi cleanup issues *)
+  exit 0
 
 let () = run ()

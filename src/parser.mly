@@ -205,7 +205,7 @@ command:
       ty_opt = option(defn_attr);
     RPAREN
   {
-    [(s, Defn (ps, t))]
+    [(s, Defn (ps, t, ty_opt))]
   }
   | LPAREN; INCLUDE;
       str = STRING;
@@ -485,7 +485,7 @@ command_no_include:
       LPAREN; ps = list(param); RPAREN; t = term;
       ty_opt = option(defn_attr);
     RPAREN
-  { ignore ty_opt; [(s, Defn (ps, t))] }
+  { [(s, Defn (ps, t, ty_opt))] }
   | LPAREN; PROGRAM;
       s = symbol ;
       LPAREN; ps = list(param); RPAREN;

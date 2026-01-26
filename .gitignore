@@ -10,7 +10,7 @@ benchmarks/
 .vscode/
 .old/
 .ropeproject/
-
+cpc-mini/
 # Temporary output directories
 output.lp/
 test.lp/

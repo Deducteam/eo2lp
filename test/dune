@@ -1,7 +1,7 @@
 (rule
  (alias runtest)
  (deps
-   (source_tree ../cpc-mini)
+   (source_tree ../cpc-tiny)
    (source_tree ../src))
  (action
    (chdir %{project_root}

@@ -69,7 +69,7 @@ type param = string * term * attr list
 
 type const =
   | Decl of param list * term * attr option
-  | Defn of param list * term
+  | Defn of param list * term * term option  (* params, body, optional :type *)
   | Ltrl of lit_category * term
   | Prog of param list * term list * term * case list
   | Rule of param list * term * term list
@@ -382,9 +382,10 @@ let const_str = function
     Printf.sprintf "(decl %s (%s) %s (%s))"
       s (list_str param_str ps)
       (term_str t) (opt_str const_attr_str ao)
-  | s, Defn (ps, t) ->
-    Printf.sprintf "(defn %s (%s) %s)"
+  | s, Defn (ps, t, ty_opt) ->
+    Printf.sprintf "(defn %s (%s) %s%s)"
       s (list_str param_str ps) (term_str t)
+      (match ty_opt with None -> "" | Some ty -> " :type " ^ term_str ty)
   | s, Ltrl (cat, t) ->
     Printf.sprintf "(declare-consts %s %s)"
       (Literal.lit_category_str cat) (term_str t)

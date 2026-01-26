@@ -4,12 +4,22 @@
 let verbose = ref false
 let set_verbose v = verbose := v
 
+(* Debug context: tracks what symbol/module is currently being encoded *)
+let current_module = ref ""
+let current_symbol = ref ""
+let set_current_module m = current_module := m
+let set_current_symbol s = current_symbol := s
+let get_current_context () =
+  if !current_module = "" then !current_symbol
+  else !current_module ^ ":" ^ !current_symbol
+
 (* LambdaPi modules *)
 module Term      = Core.Term
 module Sign      = Core.Sign
 module Sig_state = Core.Sig_state
 module Print     = Core.Print
 module Ctxt      = Core.Ctxt
+module LibTerm   = Core.LibTerm
 module Compile   = Handle.Compile
 module Package   = Parsing.Package
 module Library   = Common.Library
@@ -28,10 +38,12 @@ type ctxt = Term.ctxt
 let mk_Symb   = Term.mk_Symb
 let mk_Vari   = Term.mk_Vari
 let mk_Kind   = Term.mk_Kind
+let mk_Type   = Term.mk_Type
 let mk_Appl   = Term.mk_Appl
 let mk_Prod   = Term.mk_Prod
 let mk_Abst   = Term.mk_Abst
 let mk_Plac   = Term.mk_Plac
+let mk_Patt   = Term.mk_Patt
 let add_args  = Term.add_args
 let new_var   = Term.new_var
 let bind_var  = Term.bind_var
@@ -77,17 +89,46 @@ let rec has_plac = function
   | _ -> false
 
 (* Resolve placeholders via type inference *)
-let resolve_term ?(debug=false) t =
+let resolve_term ?(debug=false) ?(ctx=[]) ?expected_ty t =
   if not (has_plac t) then t
   else
     try
       let prob = Term.new_problem () in
-      match Core.Infer.infer_noexn prob [] t with
-      | Some (resolved, _) ->
-        let _ = Core.Unif.solve_noexn prob in
+      (* Use check if expected type provided, otherwise infer *)
+      let result = match expected_ty with
+        | Some exp_ty ->
+          Core.Infer.check_noexn prob ctx t exp_ty
+          |> Option.map (fun resolved -> (resolved, exp_ty))
+        | None ->
+          Core.Infer.infer_noexn prob ctx t
+      in
+      match result with
+      | Some (resolved, ty) ->
+        let solved = Core.Unif.solve_noexn prob in
+        (* Only print debug output on failure *)
+        if debug && not solved then begin
+          Timed.(Print.print_implicits := true);
+          Timed.(Print.do_not_qualify := true);
+          Format.eprintf "  @[<v 2>\027[33m[%s]\027[0m resolve failed:@," (get_current_context ());
+          Format.eprintf "term: %a@," Print.term t;
+          Format.eprintf "got:  %a@," Print.term resolved;
+          Format.eprintf "type: %a@]@.@." Print.term ty
+        end;
         (try Term.cleanup resolved with _ -> resolved)
-      | None -> t
-    with _ -> t
+      | None ->
+        if debug then begin
+          Timed.(Print.print_implicits := true);
+          Timed.(Print.do_not_qualify := true);
+          Format.eprintf "  @[<v 2>\027[33m[%s]\027[0m infer failed:@," (get_current_context ());
+          Format.eprintf "term: %a@]@.@." Print.term t
+        end;
+        t
+    with e ->
+      if debug then begin
+        Format.eprintf "  @[<v 2>\027[33m[%s]\027[0m exception:@," (get_current_context ());
+        Format.eprintf "%s@]@.@." (Printexc.to_string e)
+      end;
+      t
 
 (* Collect unsolved metas *)
 let collect_unsolved_metas t =
@@ -121,25 +162,33 @@ let rec metas_to_wildcards = function
              bind_var x (metas_to_wildcards body))
   | t -> t
 
+(* τ {|eo::Type|} term, set when prelude is loaded *)
+let tau_eo_type_ref : term option ref = ref None
+
 (* Bind unsolved metas as implicit parameters *)
 let bind_unsolved_metas t =
   let metas = collect_unsolved_metas t in
   if metas = [] then (t, [])
   else
+    (* All type-level metas should have type τ {|eo::Type|} *)
+    let tau_eo_type = match !tau_eo_type_ref with
+      | Some t -> t
+      | None -> mk_Kind  (* fallback *)
+    in
     let meta_to_var =
-      List.map (fun (m, ty) ->
+      List.map (fun (m, _ty) ->
         let name = "v" ^ string_of_int m.Term.meta_key in
-        (m, new_var name, ty))
+        (m, new_var name, tau_eo_type))
         metas
     in
-    let rec subst = function
+    let rec subst term = match term with
       | Term.Meta (m, _) ->
         (match List.find_opt
                  (fun (m', _, _) -> m == m')
                  meta_to_var
          with
          | Some (_, v, _) -> mk_Vari v
-         | None -> t)
+         | None -> term)
       | Term.Appl (t1, t2) ->
         mk_Appl (subst t1, subst t2)
       | Term.Abst (a, b) ->
@@ -217,11 +266,17 @@ let find_in sign name =
 let find_symbol name =
   find_in (get_sign ()) name
 
+let is_excluded_stdlib_path path =
+  List.length path >= 2 &&
+  List.hd path = "Stdlib" &&
+  List.nth path 1 = "Nat"
+
 let find_symbol_global name =
   let result = ref None in
   Path.Map.iter
-    (fun _ sign ->
-       if !result = None then result := find_in sign name)
+    (fun path sign ->
+       if !result = None && not (is_excluded_stdlib_path path) then
+         result := find_in sign name)
     Timed.(!(Sign.loaded));
   !result
 
@@ -333,10 +388,23 @@ let apply_package_config =
   Package.apply_config
 
 (* Printing helpers *)
-let print_term         = Print.term
 let set_print_implicits b = Timed.(Print.print_implicits := b)
 let set_print_domains   b = Timed.(Print.print_domains := b)
 let set_do_not_qualify  b = Timed.(Print.do_not_qualify := b)
+
+(* Check if term is τ {|eo::Type|} which should print as Set *)
+let is_tau_eo_type = function
+  | Term.Appl (Term.Symb tau_sym, Term.Symb eo_type_sym) ->
+    tau_sym.Term.sym_name = "τ" &&
+    eo_type_sym.Term.sym_name = "{|eo::Type|}"
+  | _ -> false
+
+(* Custom term printer that simplifies τ {|eo::Type|} to Set *)
+let print_term ppf t =
+  if is_tau_eo_type t then
+    Format.fprintf ppf "Set"
+  else
+    Print.term ppf t
 
 (* Prelude *)
 let prelude : sign option ref = ref None
@@ -347,7 +415,12 @@ let prelude_sig () =
   | None   -> failwith "Prelude not initialized"
 
 let init prelude_sign =
-  prelude := Some prelude_sign
+  prelude := Some prelude_sign;
+  (* Set τ {|eo::Type|} for binding unsolved metas *)
+  (match find_symbol_global "τ", find_in prelude_sign "{|eo::Type|}" with
+   | Some tau_sym, Some eo_type ->
+     tau_eo_type_ref := Some (mk_Appl (mk_Symb tau_sym, mk_Symb eo_type))
+   | _ -> ())
 
 let reset () =
   prelude := None;
@@ -365,6 +438,7 @@ let find name =
 (* Prelude symbols *)
 let tau ()         = find "τ"
 let arrow_sym ()   = find "⤳"
+let dep_arrow_sym () = find "⤳d"
 let app_sym ()     = find "APP"
 let eo_type_sym () = find "{|eo::Type|}"
 let eo_as_sym ()   = find "{|eo::as|}"
@@ -372,7 +446,7 @@ let eo_as_sym ()   = find "{|eo::as|}"
 (* Name encoding *)
 let lp_keywords = [
   "as"; "in"; "let"; "open"; "require"; "rule";
-  "symbol"; "with"; "type"; "TYPE"; "Set"
+  "symbol"; "with"; "type"; "TYPE"; "Set"; "repeat"
 ]
 
 let invalid_chars = [
@@ -397,32 +471,33 @@ let find_in_deps name =
          (fun sign -> find_in sign name))
     !current_deps
 
-let is_excluded_stdlib_symbol s =
-  let p = s.Term.sym_path in
-  List.length p >= 2 &&
-  List.hd p = "Stdlib" &&
-  List.nth p 1 = "Nat"
-
 let find_sym name =
-  match find_symbol name with
-  | Some s -> Some s
-  | None ->
-    match find_in_deps name with
+  (* Try both unescaped and escaped versions of the name *)
+  let names = [name; esc name] |> List.sort_uniq String.compare in
+  let try_find n =
+    match find_symbol n with
     | Some s -> Some s
     | None ->
-      match find_in (prelude_sig ()) name with
+      match find_in_deps n with
       | Some s -> Some s
       | None ->
-        match find_symbol_global name with
-        | Some s when not (is_excluded_stdlib_symbol s) ->
-          Some s
-        | _ -> None
+        match find_in (prelude_sig ()) n with
+        | Some s -> Some s
+        | None -> find_symbol_global n
+  in
+  List.find_map try_find names
 
 let get_sym name =
   match find_sym name with
   | Some s -> s
   | None ->
-    failwith (Printf.sprintf "Symbol not found: %s" name)
+    (* Debug: show what signatures are loaded *)
+    let loaded_paths =
+      Path.Map.fold (fun p _ acc -> String.concat "." p :: acc)
+        Timed.(!(Sign.loaded)) []
+    in
+    failwith (Printf.sprintf "Symbol not found: %s (loaded: %s)"
+      name (String.concat ", " loaded_paths))
 
 (* Symbol application with implicits *)
 let rec count_leading_impl = function
@@ -437,8 +512,18 @@ let enc_sym s =
 let tau_of t =
   mk_Appl (mk_Symb (tau ()), t)
 
+(* Unwrap τ from a term: τ T -> T *)
+let un_tau = function
+  | Term.Appl (Term.Symb s, t) when s.Term.sym_name = "τ" -> t
+  | t -> t  (* If not τ-wrapped, return as-is *)
+
 let hol_arrow t1 t2 =
   add_args (mk_Symb (arrow_sym ())) [t1; t2]
+
+(* Dependent arrow: T ⤳d F where F : τ T → Set
+   τ (T ⤳d F) ↪ Π x : τ T, τ (F x) *)
+let hol_dep_arrow t1 f =
+  add_args (mk_Symb (dep_arrow_sym ())) [t1; f]
 
 let hol_app t1 t2 =
   add_args (enc_sym (app_sym ())) [t1; t2]
@@ -541,59 +626,140 @@ let print_symbol ppf sym =
   set_print_implicits true;
   (match sym_ty with
    | Term.Kind ->
+     (* Definition with inferred type - extract params from lambda *)
      (match sym_def with
       | Some def ->
-        let params, body =
-          extract_lambda_params def sym_impl
-        in
+        let params, body = extract_lambda_params def sym_impl in
         if params <> [] then begin
           List.iter (print_param ppf) params;
+          set_print_implicits false;
           Format.fprintf ppf " ≔ %a" print_term body
-        end else
+        end else begin
+          set_print_implicits false;
           Format.fprintf ppf " ≔ %a" print_term def
+        end
       | None -> ())
    | _ ->
-     let params, _ = extract_params sym_ty sym_impl in
+     (* Has explicit type - extract params from Π-binders *)
+     let params, ret_ty = extract_params sym_ty sym_impl in
      let n = List.length params in
-     if sym_def <> None && n > 0 then begin
+     if params <> [] then
        List.iter (print_param ppf) params;
-       match sym_def with
-       | Some def ->
-         Format.fprintf ppf " ≔ %a"
-           print_term (unwrap_lambdas n def)
-       | None -> ()
-     end else begin
-       Format.fprintf ppf " : %a" print_term sym_ty;
-       match sym_def with
-       | Some def ->
-         Format.fprintf ppf " ≔ %a" print_term def
-       | None -> ()
-     end);
+     (* Print return type if not Kind *)
+     (match ret_ty with
+      | Term.Kind -> ()
+      | _ -> Format.fprintf ppf " : %a" print_term ret_ty);
+     (* Print definition if present *)
+     (match sym_def with
+      | Some def ->
+        set_print_implicits false;
+        Format.fprintf ppf " ≔ %a" print_term (unwrap_lambdas n def)
+      | None -> ()));
   set_print_implicits false;
   set_print_domains false;
   set_do_not_qualify false;
   Format.fprintf ppf ";@."
 
-let print_signature ppf ~prelude_module ~deps _sign rules =
+(* Print a single rule clause (LHS ↪ RHS) without keyword *)
+let print_rule_clause ppf (sym, rule) =
+  set_print_implicits true;
+  set_do_not_qualify true;
+  (* Check if this is a coercion rule (head symbol is "coerce") *)
+  let is_coerce = sym.Term.sym_name = "coerce" in
+  if is_coerce then
+    Format.fprintf ppf "coerce"
+  else
+    (* Use @ prefix to force implicits on head symbol *)
+    Format.fprintf ppf "@%s" sym.Term.sym_name;
+  (* Wrap each LHS arg in parentheses *)
+  List.iter
+    (fun arg -> Format.fprintf ppf " (%a)" print_term arg)
+    rule.Term.lhs;
+  Format.fprintf ppf " ↪ %a" print_term rule.Term.rhs;
+  set_print_implicits false;
+  set_do_not_qualify false
+
+(* Print a group of rules for the same symbol, joined with "with" *)
+let print_rules ppf rules =
+  match rules with
+  | [] -> ()
+  | [(sym, _) as first] ->
+    (* Single rule: use coerce_rule for coercion, rule otherwise *)
+    let is_coerce = sym.Term.sym_name = "coerce" in
+    if is_coerce then
+      Format.fprintf ppf "coerce_rule %a;@." print_rule_clause first
+    else
+      Format.fprintf ppf "rule %a;@." print_rule_clause first
+  | (sym, _) :: _ ->
+    (* Check if coerce - coerce_rule doesn't support "with" *)
+    let is_coerce = sym.Term.sym_name = "coerce" in
+    if is_coerce then
+      (* Print each coerce rule separately *)
+      List.iter (fun r ->
+        Format.fprintf ppf "coerce_rule %a;@." print_rule_clause r)
+        rules
+    else begin
+      (* Multiple rules: join with "with" *)
+      let first = List.hd rules in
+      let rest = List.tl rules in
+      Format.fprintf ppf "rule %a@." print_rule_clause first;
+      List.iteri (fun i r ->
+        let is_last = (i = List.length rest - 1) in
+        if is_last then
+          Format.fprintf ppf "with %a;@." print_rule_clause r
+        else
+          Format.fprintf ppf "with %a@." print_rule_clause r)
+        rest
+    end
+
+let print_signature ppf ~prelude_module ~deps _sign rules ~after_rules_map =
   Format.fprintf ppf "require %s as eo;@." prelude_module;
   let open_deps =
     if deps = [] then [prelude_module] else deps
   in
   Format.fprintf ppf "require open %s;@.@."
     (String.concat " " open_deps);
-  List.iter (print_symbol ppf) (get_symbol_order ());
-  List.iter
-    (fun (sym, rule) ->
-       set_do_not_qualify true;
-       set_print_implicits true;
-       Format.fprintf ppf "rule %s" sym.Term.sym_name;
-       List.iter
-         (fun arg -> Format.fprintf ppf " %a" print_term arg)
-         rule.Term.lhs;
-       Format.fprintf ppf " ↪ %a;@." print_term rule.Term.rhs;
-       set_print_implicits false;
-       set_do_not_qualify false)
-    rules
+  (* Track which rules have been printed *)
+  let printed_rules = Hashtbl.create (List.length rules) in
+  (* Print each symbol followed by its rules (grouped with "with") *)
+  let local_syms = get_symbol_order () in
+  List.iter (fun sym ->
+    print_symbol ppf sym;
+    (* Collect all rules for this symbol *)
+    let sym_rules = List.filter_map (fun (i, (rule_sym, rule)) ->
+      if rule_sym == sym then begin
+        Hashtbl.add printed_rules i ();
+        Some (rule_sym, rule)
+      end else None)
+      (List.mapi (fun i r -> (i, r)) rules)
+    in
+    print_rules ppf sym_rules;
+    (* Print any after_rules associated with this symbol *)
+    (match Hashtbl.find_opt after_rules_map sym with
+     | Some after_rs ->
+       (* Group after_rules by their head symbol *)
+       let grouped = Hashtbl.create 4 in
+       List.iter (fun ((rule_sym, _) as r) ->
+         let key = rule_sym.Term.sym_name in
+         let existing = try Hashtbl.find grouped key with Not_found -> [] in
+         Hashtbl.replace grouped key (r :: existing))
+         after_rs;
+       Hashtbl.iter (fun _ rs -> print_rules ppf (List.rev rs)) grouped
+     | None -> ()))
+  local_syms;
+  (* Print any remaining rules (for external symbols like ⪽) *)
+  let remaining = List.filter_map (fun (i, r) ->
+    if Hashtbl.mem printed_rules i then None else Some r)
+    (List.mapi (fun i r -> (i, r)) rules)
+  in
+  (* Group remaining rules by symbol *)
+  let grouped = Hashtbl.create 16 in
+  List.iter (fun ((sym, _) as r) ->
+    let key = sym.Term.sym_name in
+    let existing = try Hashtbl.find grouped key with Not_found -> [] in
+    Hashtbl.replace grouped key (r :: existing))
+    remaining;
+  Hashtbl.iter (fun _ rs -> print_rules ppf (List.rev rs)) grouped
 
 (* File operations *)
 let rec mkdir_p dir =
@@ -602,12 +768,12 @@ let rec mkdir_p dir =
     Sys.mkdir dir 0o755
   end
 
-let write_lp_file filepath ~prelude_module ~deps sign rules =
+let write_lp_file filepath ~prelude_module ~deps sign rules ~after_rules_map =
   let dir = Filename.dirname filepath in
   if dir <> "." && dir <> "" then mkdir_p dir;
   let oc  = open_out filepath in
   let ppf = Format.formatter_of_out_channel oc in
-  print_signature ppf ~prelude_module ~deps sign rules;
+  print_signature ppf ~prelude_module ~deps sign rules ~after_rules_map;
   Format.pp_print_flush ppf ();
   close_out oc
 
@@ -636,12 +802,11 @@ type check_result =
   | Check_ok
   | Check_error of string
 
-let check_file ?(verbose=false) output_dir rel_path =
-  let debug = if verbose then "--debug=iu" else "" in
+let check_file ?verbose:_ output_dir rel_path =
   let cmd =
     Printf.sprintf
-      "cd %s && NO_COLOR=1 timeout 120 lambdapi check %s -w %s 2>&1"
-      output_dir debug rel_path
+      "cd %s && NO_COLOR=1 timeout 1 lambdapi check -c -w %s 2>&1"
+      output_dir rel_path
   in
   let ic  = Unix.open_process_in cmd in
   let buf = Buffer.create 256 in

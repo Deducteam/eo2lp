@@ -1,11 +1,11 @@
 require open Stdlib.HOL Stdlib.Bool;
 
-require Stdlib.List as L;
-require Stdlib.String as Str;
+require open Stdlib.List;
+require open Stdlib.String;
 require Stdlib.Pos as Bin;
 require open Stdlib.Comp;
-require Stdlib.Z as Int;
-require Stdlib.Q as Rat;
+require open Stdlib.Z;
+require open Stdlib.Q;
 
 // the set of all Eunoia {|eo::Type|}s.
 symbol {|eo::Type|} : Set;
@@ -76,36 +76,40 @@ with {|eo::xor|} false false ↪ false;
 // evaluates, it may be the case that `t3` is non-ground.
 sequential symbol {|eo::requires|} [T U V]
   (x : τ T) (y : τ U) (z : τ V) : τ V;
-rule {|eo::requires|} $x $x $z ↪ $z;
+rule {|eo::requires|} $x $x $z ↪ $z
+// Also reduce when second arg is literal `true` (for type-level guards)
+with {|eo::requires|} _ true $z ↪ $z;
 
 symbol {|eo::String|}  : Set;
-rule τ {|eo::String|} ↪ Str.String;
+rule τ {|eo::String|} ↪ String;
 
 symbol {|eo::Int|} : Set;
-rule τ {|eo::Int|} ↪ Int.ℤ;
+rule τ {|eo::Int|} ↪ ℤ;
 
 symbol {|eo::Rat|} : Set;
-rule τ {|eo::Rat|} ↪ Rat.ℚ;
+rule τ {|eo::Rat|} ↪ ℚ;
 
-// subset relation.
-symbol ⪽ : Set → Set → 𝔹;
-notation ⪽ infix 5;
-rule $x ⪽ $x ↪ true;
+//// subset relation.
+//symbol ⪽ : Set → Set → 𝔹;
+//notation ⪽ infix 5;
+//rule $x ⪽ $x ↪ true;
 
-rule {|eo::Int|} ⪽ {|eo::Rat|} ↪ true;
-rule {|eo::Rat|} ⪽ {|eo::Int|} ↪ false;
+//rule {|eo::Int|} ⪽ {|eo::Rat|} ↪ true;
+//rule {|eo::Rat|} ⪽ {|eo::Int|} ↪ false;
 
-
-sequential symbol cases : 𝔹 → 𝔹 → Set → Set → Set;
-rule cases true _ $x _ ↪ $x
-with cases _ true _ $y ↪ $y;
+//sequential symbol cases : 𝔹 → 𝔹 → Set → Set → Set;
+//rule cases true _ $x _ ↪ $x
+//with cases _ true _ $y ↪ $y;
 
 
 symbol ⊍ : Set → Set → Set; notation ⊍ infix 5;
-rule $x ⊍ $y ↪ cases ($y ⪽ $x) ($x ⪽ $y) $x $y;
+rule τ ({|eo::Int|} ⊍ {|eo::Int|}) ↪ τ {|eo::Int|}
+with τ ({|eo::Int|} ⊍ {|eo::Rat|}) ↪ τ {|eo::Rat|}
+with τ ({|eo::Rat|} ⊍ {|eo::Int|}) ↪ τ {|eo::Rat|}
+with τ ({|eo::Rat|} ⊍ {|eo::Rat|}) ↪ τ {|eo::Rat|};
 
 
-symbol {|eo::mkrat|} : Int.ℤ → Int.ℤ → Rat.ℚ;
+symbol {|eo::mkrat|} : ℤ → ℤ → ℚ;
 
 symbol ⊥ : Set;
 
@@ -206,8 +210,8 @@ sequential symbol {|eo::to_str|} [T : Set]: τ (T ⤳ {|eo::String|});
 //   this returns the binary value corresponding to their (unsigned) addition
 //   modulo their bitwidth.
 sequential symbol {|eo::add|} [T1 T2] : τ (T1 ⤳ T2 ⤳ (T1 ⊍ T2));
-rule {|eo::add|} [{|eo::Int|}] [{|eo::Int|}] $i $j ↪ $i Int.+ $j
-with {|eo::add|} [{|eo::Rat|}] [{|eo::Rat|}] $x $y ↪ Rat.qadd $x $y;
+rule {|eo::add|} [{|eo::Int|}] [{|eo::Int|}] $i $j ↪ $i + $j
+with {|eo::add|} [{|eo::Rat|}] [{|eo::Rat|}] $x $y ↪ qadd $x $y;
 
 // `(eo::mul t1 t2)`:
 // - If `t1` and `t2` are arithmetic values of the same category, then this
@@ -216,14 +220,14 @@ with {|eo::add|} [{|eo::Rat|}] [{|eo::Rat|}] $x $y ↪ Rat.qadd $x $y;
 //   this returns the binary value corresponding to their (unsigned)
 //   multiplication modulo their bitwidth.
 sequential symbol {|eo::mul|} [T1 T2] : τ (T1 ⤳ T2 ⤳ (T1 ⊍ T2));
-rule {|eo::mul|} [{|eo::Int|}] [{|eo::Int|}] $i $j ↪ $i Int.* $j
-with {|eo::mul|} [{|eo::Rat|}] [{|eo::Rat|}] $x $y ↪ Rat.qmul $x $y;
+rule {|eo::mul|} [{|eo::Int|}] [{|eo::Int|}] $i $j ↪ $i * $j
+with {|eo::mul|} [{|eo::Rat|}] [{|eo::Rat|}] $x $y ↪ qmul $x $y;
 
 // `(eo::neg t1)`:
 // - If `t1` is a arithmetic value, this returns the arithmetic negation of `t1`.
 // - If `t1` is a binary value, this returns its (signed) arithmetic negation.
 sequential symbol {|eo::neg|} [T : Set]: τ (T ⤳ T);
-rule {|eo::neg|} [{|eo::Int|}] $i ↪ Int.— $i;
+rule {|eo::neg|} [{|eo::Int|}] $i ↪ — $i;
 
 // `(eo::qdiv t1 t2)`: If `t1` and `t2` are values of the same category and `t2`
 // is non-zero, then this returns the rational division of `t1` and `t2`.
@@ -254,11 +258,11 @@ sequential symbol {|eo::zmod|} [T : Set]: τ (T ⤳ T ⤳ T);
 // is strictly negative and `false` otherwise. Otherwise, this operator is not
 // evaluated.
 sequential symbol {|eo::is_neg|} [T : Set]: τ (T ⤳ Bool);
-rule {|eo::is_neg|} [{|eo::Int|}] $i ↪ Int.isZneg $i;
+rule {|eo::is_neg|} [{|eo::Int|}] $i ↪ isZneg $i;
 
 // `(eo::gt t1 t2)`: Equivalent to `(eo::is_neg (eo::add (eo::neg t1) t2))`.
 sequential symbol {|eo::gt|} [T1 : Set] [T2 : Set]: τ (T1 ⤳ T2 ⤳ Bool);
-rule {|eo::gt|} [{|eo::Int|}] [{|eo::Int|}] $i $j ↪ isGt ($i Int.≐ $j);
+rule {|eo::gt|} [{|eo::Int|}] [{|eo::Int|}] $i $j ↪ isGt ($i ≐ $j);
 
 
 // ---- bitvectors. ----
@@ -280,7 +284,8 @@ sequential symbol {|eo::concat|} [T : Set]: τ (T ⤳ T ⤳ T);
 //   returns the string value corresponding to the characters in `t1` from
 //   position `t2` through `t3` inclusive if `0<=t2`, or the empty string value
 //   otherwise.
-sequential symbol {|eo::extract|} [T : Set]: τ (T ⤳ {|eo::Int|} ⤳ {|eo::Int|} ⤳ T);
+// Made polymorphic to accept both {|eo::Int|} and Int index types
+sequential symbol {|eo::extract|} [T I1 I2 : Set]: τ (T ⤳ I1 ⤳ I2 ⤳ T);
 
 // `(eo::find t1 t2)`: If `t1` and `t2` are string values, this returns a
 // numeral value corresponding to the first index (left to right) where `t2`
@@ -304,13 +309,13 @@ rule {|eo::cons|} $f $x (APP (APP $f $y) $ys)
 with {|eo::cons|} [_] [$T] $f $x $xs
   ↪ {|eo::requires|} $xs ({|eo::nil|} $f $T) (APP (APP $f $x) $xs);
 
-sequential  symbol {|eo::fold|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (L.list T1 ⤳ T2);
-rule {|eo::fold|} $f ($x L.⸬ $xs) ↪ APP (APP $f $x) ({|eo::fold|} $f $xs)
-with {|eo::fold|} [_] [$T2] $f L.□          ↪ {|eo::nil|} $f $T2;
+sequential  symbol {|eo::fold|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (list T1 ⤳ T2);
+rule {|eo::fold|} $f ($x ⸬ $xs) ↪ APP (APP $f $x) ({|eo::fold|} $f $xs)
+with {|eo::fold|} [_] [$T2] $f □          ↪ {|eo::nil|} $f $T2;
 
-sequential symbol {|eo::unfold|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ L.list T1);
-rule {|eo::unfold|} $f (APP (APP $f $x) $xs) ↪ $x L.⸬ ({|eo::unfold|} $f $xs)
-with {|eo::unfold|} [_] [$T2] $f $z ↪ {|eo::requires|} $z ({|eo::nil|} $f $T2) L.□;
+sequential symbol {|eo::unfold|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ list T1);
+rule {|eo::unfold|} $f (APP (APP $f $x) $xs) ↪ $x ⸬ ({|eo::unfold|} $f $xs)
+with {|eo::unfold|} [_] [$T2] $f $z ↪ {|eo::requires|} $z ({|eo::nil|} $f $T2) □;
 
 // `(eo::list_concat f t1 t2)`: If `t1` is an `f`-list with children
 // `t11 ... t1n` and `t2` is an `f`-list with children `t21 ... t2m`, this
@@ -319,15 +324,15 @@ with {|eo::unfold|} [_] [$T2] $f $z ↪ {|eo::requires|} $z ({|eo::nil|} $f $T2)
 sequential symbol {|eo::list_concat|}
   [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) :
   τ (T2 ⤳ T2 ⤳ T2);
-rule {|eo::list_concat|} $f $xs $ys ↪ {|eo::fold|} $f ({|eo::unfold|} $f $xs L.++ {|eo::unfold|} $f $ys);
+rule {|eo::list_concat|} $f $xs $ys ↪ {|eo::fold|} $f ({|eo::unfold|} $f $xs ++ {|eo::unfold|} $f $ys);
 
 
 
 // `(eo::list_len f t)`: If `t` is an `f`-list with children `t1 ... tn`, then
 // this returns `n`.
-symbol length [a] : L.𝕃 a → Int.ℤ;
-rule length L.□ ↪ 0
-with length (_ L.⸬ $xs) ↪ 1 Int.+ length $xs;
+symbol length [a] : 𝕃 a → ℤ;
+rule length □ ↪ 0
+with length (_ ⸬ $xs) ↪ 1 + length $xs;
 
 sequential symbol {|eo::list_len|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) :
   τ (T2 ⤳ {|eo::Int|});
@@ -336,9 +341,9 @@ rule {|eo::list_len|} $f $xs ↪ length ({|eo::unfold|} $f $xs);
 // `(eo::list_nth f t1 t2)`: If `t1` is `(f s0 ... s{n-1})` and `t2` is a numeral
 // value such that `0<=t2<n`, then this returns `s_{t2}`. Otherwise, this
 // operator does not evaluate.
-sequential symbol nth [a] : L.𝕃 a → Int.ℤ → τ a;
-rule nth ($x L.⸬ _) 0 ↪ $x
-with nth (_ L.⸬ $xs) $n ↪ nth $xs ($n Int.+ -1);
+sequential symbol nth [a] : 𝕃 a → ℤ → τ a;
+rule nth ($x ⸬ _) 0 ↪ $x
+with nth (_ ⸬ $xs) $n ↪ nth $xs ($n + -1);
 
 sequential symbol {|eo::list_nth|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ {|eo::Int|} ⤳ T1);
 rule {|eo::list_nth|} $f $xs $i ↪ nth ({|eo::unfold|} $f $xs) $i;
@@ -347,12 +352,12 @@ rule {|eo::list_nth|} $f $xs $i ↪ nth ({|eo::unfold|} $f $xs) $i;
 // the smallest numeral value `i` such that `t2` is syntactically equal to
 // `si`, or `-1` if no such `si` can be found. Otherwise, this operator does
 // not evaluate.
-symbol index [a] : τ a → L.𝕃 a → Int.ℤ;
-rule index $x ($y L.⸬ $xs) ↪
-  {|eo::ite|} ({|eo::eq|} $x $y) 0 (1 Int.+ index $x $xs);
+symbol index [a] : τ a → 𝕃 a → ℤ;
+rule index $x ($y ⸬ $xs) ↪
+  {|eo::ite|} ({|eo::eq|} $x $y) 0 (1 + index $x $xs);
 
 sequential symbol {|eo::list_mem|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ Bool);
-rule {|eo::list_mem|} [$T1] [_] $f $xs $x ↪ L.∈ ({|eo::eq|} [$T1] [$T1]) $x ({|eo::unfold|} $f $xs);
+rule {|eo::list_mem|} [$T1] [_] $f $xs $x ↪ ∈ ({|eo::eq|} [$T1] [$T1]) $x ({|eo::unfold|} $f $xs);
 
 sequential symbol {|eo::list_find|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ {|eo::Int|});
 rule {|eo::list_find|} $f $xs $x
@@ -361,16 +366,16 @@ rule {|eo::list_find|} $f $xs $x
 // `(eo::list_rev f t1)`: If `t1` is an `f`-list with children `t11 ... t1n`,
 // then this returns `(f t1n ... t11)`.
 sequential symbol {|eo::list_rev|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
-rule {|eo::list_rev|} $f $xs ↪ {|eo::fold|} $f (L.rev ({|eo::unfold|} $f $xs));
+rule {|eo::list_rev|} $f $xs ↪ {|eo::fold|} $f (rev ({|eo::unfold|} $f $xs));
 
 // `(eo::list_erase f t1 t2)`:
 // If `t1` is an `f`-list, then this returns the
 // result of removing the first occurrence of `t2` from `t1` if it exists.
 // Returns `t1` unchanged if it does not contain `t2`.
-symbol rem [a] : τ a → L.𝕃 a → L.𝕃 a;
-rule rem _ L.□ ↪ L.□
-with rem $x ($y L.⸬ $ys)
-  ↪ {|eo::ite|} ({|eo::eq|} $x $y) $ys ($y L.⸬ rem $x $ys);
+symbol rem [a] : τ a → 𝕃 a → 𝕃 a;
+rule rem _ □ ↪ □
+with rem $x ($y ⸬ $ys)
+  ↪ {|eo::ite|} ({|eo::eq|} $x $y) $ys ($y ⸬ rem $x $ys);
 
 sequential symbol {|eo::list_erase|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ T2);
 rule {|eo::list_erase|} $f $xs $x ↪ {|eo::fold|} $f (rem $x ({|eo::unfold|} $f $xs));
@@ -382,7 +387,7 @@ rule {|eo::list_erase|} $f $xs $x ↪ {|eo::fold|} $f (rem $x ({|eo::unfold|} $f
 sequential symbol {|eo::list_erase_all|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ T2);
 rule {|eo::list_erase_all|} $f $xs $x
   ↪ let ys ≔ {|eo::unfold|} $f $xs in
-    let ys' ≔ L.filter (λ y, {|eo::not|} ({|eo::eq|} $x y)) ys in
+    let ys' ≔ filter (λ y, {|eo::not|} ({|eo::eq|} $x y)) ys in
     {|eo::fold|} $f ys';
 
 // `(eo::list_setof f t1)`: If `t1` is an `f`-list with children `t11 ... t1n`,
@@ -392,10 +397,10 @@ rule {|eo::list_erase_all|} $f $xs $x
 
 // Helper: undup that keeps FIRST occurrence (stdlib's undup keeps last)
 // Eunoia spec says list_setof should keep first occurrence
-symbol undup_first [a] : L.𝕃 a → L.𝕃 a;
-rule undup_first L.□ ↪ L.□
-with undup_first ($x L.⸬ $xs) ↪
-  $x L.⸬ undup_first (L.filter (λ y, {|eo::not|} ({|eo::eq|} $x y)) $xs);
+symbol undup_first [a] : 𝕃 a → 𝕃 a;
+rule undup_first □ ↪ □
+with undup_first ($x ⸬ $xs) ↪
+  $x ⸬ undup_first (filter (λ y, {|eo::not|} ({|eo::eq|} $x y)) $xs);
 
 sequential symbol {|eo::list_setof|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
 rule {|eo::list_setof|} $f $xs
@@ -403,18 +408,18 @@ rule {|eo::list_setof|} $f $xs
     {|eo::fold|} $f (undup_first ys);
 
 // Helper: count occurrences of an element in a list
-symbol count_occ [a] : τ a → L.𝕃 a → Int.ℤ;
-rule count_occ _ L.□ ↪ 0
-with count_occ $x ($y L.⸬ $ys) ↪ {|eo::ite|} ({|eo::eq|} $x $y) (1 Int.+ count_occ $x $ys) (count_occ $x $ys);
+symbol count_occ [a] : τ a → 𝕃 a → ℤ;
+rule count_occ _ □ ↪ 0
+with count_occ $x ($y ⸬ $ys) ↪ {|eo::ite|} ({|eo::eq|} $x $y) (1 + count_occ $x $ys) (count_occ $x $ys);
 
 
 
 // Helper: check if for all elements of first list, their count in first list
 // is <= their count in second list
-symbol minclude_check [a] : L.𝕃 a → L.𝕃 a → L.𝕃 a → 𝔹;
-rule minclude_check _ L.□ _ ↪ true
-with minclude_check $full ($x L.⸬ $xs) $ys ↪
-  {|eo::and|} ({|eo::not|} (isGt (count_occ $x $full Int.≐ count_occ $x $ys)))
+symbol minclude_check [a] : 𝕃 a → 𝕃 a → 𝕃 a → 𝔹;
+rule minclude_check _ □ _ ↪ true
+with minclude_check $full ($x ⸬ $xs) $ys ↪
+  {|eo::and|} ({|eo::not|} (isGt (count_occ $x $full ≐ count_occ $x $ys)))
       (minclude_check $full $xs $ys);
 
 
@@ -446,12 +451,12 @@ rule {|eo::list_meq|} $f $xs $ys ↪ {|eo::and|} ({|eo::list_minclude|} $f $xs $
 // we append it to the final result.
 // Helper: diff_aux xs ys returns (result, remaining_ys)
 // where result contains elements of xs not in ys (with multiplicity)
-symbol diff_aux [a] : L.𝕃 a → L.𝕃 a → L.𝕃 a;
-rule diff_aux L.□ _ ↪ L.□
-with diff_aux ($x L.⸬ $xs) $ys ↪
-  {|eo::ite|} (L.∈ {|eo::eq|} $x $ys)
+symbol diff_aux [a] : 𝕃 a → 𝕃 a → 𝕃 a;
+rule diff_aux □ _ ↪ □
+with diff_aux ($x ⸬ $xs) $ys ↪
+  {|eo::ite|} (∈ {|eo::eq|} $x $ys)
       (diff_aux $xs (rem $x $ys))
-      ($x L.⸬ diff_aux $xs $ys);
+      ($x ⸬ diff_aux $xs $ys);
 
 sequential symbol {|eo::list_diff|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
 rule {|eo::list_diff|} $f $xs $ys ↪
@@ -463,11 +468,11 @@ rule {|eo::list_diff|} $f $xs $ys ↪
 // detail, for each `i = 1, ..., n`, if `t1i` occurs in `t21 ... t2m`, we
 // erase one copy of it from that list and append it to the final result.
 // Helper: inter_aux xs ys returns elements of xs that are also in ys (with multiplicity)
-symbol inter_aux [a] : L.𝕃 a → L.𝕃 a → L.𝕃 a;
-rule inter_aux L.□ _ ↪ L.□
-with inter_aux ($x L.⸬ $xs) $ys ↪
-  {|eo::ite|} (L.∈ {|eo::eq|} $x $ys)
-      ($x L.⸬ inter_aux $xs (rem $x $ys))
+symbol inter_aux [a] : 𝕃 a → 𝕃 a → 𝕃 a;
+rule inter_aux □ _ ↪ □
+with inter_aux ($x ⸬ $xs) $ys ↪
+  {|eo::ite|} (∈ {|eo::eq|} $x $ys)
+      ($x ⸬ inter_aux $xs (rem $x $ys))
       (inter_aux $xs $ys);
 
 sequential symbol {|eo::list_inter|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
@@ -483,10 +488,10 @@ rule {|eo::list_inter|} $f $xs $ys ↪
 // For our encoding, we restrict to the common case where T1 = T2.
 sequential symbol {|eo::list_singleton_elim|} [T] (f : τ (T ⤳ T ⤳ T)) : τ (T ⤳ T);
 // Helper to check if unfolded list is a singleton and return element or original
-sequential symbol singleton_elim_aux [T] : τ (T ⤳ T ⤳ T) → L.𝕃 T → τ T → τ T;
+sequential symbol singleton_elim_aux [T] : τ (T ⤳ T ⤳ T) → 𝕃 T → τ T → τ T;
 // If the list has exactly one element, return that element
 // Otherwise return the original term
-rule singleton_elim_aux _ ($x L.⸬ L.□) _ ↪ $x
+rule singleton_elim_aux _ ($x ⸬ □) _ ↪ $x
 with singleton_elim_aux _ _ $orig ↪ $orig;
 
 rule {|eo::list_singleton_elim|} $f $xs ↪ singleton_elim_aux $f ({|eo::unfold|} $f $xs) $xs;
