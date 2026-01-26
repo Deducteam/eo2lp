@@ -299,6 +299,26 @@ let build_sig_graph root time_log_opt =
     PathMap.add fpr.fpr_path node graph)
   PathMap.empty parse_results
 
+(* Build a symbol graph from a directory of .eo files *)
+let build_symbol_graph root =
+  ensure_core_prelude ();
+  let root_abs = to_absolute (Fpath.v root) in
+  let root_str = Fpath.to_string root_abs in
+  let files = collect_eo_files root_str in
+
+  (* Parse all files *)
+  let parse_results =
+    List.map (fun file -> parse_file_local root_str file) files
+  in
+
+  (* Convert to (path, signature) list for build_graph *)
+  let modules = List.map (fun fpr ->
+    (fpr.fpr_path, fpr.fpr_sig)
+  ) parse_results in
+
+  (* Build the symbol graph with resolved dependencies *)
+  Syntax_eo.build_graph modules
+
 let check_dag graph =
   let visiting = Hashtbl.create 16 in
   let visited = Hashtbl.create 16 in

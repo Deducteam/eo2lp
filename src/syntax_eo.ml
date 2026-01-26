@@ -520,32 +520,14 @@ let command_str = function
       (list_suffix_str term_str ts')
   | Common c -> common_command_str c
 
-(* Signature graph (DAG) *)
+(* ============================================================
+   Symbol Graph - Primary data structure
+   ============================================================ *)
 
 module PathMap = Map.Make(struct
   type t = path
   let compare = compare
 end)
-
-type sig_node = {
-  node_path     : path;
-  node_file     : string;
-  node_includes : path list;
-  node_sig      : signature;
-}
-
-type sig_graph = sig_node PathMap.t
-
-type file_parse_result = {
-  fpr_path     : path;
-  fpr_file     : string;
-  fpr_includes : path list;
-  fpr_sig      : signature;
-}
-
-(* ============================================================
-   Symbol-level indexing for fine-grained dependency tracking
-   ============================================================ *)
 
 (* Symbol identifier: module path + symbol name *)
 type symbol_id = {
@@ -567,18 +549,133 @@ end
 module SymbolMap = Map.Make(SymbolId)
 module SymbolSet = Stdlib.Set.Make(SymbolId)
 
-(* Symbol with its dependencies tracked *)
-type symbol_entry = {
-  se_id   : symbol_id;
-  se_def  : symbol;        (* the definition itself *)
-  se_deps : SymbolSet.t;   (* symbols this one references *)
+(* A node in the symbol graph *)
+type symbol_node = {
+  sn_id   : symbol_id;
+  sn_def  : symbol;
+  sn_deps : SymbolSet.t;  (* direct dependencies - edges in the graph *)
 }
 
-(* Global symbol index: fast lookup by name or id *)
+(* The symbol graph: the primary data structure
+   Maps symbol_id -> symbol_node *)
+type symbol_graph = {
+  sg_nodes   : symbol_node SymbolMap.t;
+  sg_by_name : symbol_id list M.t;  (* for resolving unqualified names *)
+}
+
+let empty_graph : symbol_graph = {
+  sg_nodes = SymbolMap.empty;
+  sg_by_name = M.empty;
+}
+
+let graph_add (node : symbol_node) (g : symbol_graph) : symbol_graph =
+  let name = node.sn_id.sid_name in
+  let existing = Option.value ~default:[] (M.find_opt name g.sg_by_name) in
+  {
+    sg_nodes = SymbolMap.add node.sn_id node g.sg_nodes;
+    sg_by_name = M.add name (node.sn_id :: existing) g.sg_by_name;
+  }
+
+let graph_find (g : symbol_graph) (sid : symbol_id) : symbol_node option =
+  SymbolMap.find_opt sid g.sg_nodes
+
+let graph_find_by_name (g : symbol_graph) (name : string) : symbol_id list =
+  Option.value ~default:[] (M.find_opt name g.sg_by_name)
+
+let graph_mem (g : symbol_graph) (sid : symbol_id) : bool =
+  SymbolMap.mem sid g.sg_nodes
+
+let graph_fold f (g : symbol_graph) acc =
+  SymbolMap.fold (fun _ node acc -> f node acc) g.sg_nodes acc
+
+let graph_cardinal (g : symbol_graph) : int =
+  SymbolMap.cardinal g.sg_nodes
+
+(* Resolve an unqualified symbol name, preferring the given module context *)
+let graph_resolve (g : symbol_graph) (context : path) (name : string) : symbol_id option =
+  match graph_find_by_name g name with
+  | [] -> None
+  | [single] -> Some single
+  | multiple ->
+    (* Prefer symbol from same module *)
+    match L.find_opt (fun sid -> sid.sid_module = context) multiple with
+    | Some found -> Some found
+    | None -> Some (L.hd multiple)
+
+(* Compute transitive closure of symbol dependencies *)
+let graph_closure (g : symbol_graph) (seeds : SymbolSet.t) : SymbolSet.t =
+  let rec go visited frontier =
+    if SymbolSet.is_empty frontier then visited
+    else
+      let new_visited = SymbolSet.union visited frontier in
+      let new_deps =
+        SymbolSet.fold (fun sid acc ->
+          match graph_find g sid with
+          | Some node -> SymbolSet.union acc node.sn_deps
+          | None -> acc
+        ) frontier SymbolSet.empty
+      in
+      let new_frontier = SymbolSet.diff new_deps new_visited in
+      go new_visited new_frontier
+  in
+  go SymbolSet.empty seeds
+
+(* Filter graph to only include symbols in the given set *)
+let graph_filter (g : symbol_graph) (keep : SymbolSet.t) : symbol_graph =
+  SymbolMap.fold (fun sid node acc ->
+    if SymbolSet.mem sid keep then graph_add node acc else acc
+  ) g.sg_nodes empty_graph
+
+(* Group symbols by module path *)
+let graph_group_by_module (g : symbol_graph) : (path * (string * symbol) list) list =
+  let by_module = SymbolMap.fold (fun sid node acc ->
+    let existing = Option.value ~default:[] (PathMap.find_opt sid.sid_module acc) in
+    PathMap.add sid.sid_module ((sid.sid_name, node.sn_def) :: existing) acc
+  ) g.sg_nodes PathMap.empty in
+  PathMap.bindings by_module
+
+(* Get all modules in the graph *)
+let graph_modules (g : symbol_graph) : path list =
+  SymbolMap.fold (fun sid _ acc ->
+    if L.mem sid.sid_module acc then acc else sid.sid_module :: acc
+  ) g.sg_nodes []
+
+(* Merge two graphs *)
+let graph_union (g1 : symbol_graph) (g2 : symbol_graph) : symbol_graph =
+  SymbolMap.fold (fun _ node acc -> graph_add node acc) g2.sg_nodes g1
+
+(* ============================================================
+   Legacy types (for gradual migration)
+   ============================================================ *)
+
+type sig_node = {
+  node_path     : path;
+  node_file     : string;
+  node_includes : path list;
+  node_sig      : signature;
+}
+
+type sig_graph_legacy = sig_node PathMap.t
+
+type file_parse_result = {
+  fpr_path     : path;
+  fpr_file     : string;
+  fpr_includes : path list;
+  fpr_sig      : signature;
+}
+
+(* Alias for backwards compatibility during migration *)
+type sig_graph = sig_graph_legacy
+
+(* Legacy symbol types - to be removed *)
+type symbol_entry = {
+  se_id   : symbol_id;
+  se_def  : symbol;
+  se_deps : SymbolSet.t;
+}
+
 type symbol_index = {
-  (* name → list of symbol_ids with that name (for overloading) *)
   si_by_name : symbol_id list M.t;
-  (* symbol_id → entry *)
   si_by_id : symbol_entry SymbolMap.t;
 }
 
@@ -966,6 +1063,41 @@ let symbols_in_symbol = function
     (match conc_opt with
      | Some conc -> symbols_in_term acc conc
      | None -> acc)
+
+(* Build a symbol graph from parsed modules.
+   Takes a list of (module_path, symbols) pairs.
+   Dependencies are resolved in two passes:
+   1. Add all symbols with empty deps
+   2. Resolve deps using the complete graph *)
+let build_graph (modules : (path * (string * symbol) list) list) : symbol_graph =
+  (* Pass 1: add all symbols with empty deps *)
+  let g = L.fold_left (fun g (mod_path, syms) ->
+    L.fold_left (fun g (name, def) ->
+      let node = {
+        sn_id = { sid_module = mod_path; sid_name = name };
+        sn_def = def;
+        sn_deps = SymbolSet.empty;
+      } in
+      graph_add node g
+    ) g syms
+  ) empty_graph modules in
+
+  (* Pass 2: resolve dependencies *)
+  let resolve_deps (node : symbol_node) : symbol_node =
+    let string_deps = symbols_in_symbol node.sn_def in
+    let resolved_deps = Set.fold (fun name acc ->
+      (* Skip self-reference *)
+      if name = node.sn_id.sid_name then acc
+      else match graph_resolve g node.sn_id.sid_module name with
+        | Some sid -> SymbolSet.add sid acc
+        | None -> acc  (* unresolved - builtin or unknown *)
+    ) string_deps SymbolSet.empty in
+    { node with sn_deps = resolved_deps }
+  in
+
+  SymbolMap.fold (fun _sid node acc ->
+    graph_add (resolve_deps node) acc
+  ) g.sg_nodes empty_graph
 
 (* Build a map from symbol name to its dependencies *)
 let build_dependency_map (sig_ : signature) : Set.t M.t =
