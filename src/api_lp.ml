@@ -828,8 +828,13 @@ let check_file ?verbose:_ output_dir rel_path =
   let output =
     Buffer.contents buf
     |> String.trim
-    |> Str.global_replace
-         (Str.regexp "\027\\[[0-9;]*m") ""
+    (* Remove ANSI escape codes *)
+    |> Str.global_replace (Str.regexp "\027\\[[0-9;]*m") ""
+    (* Remove "Start checking ..." line *)
+    |> Str.global_replace (Str.regexp "Start checking [^\n]*\n?") ""
+    (* Simplify absolute paths - keep just filename:line:col *)
+    |> Str.global_replace (Str.regexp "\\[/[^]]*/" ) "["
+    |> String.trim
   in
   match status with
   | Unix.WEXITED 0   -> Check_ok

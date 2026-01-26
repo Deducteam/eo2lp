@@ -598,18 +598,25 @@ let process_job (job : EO.job) (base_output_dir : string) =
 
      let passed = ref 0 in
      let failed = ref 0 in
+     let failures = ref [] in
 
      List.iter (fun path ->
        let result = process_module ~pkg_name ~output_dir ~verbose:!config.verbose graph path in
        match result with
        | Success _ -> incr passed
        | Skipped _ -> ()
-       | Error _ -> incr failed
+       | Error msg ->
+         incr failed;
+         failures := (path, msg) :: !failures
      ) order;
 
      let t_encode = Unix.gettimeofday () -. t_encode_start in
-     if !failed > 0 then
-       Printf.printf "%s %d/%d (%.0fms)\n" (red "FAIL") !failed total (t_encode *. 1000.)
+     if !failed > 0 then begin
+       Printf.printf "%s %d/%d (%.0fms)\n" (red "FAIL") !failed total (t_encode *. 1000.);
+       List.iter (fun (path, msg) ->
+         Printf.printf "  %s: %s\n" (red (EO.path_str path)) msg
+       ) (List.rev !failures)
+     end
      else
        Printf.printf "%s (%.0fms)\n" (green "ok") (t_encode *. 1000.);
 
