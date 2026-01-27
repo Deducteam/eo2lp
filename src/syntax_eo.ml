@@ -78,8 +78,7 @@ type symbol =
   | Step of string * term list * term list * term option
          (* rule_name, premises, args, optional conclusion *)
 
-type signature = (string * symbol) list
-type context   = signature * param list
+
 
 (* Builtins *)
 
@@ -249,6 +248,133 @@ let prog_cs_params cs =
     else None
   in
   L.filter_map f
+
+(* Type parameter unification for program rules.
+   When f : (-> S S S) is applied to x : U, we need S = U.
+   This function computes a substitution mapping redundant type params to their canonical form. *)
+
+module UnionFind = struct
+  type t = (string, string) Hashtbl.t
+
+  let create () : t = Hashtbl.create 8
+
+  let rec find (uf : t) x =
+    match Hashtbl.find_opt uf x with
+    | None -> x
+    | Some parent when parent = x -> x
+    | Some parent ->
+      let root = find uf parent in
+      Hashtbl.replace uf x root;
+      root
+
+  let union (uf : t) x y =
+    let rx = find uf x in
+    let ry = find uf y in
+    if rx <> ry then Hashtbl.replace uf rx ry
+end
+
+(* Extract type parameter from arrow type at given position.
+   E.g., for (-> S S S), position 0 returns S (first arg type),
+   position 1 returns S (second arg type), position 2 returns S (result type). *)
+let arrow_type_at ty pos =
+  match ty with
+  | Apply ("->", args) when pos < L.length args ->
+    Some (L.nth args pos)
+  | _ -> None
+
+(* Get the type of a term given parameter context.
+   Returns Some type if the term is a parameter, None otherwise. *)
+let rec term_type ps = function
+  | Symbol s ->
+    (match prm_find s ps with
+     | Some (_, ty, _) -> Some ty
+     | None -> None)
+  | Apply ("_", [f; _]) ->
+    (* HOL application: type of (f x) is the result type of f's arrow type *)
+    (match term_type ps f with
+     | Some (Apply ("->", _ :: rest)) when rest <> [] ->
+       Some (Apply ("->", rest))
+     | Some (Apply ("->", [result])) ->
+       Some result
+     | _ -> None)
+  | _ -> None
+
+(* Collect type constraints from a term.
+   When we see f applied to args (via _ or direct Apply), and f : (-> T1 T2 ... Tn R),
+   we unify each arg's type with Ti. *)
+let rec collect_type_constraints uf ps term =
+  match term with
+  | Symbol _ | Literal _ -> ()
+  | Apply ("_", [f; x]) ->
+    (* HOL application: f x where f : (-> A ...) means x : A *)
+    (match term_type ps f with
+     | Some (Apply ("->", expected_ty :: _)) ->
+       (* expected_ty is the first param type of f's arrow *)
+       (match expected_ty with
+        | Symbol expected_ty_name when prm_typ expected_ty_name (Symbol "Type") ps ->
+          (* x should have type expected_ty_name *)
+          (match x with
+           | Symbol arg_name ->
+             (match prm_find arg_name ps with
+              | Some (_, Symbol arg_ty, _) when prm_typ arg_ty (Symbol "Type") ps ->
+                (* Unify expected_ty_name with arg_ty *)
+                UnionFind.union uf expected_ty_name arg_ty
+              | _ -> ())
+           | _ -> ())
+        | _ -> ())
+     | _ -> ());
+    (* Recurse *)
+    collect_type_constraints uf ps f;
+    collect_type_constraints uf ps x
+  | Apply (s, args) ->
+    (* Direct application (not HOL _): If s is a parameter with arrow type *)
+    (match prm_find s ps with
+     | Some (_, fn_ty, _) ->
+       L.iteri (fun i arg ->
+         match arrow_type_at fn_ty i with
+         | Some (Symbol expected_ty) when prm_typ expected_ty (Symbol "Type") ps ->
+           (match arg with
+            | Symbol arg_name ->
+              (match prm_find arg_name ps with
+               | Some (_, Symbol arg_ty, _) when prm_typ arg_ty (Symbol "Type") ps ->
+                 UnionFind.union uf expected_ty arg_ty
+               | _ -> ())
+            | _ -> ())
+         | _ -> ()
+       ) args
+     | None -> ());
+    (* Recurse into args *)
+    L.iter (collect_type_constraints uf ps) args
+  | Bind (_, vs, body) ->
+    L.iter (fun (_, ty) -> collect_type_constraints uf ps ty) vs;
+    collect_type_constraints uf ps body
+
+(* Unify type parameters in a program based on case patterns.
+   Returns a substituted parameter list and substituted cases. *)
+let unify_type_params ps cases =
+  let uf = UnionFind.create () in
+  (* Collect constraints from all case LHS patterns *)
+  L.iter (fun (lhs, _) -> collect_type_constraints uf ps lhs) cases;
+  (* Build substitution: for each type param, find its canonical form *)
+  let type_params = L.filter (fun (_, ty, _) -> ty = Symbol "Type") ps in
+  let canonical = L.map (fun (s, _, _) -> (s, UnionFind.find uf s)) type_params in
+  (* Apply substitution to a term *)
+  let apply_subst_term t =
+    L.fold_left (fun acc (from, to_) ->
+      if from <> to_ then subst acc from (Symbol to_) else acc
+    ) t canonical
+  in
+  (* Apply substitution to parameter types *)
+  let ps' = L.map (fun (s, ty, atts) -> (s, apply_subst_term ty, atts)) ps in
+  (* Filter out type params that were unified away.
+     Keep s if s is its own canonical representative. *)
+  L.filter (fun (s, ty, _) ->
+    if ty = Symbol "Type" then
+      match L.find_opt (fun (from, _) -> from = s) canonical with
+      | Some (_, to_) -> s = to_  (* Keep only if s is canonical *)
+      | None -> true              (* Not a type param we tracked, keep *)
+    else true
+  ) ps'
 
 (* Literal types *)
 
@@ -549,51 +675,54 @@ end
 module SymbolMap = Map.Make(SymbolId)
 module SymbolSet = Stdlib.Set.Make(SymbolId)
 
-(* A node in the symbol graph *)
-type symbol_node = {
-  sn_id   : symbol_id;
-  sn_def  : symbol;
-  sn_deps : SymbolSet.t;  (* direct dependencies - edges in the graph *)
+(* A symbol entry in the signature graph *)
+type symbol_entry = {
+  se_id   : symbol_id;
+  se_def  : symbol;
+  se_deps : SymbolSet.t;  (* direct dependencies - edges in the graph *)
 }
 
-(* The symbol graph: the primary data structure
-   Maps symbol_id -> symbol_node *)
-type symbol_graph = {
-  sg_nodes   : symbol_node SymbolMap.t;
-  sg_by_name : symbol_id list M.t;  (* for resolving unqualified names *)
+(* The signature: a graph of symbols with dependencies
+   This is the primary data structure for representing parsed Eunoia code *)
+type signature = {
+  sig_nodes   : symbol_entry SymbolMap.t;
+  sig_by_name : symbol_id list M.t;  (* for resolving unqualified names *)
 }
 
-let empty_graph : symbol_graph = {
-  sg_nodes = SymbolMap.empty;
-  sg_by_name = M.empty;
+(* Context for elaboration: local parameters only (signature is global) *)
+type context = param list
+
+let empty_sig : signature = {
+  sig_nodes = SymbolMap.empty;
+  sig_by_name = M.empty;
 }
 
-let graph_add (node : symbol_node) (g : symbol_graph) : symbol_graph =
-  let name = node.sn_id.sid_name in
-  let existing = Option.value ~default:[] (M.find_opt name g.sg_by_name) in
+let sig_add (entry : symbol_entry) (s : signature) : signature =
+  let name = entry.se_id.sid_name in
+  let existing = Option.value ~default:[] (M.find_opt name s.sig_by_name) in
   {
-    sg_nodes = SymbolMap.add node.sn_id node g.sg_nodes;
-    sg_by_name = M.add name (node.sn_id :: existing) g.sg_by_name;
+    sig_nodes = SymbolMap.add entry.se_id entry s.sig_nodes;
+    sig_by_name = M.add name (entry.se_id :: existing) s.sig_by_name;
   }
 
-let graph_find (g : symbol_graph) (sid : symbol_id) : symbol_node option =
-  SymbolMap.find_opt sid g.sg_nodes
+let sig_find (s : signature) (sid : symbol_id) : symbol_entry option =
+  SymbolMap.find_opt sid s.sig_nodes
 
-let graph_find_by_name (g : symbol_graph) (name : string) : symbol_id list =
-  Option.value ~default:[] (M.find_opt name g.sg_by_name)
+let sig_find_by_name (s : signature) (name : string) : symbol_id list =
+  Option.value ~default:[] (M.find_opt name s.sig_by_name)
 
-let graph_mem (g : symbol_graph) (sid : symbol_id) : bool =
-  SymbolMap.mem sid g.sg_nodes
+let sig_mem (s : signature) (sid : symbol_id) : bool =
+  SymbolMap.mem sid s.sig_nodes
 
-let graph_fold f (g : symbol_graph) acc =
-  SymbolMap.fold (fun _ node acc -> f node acc) g.sg_nodes acc
+let sig_fold f (s : signature) acc =
+  SymbolMap.fold (fun _ entry acc -> f entry acc) s.sig_nodes acc
 
-let graph_cardinal (g : symbol_graph) : int =
-  SymbolMap.cardinal g.sg_nodes
+let sig_cardinal (s : signature) : int =
+  SymbolMap.cardinal s.sig_nodes
 
 (* Resolve an unqualified symbol name, preferring the given module context *)
-let graph_resolve (g : symbol_graph) (context : path) (name : string) : symbol_id option =
-  match graph_find_by_name g name with
+let sig_resolve (s : signature) (context : path) (name : string) : symbol_id option =
+  match sig_find_by_name s name with
   | [] -> None
   | [single] -> Some single
   | multiple ->
@@ -603,15 +732,15 @@ let graph_resolve (g : symbol_graph) (context : path) (name : string) : symbol_i
     | None -> Some (L.hd multiple)
 
 (* Compute transitive closure of symbol dependencies *)
-let graph_closure (g : symbol_graph) (seeds : SymbolSet.t) : SymbolSet.t =
+let sig_closure (s : signature) (seeds : SymbolSet.t) : SymbolSet.t =
   let rec go visited frontier =
     if SymbolSet.is_empty frontier then visited
     else
       let new_visited = SymbolSet.union visited frontier in
       let new_deps =
         SymbolSet.fold (fun sid acc ->
-          match graph_find g sid with
-          | Some node -> SymbolSet.union acc node.sn_deps
+          match sig_find s sid with
+          | Some entry -> SymbolSet.union acc entry.se_deps
           | None -> acc
         ) frontier SymbolSet.empty
       in
@@ -620,34 +749,34 @@ let graph_closure (g : symbol_graph) (seeds : SymbolSet.t) : SymbolSet.t =
   in
   go SymbolSet.empty seeds
 
-(* Filter graph to only include symbols in the given set *)
-let graph_filter (g : symbol_graph) (keep : SymbolSet.t) : symbol_graph =
-  SymbolMap.fold (fun sid node acc ->
-    if SymbolSet.mem sid keep then graph_add node acc else acc
-  ) g.sg_nodes empty_graph
+(* Filter signature to only include symbols in the given set *)
+let sig_filter (s : signature) (keep : SymbolSet.t) : signature =
+  SymbolMap.fold (fun sid entry acc ->
+    if SymbolSet.mem sid keep then sig_add entry acc else acc
+  ) s.sig_nodes empty_sig
 
 (* Group symbols by module path *)
-let graph_group_by_module (g : symbol_graph) : (path * (string * symbol) list) list =
-  let by_module = SymbolMap.fold (fun sid node acc ->
+let sig_group_by_module (s : signature) : (path * (string * symbol) list) list =
+  let by_module = SymbolMap.fold (fun sid entry acc ->
     let existing = Option.value ~default:[] (PathMap.find_opt sid.sid_module acc) in
-    PathMap.add sid.sid_module ((sid.sid_name, node.sn_def) :: existing) acc
-  ) g.sg_nodes PathMap.empty in
+    PathMap.add sid.sid_module ((sid.sid_name, entry.se_def) :: existing) acc
+  ) s.sig_nodes PathMap.empty in
   PathMap.bindings by_module
 
-(* Get all modules in the graph *)
-let graph_modules (g : symbol_graph) : path list =
+(* Get all modules in the signature *)
+let sig_modules (s : signature) : path list =
   SymbolMap.fold (fun sid _ acc ->
     if L.mem sid.sid_module acc then acc else sid.sid_module :: acc
-  ) g.sg_nodes []
+  ) s.sig_nodes []
 
-(* Merge two graphs *)
-let graph_union (g1 : symbol_graph) (g2 : symbol_graph) : symbol_graph =
-  SymbolMap.fold (fun _ node acc -> graph_add node acc) g2.sg_nodes g1
+(* Merge two signatures *)
+let sig_union (s1 : signature) (s2 : signature) : signature =
+  SymbolMap.fold (fun _ entry acc -> sig_add entry acc) s2.sig_nodes s1
 
-(* Topological sort of symbols in the graph *)
-let graph_topo_sort (g : symbol_graph) : symbol_id list =
-  let visiting = Hashtbl.create (graph_cardinal g) in
-  let visited = Hashtbl.create (graph_cardinal g) in
+(* Topological sort of symbols in the signature *)
+let sig_topo_sort (s : signature) : symbol_id list =
+  let visiting = Hashtbl.create (sig_cardinal s) in
+  let visited = Hashtbl.create (sig_cardinal s) in
   let result = ref [] in
 
   let rec visit sid =
@@ -657,21 +786,21 @@ let graph_topo_sort (g : symbol_graph) : symbol_id list =
       ()
     else begin
       Hashtbl.add visiting sid ();
-      (match graph_find g sid with
-       | Some node ->
-         SymbolSet.iter visit node.sn_deps
+      (match sig_find s sid with
+       | Some entry ->
+         SymbolSet.iter visit entry.se_deps
        | None -> ());
       Hashtbl.remove visiting sid;
       Hashtbl.add visited sid ();
       result := sid :: !result
     end
   in
-  SymbolMap.iter (fun sid _ -> visit sid) g.sg_nodes;
+  SymbolMap.iter (fun sid _ -> visit sid) s.sig_nodes;
   L.rev !result
 
 (* Topological sort of modules based on symbol dependencies *)
-let graph_module_order (g : symbol_graph) : path list =
-  let symbol_order = graph_topo_sort g in
+let sig_module_order (s : signature) : path list =
+  let symbol_order = sig_topo_sort s in
   (* Extract unique modules in order *)
   let seen = Hashtbl.create 16 in
   L.filter_map (fun sid ->
@@ -682,139 +811,22 @@ let graph_module_order (g : symbol_graph) : path list =
     end
   ) symbol_order
 
-(* Get symbols for a specific module as a list (for elaboration/encoding) *)
-let graph_module_symbols (g : symbol_graph) (mod_path : path) : signature =
-  SymbolMap.fold (fun sid node acc ->
-    if sid.sid_module = mod_path then (sid.sid_name, node.sn_def) :: acc
-    else acc
-  ) g.sg_nodes []
-
-(* Get all symbols up to (but not including) a module as context *)
-let graph_context_for_module (g : symbol_graph) (mod_path : path) : signature =
-  let order = graph_module_order g in
-  let rec collect acc = function
-    | [] -> acc
-    | p :: rest ->
-      if p = mod_path then acc
-      else collect (acc @ graph_module_symbols g p) rest
-  in
-  collect [] order
-
-(* Find all symbol_ids matching a name *)
-let graph_find_all_by_name (g : symbol_graph) (name : string) : SymbolSet.t =
-  SymbolSet.of_list (graph_find_by_name g name)
-
-(* Convert a set of symbol names to symbol_ids (finding all matches) *)
-let graph_resolve_names (g : symbol_graph) (names : Set.t) : SymbolSet.t =
-  Set.fold (fun name acc ->
-    SymbolSet.union acc (graph_find_all_by_name g name)
-  ) names SymbolSet.empty
-
-(* ============================================================
-   Legacy types (for gradual migration)
-   ============================================================ *)
-
-type sig_node = {
-  node_path     : path;
-  node_file     : string;
-  node_includes : path list;
-  node_sig      : signature;
-}
-
-type sig_graph_legacy = sig_node PathMap.t
-
-type file_parse_result = {
-  fpr_path     : path;
-  fpr_file     : string;
-  fpr_includes : path list;
-  fpr_sig      : signature;
-}
-
-(* Alias for backwards compatibility during migration *)
-type sig_graph = sig_graph_legacy
-
-(* Legacy symbol types - to be removed *)
-type symbol_entry = {
-  se_id   : symbol_id;
-  se_def  : symbol;
-  se_deps : SymbolSet.t;
-}
-
-type symbol_index = {
-  si_by_name : symbol_id list M.t;
-  si_by_id : symbol_entry SymbolMap.t;
-}
-
-let empty_symbol_index = {
-  si_by_name = M.empty;
-  si_by_id = SymbolMap.empty;
-}
-
-let add_symbol_entry (idx : symbol_index) (entry : symbol_entry) : symbol_index =
-  let name = entry.se_id.sid_name in
-  let existing = Option.value ~default:[] (M.find_opt name idx.si_by_name) in
-  {
-    si_by_name = M.add name (entry.se_id :: existing) idx.si_by_name;
-    si_by_id = SymbolMap.add entry.se_id entry idx.si_by_id;
-  }
-
-let find_symbol_by_id (idx : symbol_index) (sid : symbol_id) : symbol_entry option =
-  SymbolMap.find_opt sid idx.si_by_id
-
-let find_symbols_by_name (idx : symbol_index) (name : string) : symbol_id list =
-  Option.value ~default:[] (M.find_opt name idx.si_by_name)
-
-(* Resolve a symbol name to a symbol_id, preferring the given module context *)
-let resolve_symbol_name (idx : symbol_index) (context : path) (name : string) : symbol_id option =
-  match find_symbols_by_name idx name with
-  | [] -> None  (* unknown symbol *)
-  | [single] -> Some single  (* unique *)
-  | multiple ->
-    (* Prefer symbol from same module *)
-    match L.find_opt (fun sid -> sid.sid_module = context) multiple with
-    | Some found -> Some found
-    | None -> Some (L.hd multiple)  (* fallback to first *)
-
-let sig_node_str n =
-  Printf.sprintf
-    "{ path: %s\n  file: %s\n  includes: [%s]\n  symbols: %d }"
-    (S.concat "." n.node_path)
-    n.node_file
-    (S.concat ", " (L.map (S.concat ".") n.node_includes))
-    (L.length n.node_sig)
+(* Get symbols for a specific module in topological order *)
+let sig_module_symbols (s : signature) (mod_path : path) : (string * symbol) list =
+  let order = sig_topo_sort s in
+  L.filter_map (fun sid ->
+    if sid.sid_module = mod_path then
+      match sig_find s sid with
+      | Some entry -> Some (sid.sid_name, entry.se_def)
+      | None -> None
+    else None
+  ) order
 
 let path_str : path -> string = S.concat "."
 
-let topo_sort graph =
-  let visited =
-    Hashtbl.create (PathMap.cardinal graph)
-  in
-  let result = ref [] in
-  let rec visit path =
-    if Hashtbl.mem visited path then ()
-    else begin
-      Hashtbl.add visited path ();
-      match PathMap.find_opt path graph with
-      | None -> ()
-      | Some node ->
-        L.iter visit node.node_includes;
-        result := path :: !result
-    end
-  in
-  PathMap.iter (fun path _ -> visit path) graph;
-  L.rev !result
-
-let flatten_graph graph =
-  let paths = topo_sort graph in
-  L.concat_map (fun p ->
-    match PathMap.find_opt p graph with
-    | Some node -> node.node_sig
-    | None -> [])
-  paths
-
 (* Core prelude *)
 
-let core_prelude : signature ref = ref []
+let core_prelude : (string * symbol) list ref = ref []
 
 let set_core_prelude sig_ = core_prelude := sig_
 
@@ -962,54 +974,8 @@ let core_eo_source = {|
   ((U Type :implicit) (T Type :implicit))
   (-> (-> U T T) T T T)
 )
-(declare-parameterized-const eo::list_len
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T eo::Z)
-)
-(declare-parameterized-const eo::list_nth
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T eo::Z T)
-)
-(declare-parameterized-const eo::list_find
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T eo::Z)
-)
-(declare-parameterized-const eo::list_rev
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T)
-)
-(declare-parameterized-const eo::list_erase
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T T)
-)
-(declare-parameterized-const eo::list_erase_all
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T T)
-)
-(declare-parameterized-const eo::list_setof
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T)
-)
-(declare-parameterized-const eo::list_minclude
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T eo::Bool)
-)
-(declare-parameterized-const eo::list_meq
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T eo::Bool)
-)
-(declare-parameterized-const eo::list_diff
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T T)
-)
-(declare-parameterized-const eo::list_inter
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T T)
-)
-(declare-parameterized-const eo::list_singleton_elim
-  ((F Type :implicit) (T Type :implicit))
-  (-> F T T)
-)
+; Note: list operations (eo::list_len, eo::list_meq, etc.) are defined
+; in src/Prelude.lp, not here. They are loaded from Prelude at runtime.
 
 (declare-const eo::List Type)
 (declare-const eo::List::nil eo::List)
@@ -1018,29 +984,24 @@ let core_eo_source = {|
   (-> T eo::List eo::List)
   :right-assoc-nil eo::List::nil
 )
+
+; Specialized eo::List operations for heterogeneous lists
+(declare-const eo::List::concat (-> eo::List eo::List eo::List))
+(declare-parameterized-const eo::List::find
+  ((T Type :implicit))
+  (-> eo::List T eo::Int))
+; Note: eo::List::nth uses dependent types in LambdaPi - no type param here
+(declare-const eo::List::nth (-> eo::List eo::Int Type))
 |}
 
-let full_sig_at graph path =
-  let visited = Hashtbl.create 16 in
-  let rec collect p =
-    if Hashtbl.mem visited p then []
-    else begin
-      Hashtbl.add visited p ();
-      match PathMap.find_opt p graph with
-      | None -> []
-      | Some node ->
-        let deps = L.concat_map collect node.node_includes in
-        deps @ node.node_sig
-    end
-  in
-  !core_prelude @ collect path
-
-(* Get the full signature for all modules in a graph (for proof mode) *)
-let full_sig graph =
-  let all_sigs =
-    PathMap.fold (fun _ node acc -> node.node_sig @ acc) graph []
-  in
-  !core_prelude @ all_sigs
+(* Get the full flattened signature in topological order *)
+let sig_flatten (s : signature) : (string * symbol) list =
+  let order = sig_topo_sort s in
+  L.map (fun sid ->
+    match sig_find s sid with
+    | Some entry -> (sid.sid_name, entry.se_def)
+    | None -> failwith ("missing symbol: " ^ SymbolId.to_string sid)
+  ) order
 
 (* ============================================================
    Symbol dependency analysis for minimal CPC generation
@@ -1130,259 +1091,37 @@ let symbols_in_symbol = function
      | Some conc -> symbols_in_term acc conc
      | None -> acc)
 
-(* Build a symbol graph from parsed modules.
+(* Build a signature from parsed modules.
    Takes a list of (module_path, symbols) pairs.
    Dependencies are resolved in two passes:
    1. Add all symbols with empty deps
-   2. Resolve deps using the complete graph *)
-let build_graph (modules : (path * (string * symbol) list) list) : symbol_graph =
+   2. Resolve deps using the complete signature *)
+let build_sig (modules : (path * (string * symbol) list) list) : signature =
   (* Pass 1: add all symbols with empty deps *)
-  let g = L.fold_left (fun g (mod_path, syms) ->
-    L.fold_left (fun g (name, def) ->
-      let node = {
-        sn_id = { sid_module = mod_path; sid_name = name };
-        sn_def = def;
-        sn_deps = SymbolSet.empty;
+  let s = L.fold_left (fun s (mod_path, syms) ->
+    L.fold_left (fun s (name, def) ->
+      let entry = {
+        se_id = { sid_module = mod_path; sid_name = name };
+        se_def = def;
+        se_deps = SymbolSet.empty;
       } in
-      graph_add node g
-    ) g syms
-  ) empty_graph modules in
+      sig_add entry s
+    ) s syms
+  ) empty_sig modules in
 
   (* Pass 2: resolve dependencies *)
-  let resolve_deps (node : symbol_node) : symbol_node =
-    let string_deps = symbols_in_symbol node.sn_def in
+  let resolve_deps (entry : symbol_entry) : symbol_entry =
+    let string_deps = symbols_in_symbol entry.se_def in
     let resolved_deps = Set.fold (fun name acc ->
       (* Skip self-reference *)
-      if name = node.sn_id.sid_name then acc
-      else match graph_resolve g node.sn_id.sid_module name with
+      if name = entry.se_id.sid_name then acc
+      else match sig_resolve s entry.se_id.sid_module name with
         | Some sid -> SymbolSet.add sid acc
         | None -> acc  (* unresolved - builtin or unknown *)
     ) string_deps SymbolSet.empty in
-    { node with sn_deps = resolved_deps }
+    { entry with se_deps = resolved_deps }
   in
 
-  SymbolMap.fold (fun _sid node acc ->
-    graph_add (resolve_deps node) acc
-  ) g.sg_nodes empty_graph
-
-(* Build a map from symbol name to its dependencies *)
-let build_dependency_map (sig_ : signature) : Set.t M.t =
-  L.fold_left (fun map (name, sym) ->
-    let deps = symbols_in_symbol sym in
-    (* Remove self-reference *)
-    let deps = Set.remove name deps in
-    M.add name deps map
-  ) M.empty sig_
-
-(* Compute transitive closure of dependencies from a set of seed symbols *)
-let transitive_closure (dep_map : Set.t M.t) (seeds : Set.t) : Set.t =
-  let rec go visited frontier =
-    if Set.is_empty frontier then visited
-    else
-      let new_visited = Set.union visited frontier in
-      let new_deps =
-        Set.fold (fun sym acc ->
-          match M.find_opt sym dep_map with
-          | Some deps -> Set.union acc deps
-          | None -> acc
-        ) frontier Set.empty
-      in
-      let new_frontier = Set.diff new_deps new_visited in
-      go new_visited new_frontier
-  in
-  go Set.empty seeds
-
-(* Filter a signature to only include symbols in the given set *)
-let filter_signature (sig_ : signature) (keep : Set.t) : signature =
-  L.filter (fun (name, _) -> Set.mem name keep) sig_
-
-(* Given a signature and a set of seed symbol names, compute the minimal
-   signature containing only those symbols and their transitive dependencies *)
-let minimal_signature (sig_ : signature) (seeds : string list) : signature =
-  let seed_set = Set.of_list seeds in
-  let dep_map = build_dependency_map sig_ in
-  let closure = transitive_closure dep_map seed_set in
-  filter_signature sig_ closure
-
-(* Extract all rule names used in a proof signature (from Step commands) *)
-let rules_in_signature (sig_ : signature) : Set.t =
-  L.fold_left (fun acc (_, (c : symbol)) ->
-    match c with
-    | Step (rule_name, _, _, _) -> Set.add rule_name acc
-    | _ -> acc
-  ) Set.empty sig_
-
-(* ============================================================
-   Symbol-level dependency analysis (using symbol_id)
-   ============================================================ *)
-
-(* Build a symbol index from a module graph *)
-let build_symbol_index (modules : sig_node PathMap.t) : symbol_index =
-  PathMap.fold (fun mod_path node idx ->
-    L.fold_left (fun idx (name, def) ->
-      let sid = { sid_module = mod_path; sid_name = name } in
-      (* For now, store empty deps - we'll compute them in a second pass *)
-      let entry = { se_id = sid; se_def = def; se_deps = SymbolSet.empty } in
-      add_symbol_entry idx entry
-    ) idx node.node_sig
-  ) modules empty_symbol_index
-
-(* Resolve symbol references in a term to symbol_ids *)
-let rec resolve_symbols_in_term (idx : symbol_index) (context : path) (acc : SymbolSet.t) = function
-  | Symbol s ->
-    (match resolve_symbol_name idx context s with
-     | Some sid -> SymbolSet.add sid acc
-     | None -> acc)  (* unresolved - might be builtin or parameter *)
-  | Literal _ -> acc
-  | Apply (s, ts) ->
-    let acc = match resolve_symbol_name idx context s with
-      | Some sid -> SymbolSet.add sid acc
-      | None -> acc
-    in
-    L.fold_left (resolve_symbols_in_term idx context) acc ts
-  | Bind (b, vs, body) ->
-    let acc = match resolve_symbol_name idx context b with
-      | Some sid -> SymbolSet.add sid acc
-      | None -> acc
-    in
-    let acc = L.fold_left (fun a (_, ty) -> resolve_symbols_in_term idx context a ty) acc vs in
-    resolve_symbols_in_term idx context acc body
-
-(* Resolve all symbol references in a symbol definition *)
-let resolve_symbols_in_def (idx : symbol_index) (context : path) (def : symbol) : SymbolSet.t =
-  let resolve = resolve_symbols_in_term idx context in
-  let resolve_params ps =
-    L.fold_left (fun acc (_, ty, _) -> resolve acc ty) SymbolSet.empty ps
-  in
-  let resolve_case acc (lhs, rhs) =
-    SymbolSet.union (resolve acc lhs) (resolve SymbolSet.empty rhs)
-  in
-  match def with
-  | Decl (ps, ty, _) ->
-    SymbolSet.union (resolve_params ps) (resolve SymbolSet.empty ty)
-  | Defn (ps, body, ty_opt) ->
-    let acc = SymbolSet.union (resolve_params ps) (resolve SymbolSet.empty body) in
-    (match ty_opt with Some ty -> resolve acc ty | None -> acc)
-  | Ltrl (_, ty) -> resolve SymbolSet.empty ty
-  | Prog (ps, sig_tys, ret_ty, cases) ->
-    let acc = resolve_params ps in
-    let acc = L.fold_left resolve acc sig_tys in
-    let acc = resolve acc ret_ty in
-    L.fold_left resolve_case acc cases
-  | Rule (ps, assm, prems, args, reqs, conc) ->
-    let acc = resolve_params ps in
-    let acc = resolve acc assm in
-    let acc = L.fold_left resolve acc prems in
-    let acc = L.fold_left resolve acc args in
-    let acc = L.fold_left resolve_case acc reqs in
-    resolve acc conc
-  | Assume t -> resolve SymbolSet.empty t
-  | Step (rule_name, prems, args, conc_opt) ->
-    let acc = match resolve_symbol_name idx context rule_name with
-      | Some sid -> SymbolSet.singleton sid
-      | None -> SymbolSet.empty
-    in
-    let acc = L.fold_left resolve acc prems in
-    let acc = L.fold_left resolve acc args in
-    (match conc_opt with Some t -> resolve acc t | None -> acc)
-
-(* Compute dependencies for all symbols in the index *)
-let compute_symbol_deps (modules : sig_node PathMap.t) (idx : symbol_index) : symbol_index =
-  SymbolMap.fold (fun sid entry new_idx ->
-    let deps = resolve_symbols_in_def idx sid.sid_module entry.se_def in
-    (* Remove self-reference *)
-    let deps = SymbolSet.remove sid deps in
-    let new_entry = { entry with se_deps = deps } in
-    { new_idx with si_by_id = SymbolMap.add sid new_entry new_idx.si_by_id }
-  ) idx.si_by_id idx
-
-(* Compute transitive closure from seed symbol_ids *)
-let transitive_closure_ids (idx : symbol_index) (seeds : SymbolSet.t) : SymbolSet.t =
-  let rec go visited frontier =
-    if SymbolSet.is_empty frontier then visited
-    else
-      let new_visited = SymbolSet.union visited frontier in
-      let new_deps =
-        SymbolSet.fold (fun sid acc ->
-          match find_symbol_by_id idx sid with
-          | Some entry -> SymbolSet.union acc entry.se_deps
-          | None -> acc
-        ) frontier SymbolSet.empty
-      in
-      let new_frontier = SymbolSet.diff new_deps new_visited in
-      go new_visited new_frontier
-  in
-  go SymbolSet.empty seeds
-
-(* Filter a module graph to only include symbols in the closure *)
-let filter_graph_by_symbols (modules : sig_node PathMap.t) (keep : SymbolSet.t) : sig_node PathMap.t =
-  PathMap.map (fun node ->
-    let filtered_sig = L.filter (fun (name, _) ->
-      let sid = { sid_module = node.node_path; sid_name = name } in
-      SymbolSet.mem sid keep
-    ) node.node_sig in
-    { node with node_sig = filtered_sig }
-  ) modules
-  |> PathMap.filter (fun _ node -> node.node_sig <> [])
-
-(* Build complete symbol index with dependencies from a module graph *)
-let build_complete_symbol_index (modules : sig_node PathMap.t) : symbol_index =
-  let idx = build_symbol_index modules in
-  compute_symbol_deps modules idx
-
-(* Combined module graph with symbol index *)
-type indexed_graph = {
-  ig_modules : sig_node PathMap.t;
-  ig_symbols : symbol_index;
-}
-
-(* Build an indexed graph from a module graph *)
-let index_graph (modules : sig_node PathMap.t) : indexed_graph = {
-  ig_modules = modules;
-  ig_symbols = build_complete_symbol_index modules;
-}
-
-(* Given an indexed graph and seed symbol names, compute minimal graph *)
-let minimal_indexed_graph (ig : indexed_graph) (seed_names : string list) : indexed_graph =
-  (* Resolve seed names to symbol_ids *)
-  let seeds = L.filter_map (fun name ->
-    match find_symbols_by_name ig.ig_symbols name with
-    | [] -> None
-    | sids -> Some (L.hd sids)  (* take first if multiple *)
-  ) seed_names in
-  let seed_set = SymbolSet.of_list seeds in
-
-  (* Compute transitive closure *)
-  let closure = transitive_closure_ids ig.ig_symbols seed_set in
-
-  (* Filter modules *)
-  let filtered_modules = filter_graph_by_symbols ig.ig_modules closure in
-
-  (* Rebuild symbol index for filtered graph *)
-  let filtered_symbols = build_complete_symbol_index filtered_modules in
-
-  { ig_modules = filtered_modules; ig_symbols = filtered_symbols }
-
-(* ============================================================
-   Job specification for benchmarking
-   ============================================================ *)
-
-(* Source of proof files *)
-type proof_source =
-  | ProofDir of string        (* directory containing .eo files *)
-  | ProofFiles of string list (* explicit list of files *)
-
-(* Job specification *)
-type job = {
-  job_name   : string;
-  job_logic  : string;        (* path to logic source directory *)
-  job_proofs : proof_source;
-}
-
-let job_str j =
-  let proofs_str = match j.job_proofs with
-    | ProofDir d -> Printf.sprintf "(dir %s)" d
-    | ProofFiles fs -> Printf.sprintf "(files %s)" (String.concat " " fs)
-  in
-  Printf.sprintf "(job\n  (name %s)\n  (logic %s)\n  (proofs %s))"
-    j.job_name j.job_logic proofs_str
+  SymbolMap.fold (fun _sid entry acc ->
+    sig_add (resolve_deps entry) acc
+  ) s.sig_nodes empty_sig

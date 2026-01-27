@@ -34,6 +34,7 @@ rule token = parse
   | ')'             { RPAREN }
   (* common commands *)
   | "declare-const"      { DECLARE_CONST }
+  | "declare-type"       { DECLARE_TYPE }
   | "declare-datatype"   { DECLARE_DATATYPE }
   | "declare-datatypes"  { DECLARE_DATATYPES }
   | "set-option"         { SET_OPTION }
@@ -68,6 +69,7 @@ rule token = parse
   | ":list"            { LIST }
   | ":syntax"          { SYNTAX }
   | ":restrict"        { RESTRICT }
+  | ":var"             { VAR }
   (* type attribute for `define` command *)
   | ":type" { TYPE }
   (* sorry attribute for `declare-rule` command *)

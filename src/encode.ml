@@ -88,6 +88,16 @@ let rec enc_term ctx = function
     eo_as (enc_term ctx ty) (enc_term ctx tm)
   | EO.Apply ("_", [f; x]) ->
     hol_app (enc_term ctx f) (enc_term ctx x)
+  | EO.Apply ("eo::typeof", [EO.Symbol s]) ->
+    (* eo::typeof x where x : T encodes to just T (unwrapped from τ) *)
+    let s_esc = esc s in
+    (match List.find_opt (fun (v, _, _) -> base_name v = s_esc) ctx with
+     | Some (_, ty, _) -> un_tau ty
+     | None ->
+       (* Fall back to normal encoding if not in context *)
+       add_args
+         (enc_sym (get_sym "{|eo::typeof|}"))
+         [enc_term ctx (EO.Symbol s)])
   | EO.Apply (s, ts) ->
     add_args
       (enc_sym (get_sym (esc s)))
@@ -116,6 +126,18 @@ and enc_arrow ctx = function
     fail "Empty arrow type"
   | [t] ->
     enc_term ctx t
+  | EO.Apply ("eo::var", [ty; EO.Symbol s]) :: rest ->
+    (* Dependent arrow from (! Type :var T) syntax:
+       ty ⤳d (λ s: τ ty, ..rest..)
+       E.g., (! Type :var T) becomes Type ⤳d (λ T: Set, ...) *)
+    let s_esc = esc s in
+    let eo_ty = enc_term ctx ty in
+    let type_of_s = tau_of eo_ty in
+    let v = new_var s_esc in
+    let ctx' = ctxt_add ctx v type_of_s in
+    let body = enc_arrow ctx' rest in
+    let lam = mk_Abst (type_of_s, bind_var v body) in
+    hol_dep_arrow eo_ty lam
   | EO.Apply ("eo::quote", [EO.Symbol s]) :: rest ->
     (* Dependent arrow: (eo_type_of_s) ⤳d (λ s': type_of_s, ..rest..)
        where type_of_s is the type of s (looked up from context, i.e., τ T),
@@ -200,24 +222,36 @@ let enc_defn str ps tm ty_opt =
 (* Rule encoding for programs *)
 
 (* Convert variables in a term to pattern variables.
-   Takes a context (from enc_params) and replaces Vari nodes with Patt nodes. *)
-let bind_pvars ctx term =
-  (* Build mapping from variable name to index *)
+   Takes a context (from enc_params) and replaces Vari nodes with Patt nodes.
+   Variables not in ctx are replaced with wildcards. *)
+let bind_pvars ctx full_ctx term =
+  (* Build mapping from variable name to index for pattern vars *)
   let var_indices =
     List.mapi (fun i (v, _, _) -> (base_name v, i)) ctx
     |> List.rev  (* ctx is reversed, so reverse to get original order *)
+  in
+  (* Also track all variables from full_ctx that should become wildcards *)
+  let full_names =
+    List.map (fun (v, _, _) -> base_name v) full_ctx
+    |> List.sort_uniq String.compare
   in
   let rec go = function
     | Core.Term.Vari v ->
       let name = base_name v in
       (match List.find_opt (fun (n, _) -> n = name) var_indices with
        | Some (_, idx) -> mk_Patt (Some idx, name, [||])
-       | None -> mk_Vari v)
+       | None ->
+         (* If it's a variable from full_ctx but not in ctx, use wildcard *)
+         if List.mem name full_names then mk_Plac false
+         else mk_Vari v)
     | Core.Term.Symb s ->
       let name = s.Core.Term.sym_name in
       (match List.find_opt (fun (n, _) -> n = name) var_indices with
        | Some (_, idx) -> mk_Patt (Some idx, name, [||])
-       | None -> mk_Symb s)
+       | None ->
+         (* If it's a name from full_ctx but not in ctx, use wildcard *)
+         if List.mem name full_names then mk_Plac false
+         else mk_Symb s)
     | Core.Term.Meta (m, ts) ->
       (* If meta is unsolved, convert to wildcard for LambdaPi to elaborate *)
       if Option.is_none Timed.(!(m.Core.Term.meta_value)) then
@@ -240,11 +274,15 @@ let bind_pvars ctx term =
   go term
 
 (* Encode a program case as a rewrite rule *)
-let enc_case ctx sym (t1, t2 : EO.term * EO.term) =
+let enc_case ctx impl_ctx sym (t1, t2 : EO.term * EO.term) =
+  (* All params become pattern variables. The ctx comes from enc_params
+     which already includes all Eunoia params (type params and value params). *)
+  let _ = impl_ctx in  (* unused for now *)
+
   let enc t = t
     |> enc_term ctx
     |> resolve_term ~debug:true ~ctx
-    |> bind_pvars ctx
+    |> bind_pvars ctx ctx
   in
 
   let l, rhs = enc t1, enc t2 in
@@ -272,6 +310,10 @@ let dedup_params ps =
   ps
 
 let enc_prog str ps doms ran cases =
+  (* Unify type parameters that must be equal based on case patterns.
+     E.g., if f : (-> S S S) is applied to x : U, then S must equal U. *)
+  let ps = EO.unify_type_params ps cases in
+
   let ctx, _ = enc_params ps in
   let ty_raw = EO.Apply ("->", doms @ [ran]) in
   (* Use all program parameters for encoding context *)
@@ -290,10 +332,11 @@ let enc_prog str ps doms ran cases =
   let ty, _ = Core.Ctxt.to_prod impl_ctx body_ty in
   let sym = add_sequential ~impl (unique_name str) ty in
 
-  (* Encode each case as a rule using the parameter context *)
+  (* Encode each case as a rule using the parameter context.
+     Pass impl_ctx so that only implicitly-bound params become pattern variables. *)
   let rules =
     List.filter_map (fun (lhs, rhs) ->
-      try Some (enc_case ctx sym (lhs, rhs))
+      try Some (enc_case ctx impl_ctx sym (lhs, rhs))
       with Failure msg ->
         Printf.eprintf "Warning: %s: rule encoding failed: %s\n%!" str msg;
         None)
@@ -492,7 +535,7 @@ let enc_rule str ps assm prems args reqs conc =
     let enc t = t
       |> enc_term arg_ctx
       |> resolve_term ~debug:true ~ctx:arg_ctx
-      |> bind_pvars arg_ctx
+      |> bind_pvars arg_ctx arg_ctx  (* arg_ctx is both pvar_ctx and full_ctx here *)
     in
 
     let prems_enc = List.map enc prems in
@@ -503,7 +546,7 @@ let enc_rule str ps assm prems args reqs conc =
     let l = lhs_eo
       |> enc_term arg_ctx
       |> resolve_term ~debug:true ~ctx:arg_ctx
-      |> bind_pvars arg_ctx
+      |> bind_pvars arg_ctx arg_ctx
     in
     let _, lhs_args = Core.Term.get_args l in
 

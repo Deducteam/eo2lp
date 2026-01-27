@@ -507,6 +507,44 @@ sequential symbol {|eo::List::cons|} [T : Set]: τ (T ⤳ {|eo::List|} ⤳ {|eo:
 // nil rule for eo::List::cons
 rule {|eo::nil|} {|eo::List::cons|} {|eo::List|} ↪ {|eo::List::nil|};
 
+// eo::List::concat - specialized concat for heterogeneous eo::List
+// No implicit type params, so can be used in rewrite rule LHS/RHS
+sequential symbol {|eo::List::concat|} : τ ({|eo::List|} ⤳ {|eo::List|} ⤳ {|eo::List|});
+rule {|eo::List::concat|} {|eo::List::nil|} $ys ↪ $ys
+with {|eo::List::concat|} (APP (APP ({|eo::List::cons|} [$T]) $x) $xs) $ys
+  ↪ APP (APP ({|eo::List::cons|} [$T]) $x) ({|eo::List::concat|} $xs $ys);
+
+// eo::List::nth_type - get type of nth element.
+sequential symbol {|eo::List::nth_type|} :
+  τ ({|eo::List|} ⤳ {|eo::Int|} ⤳ {|eo::Type|});
+rule {|eo::List::nth_type|}
+  (APP (APP ({|eo::List::cons|} [$T]) $x) _) 0
+  ↪ $T
+with {|eo::List::nth_type|}
+  (APP (APP ({|eo::List::cons|} [_]) _) $xs) $n
+  ↪ {|eo::List::nth_type|} $xs
+      ({|eo::add|} [{|eo::Int|}] [{|eo::Int|}] $n -1);
+
+// eo::List::nth - get nth element of heterogeneous eo::List
+// Returns the element at index i with dependently-typed return.
+sequential symbol {|eo::List::nth|}
+  (xs : τ {|eo::List|}) (n : τ {|eo::Int|})
+  : τ ({|eo::List::nth_type|} xs n);
+
+rule {|eo::List::nth|}
+  (APP (APP ({|eo::List::cons|} [_]) $x) _) 0
+  ↪ $x
+with {|eo::List::nth|}
+  (APP (APP ({|eo::List::cons|} [_]) _) $xs) $n
+  ↪ {|eo::List::nth|} $xs
+    ({|eo::add|} [{|eo::Int|}] [{|eo::Int|}] $n -1);
+
+// eo::List::find - find index of element in heterogeneous eo::List
+// Returns index of first occurrence of x, or -1 if not found
+sequential symbol {|eo::List::find|} [T : Set] : τ ({|eo::List|} ⤳ T ⤳ {|eo::Int|});
+rule {|eo::List::find|} {|eo::List::nil|} _ ↪ -1
+with {|eo::List::find|} (@APP {|eo::List|} {|eo::List|} (@APP $U ({|eo::List|} ⤳ {|eo::List|}) (@{|eo::List::cons|} $U) $y) $ys) $x
+  ↪ @{|eo::ite|} {|eo::Int|} {|eo::Int|} (@{|eo::eq|} _ _ $x $y) 0 (1 + {|eo::List::find|} $ys $x);
 
 // ---- Additional type checking predicates ----
 
