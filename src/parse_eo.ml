@@ -185,6 +185,43 @@ let check_dag graph =
   graph (Ok ())
 
 (* ============================================================
+   Proof file parsing
+   ============================================================ *)
+
+(* Parse a single .eo proof file into a flat signature.
+   Proof files have no includes — just declarations, defines, assumes, steps. *)
+let parse_proof_file (filepath : string) : string * signature =
+  let stem = Filename.chop_extension (Filename.basename filepath) in
+  let ch = open_in filepath in
+  let lx = Lexing.from_channel ch in
+  lx.lex_curr_p <- { lx.lex_curr_p with pos_fname = filepath };
+  let sig_ = ref [] in
+  (try
+    while true do
+      match parse_command lx with
+      | Some (Some (`Sig syms)) ->
+        sig_ := List.rev_append syms !sig_
+      | Some (Some (`Include _)) -> ()  (* ignore includes in proof files *)
+      | Some None -> raise Exit
+      | None -> raise Exit
+    done
+  with
+  | Exit -> close_in ch
+  | exn  -> close_in ch; raise exn);
+  (stem, List.rev !sig_)
+
+(* Parse all .eo files in a directory into a list of (name, signature) pairs *)
+let parse_proof_dir (dir : string) : (string * signature) list =
+  let files =
+    Sys.readdir dir
+    |> Array.to_list
+    |> List.filter (fun f -> Filename.check_suffix f ".eo")
+    |> List.sort String.compare
+    |> List.map (Filename.concat dir)
+  in
+  List.map parse_proof_file files
+
+(* ============================================================
    Job file parsing
    ============================================================ *)
 

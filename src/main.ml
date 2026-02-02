@@ -20,6 +20,7 @@ module LP   = Api_lp
 type config = {
   input_dir      : string;
   output_dir     : string;
+  proofs_dir     : string option;
   verbose        : bool;
   log_level      : LP.log_level;
   no_color       : bool;
@@ -29,6 +30,7 @@ type config = {
 let default_config = {
   input_dir      = "./cpc";
   output_dir     = "./_build/cpc";
+  proofs_dir     = None;
   verbose        = false;
   log_level      = LP.Silent;
   no_color       = false;
@@ -48,6 +50,8 @@ let speclist = [
      let level = LP.log_level_of_string s in
      config := { !config with verbose = true; log_level = level }),
    "<level> Verbose output with log level: info, warn, error");
+  ("--proofs", Arg.String (fun s -> config := { !config with proofs_dir = Some s }),
+   "<dir> Directory of .eo proof files to encode");
   ("--no-color", Arg.Unit (fun () -> config := { !config with no_color = true }),
    " Disable colored output");
   ("--expert", Arg.Unit (fun () -> config := { !config with include_expert = true }),
@@ -197,6 +201,61 @@ let encode_module ~pkg_name ~output_dir ~verbose
 let check_module ~output_dir ~verbose:_ (mod_path : path) =
   let rel_path = String.concat "/" mod_path ^ ".lp" in
   LP.check_file ~verbose:false output_dir rel_path
+
+(* ---------------------------------------------------------------------------
+   Stage 5: Encode a single proof file against the full CPC signature
+   --------------------------------------------------------------------------- *)
+
+let encode_proof ~pkg_name ~output_dir ~verbose
+    ~(cpc_sig : Syntax_eo.signature) ~(top_module : path)
+    (name : string) (proof_sig : Syntax_eo.signature) =
+  let proof_path = ["proofs"; name] in
+  let module_name = path_to_module pkg_name proof_path in
+
+  LP.set_current_module module_name;
+
+  (* The proof sees the full CPC signature plus its own local declarations *)
+  Enc.set_signature (cpc_sig @ proof_sig);
+
+  (* Init LP sign: proof depends on the top-level CPC module *)
+  let module_path = pkg_name :: proof_path in
+  let dep_path = pkg_name :: top_module in
+  let _sign = LP.init_sign ~deps:[dep_path] module_path in
+  Enc.reset_overloads ();
+
+  let errors = ref [] in
+  let output_items = ref [] in
+
+  List.iter (fun (sym_name, def) ->
+    try
+      let result = Enc.enc_one sym_name def in
+      output_items :=
+        { LP.oi_syms  = result.Enc.syms;
+          oi_rules = result.Enc.rules;
+          oi_raw   = result.Enc.raw } :: !output_items
+    with e ->
+      let msg = exn_msg e in
+      errors := (sym_name, msg) :: !errors
+  ) proof_sig;
+
+  let errors = List.rev !errors in
+
+  let out_path =
+    Filename.concat output_dir (String.concat "/" proof_path ^ ".lp")
+  in
+  LP.mkdir_p (Filename.dirname out_path);
+  let prelude_module = pkg_name ^ ".Prelude" in
+  let dep_module = path_to_module pkg_name top_module in
+  LP.write_lp_file out_path ~prelude_module ~deps:[dep_module]
+    (List.rev !output_items);
+
+  if verbose && errors <> [] then
+    List.iter (fun (sym, msg) ->
+      Printf.eprintf "  [%s:%s] %s\n%!" module_name sym msg
+    ) errors;
+
+  LP.set_current_module "";
+  errors
 
 (* ---------------------------------------------------------------------------
    Module tree display
@@ -426,7 +485,105 @@ let run () =
     Printf.printf "%s %d/%d failed (%s)\n"
       (red "FAIL") (List.length check_failures) total (fmt_ms t_check);
 
-  (* -- Stage 5: Report --------------------------------------------------- *)
+  (* -- Stage 5: Encode and check proofs (if --proofs given) -------------- *)
+
+  let proof_results : module_result list =
+    match !config.proofs_dir with
+    | None -> []
+    | Some proofs_dir ->
+      (* Find the top-level module (last in topo order) *)
+      let top_module = List.nth order (List.length order - 1) in
+      (* Build the full CPC signature for proof encoding *)
+      let cpc_sig = full_sig_at graph top_module in
+
+      (* Parse proof files *)
+      let t4 = Unix.gettimeofday () in
+      Printf.printf "parsing proofs in %s... " proofs_dir;
+      flush stdout;
+      let proofs = Parse_eo.parse_proof_dir proofs_dir in
+      let n_proofs = List.length proofs in
+      Printf.printf "%s %d proofs (%s)\n"
+        (green "ok") n_proofs (fmt_ms (Unix.gettimeofday () -. t4));
+
+      if n_proofs = 0 then []
+      else begin
+        (* Encode proofs *)
+        let t5 = Unix.gettimeofday () in
+        Printf.printf "encoding %d proofs... " n_proofs;
+        flush stdout;
+
+        let proof_encode_results =
+          List.map (fun (name, proof_sig) ->
+            let t_start = Unix.gettimeofday () in
+            let errors =
+              try
+                encode_proof ~pkg_name ~output_dir ~verbose
+                  ~cpc_sig ~top_module name proof_sig
+              with e ->
+                let mod_name = path_to_module pkg_name ["proofs"; name] in
+                [("(module)", Printf.sprintf "%s: %s" mod_name (exn_msg e))]
+            in
+            let enc = {
+              enc_errors   = errors;
+              enc_warnings = [];
+              enc_time     = Unix.gettimeofday () -. t_start;
+            } in
+            (name, enc)
+          ) proofs
+        in
+
+        let proof_enc_errs =
+          List.filter (fun (_, enc) -> enc.enc_errors <> []) proof_encode_results
+        in
+        let t_penc = Unix.gettimeofday () -. t5 in
+        if proof_enc_errs = [] then
+          Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_penc)
+        else
+          Printf.printf "%s %d/%d with errors (%s)\n"
+            (red "WARN") (List.length proof_enc_errs) n_proofs (fmt_ms t_penc);
+
+        (* Check proofs *)
+        let t6 = Unix.gettimeofday () in
+        Printf.printf "checking %d proofs... " n_proofs;
+        flush stdout;
+
+        let proof_results =
+          List.map (fun (name, enc) ->
+            let proof_path = ["proofs"; name] in
+            let mod_name = path_to_module pkg_name proof_path in
+            let t_start = Unix.gettimeofday () in
+            let r = check_module ~output_dir ~verbose proof_path in
+            let dt = Unix.gettimeofday () -. t_start in
+            let check = match r with
+              | LP.Check_ok -> Check_ok
+              | LP.Check_error msg -> Check_error msg
+            in
+            { mod_path = proof_path; mod_name;
+              encode = enc; check; check_time = dt;
+              total_time = enc.enc_time +. dt }
+          ) proof_encode_results
+        in
+
+        let proof_check_failures =
+          List.filter (fun r ->
+            match r.check with Check_error _ -> true | _ -> false) proof_results
+        in
+        let t_pchk = Unix.gettimeofday () -. t6 in
+        if proof_check_failures = [] then
+          Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_pchk)
+        else
+          Printf.printf "%s %d/%d failed (%s)\n"
+            (red "FAIL") (List.length proof_check_failures) n_proofs
+            (fmt_ms t_pchk);
+
+        proof_results
+      end
+  in
+
+  (* -- Stage 6: Report --------------------------------------------------- *)
+
+  let all_results = results @ proof_results in
+  let all_total = List.length all_results in
 
   (* Collect all failures: encode errors + check errors *)
   let failures = ref [] in
@@ -450,16 +607,16 @@ let run () =
      | Check_error msg ->
        failures := (r.mod_name, "check", msg) :: !failures
      | _ -> ())
-  ) results;
+  ) all_results;
 
   let failures = List.rev !failures in
   let n_passed =
     List.length (List.filter (fun r ->
       r.encode.enc_errors = [] &&
       (match r.check with Check_ok -> true | _ -> false)
-    ) results)
+    ) all_results)
   in
-  let n_failed = total - n_passed in
+  let n_failed = all_total - n_passed in
 
   (* Summary line *)
   let status_str, status_color =
@@ -478,7 +635,7 @@ let run () =
            (match r.check with Check_error _ -> true | _ -> false)
         then Some (String.concat "/" r.mod_path)
         else None
-      ) results
+      ) all_results
       |> List.sort_uniq String.compare
     in
     Printf.printf "Failed: %s\n" (String.concat ", " failed_names)
@@ -499,7 +656,7 @@ let run () =
         List.iter (fun (sym, msg) ->
           Printf.printf "  ├─ %s %s\n" (red sym) msg
         ) r.encode.enc_errors
-    ) results
+    ) all_results
   end;
 
   LP.reset ();
