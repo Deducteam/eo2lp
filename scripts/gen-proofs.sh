@@ -47,7 +47,7 @@ for smt2_file in "$INPUT_DIR"/*.smt2; do
     # - Strip first line ("unsat")
     # - Remove wrapping parens (first '(' and last ')')
     # - Add CPC includes at the top
-    if timeout "$TIMEOUT" cvc5 --produce-proofs --dump-proofs "$smt2_file" 2>/dev/null | tail -n +2 | sed '1s/^(//' | sed '$s/)$//' > "$output_file.tmp"; then
+    if timeout "$TIMEOUT" cvc5 --produce-proofs --dump-proofs --proof-print-conclusion "$smt2_file" 2>/dev/null | tail -n +2 | sed '1s/^(//' | sed '$s/)$//' > "$output_file.tmp"; then
         # Check if proof was actually generated (file has content)
         if grep -q "^(step\|^(assume" "$output_file.tmp" 2>/dev/null; then
             # Prepend comment and move to final location
