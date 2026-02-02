@@ -5,13 +5,6 @@ open Literal
 let flatten =
   Option.fold ~none:[] ~some:(fun x -> x)
 
-let lit_cat_to_str = function
-  | NUM -> "<numeral>"
-  | DEC -> "<decimal>"
-  | RAT -> "<rational>"
-  | BIN -> "<binary>"
-  | HEX -> "<hexadecimal>"
-  | STR -> "<string>"
 %}
 
 %token <string> SYMBOL
@@ -72,21 +65,15 @@ let lit_cat_to_str = function
   SIGNATURE
   RULE
 
-%start <(string * symbol) list option> toplevel_eof
+%start <[ `Sig of (string * symbol) list | `Include of string ] option> toplevel_eof
 %start <term> term
 %start <param list> params
 
-(* New entry point that separates includes from signature entries *)
-%start <[ `Sig of (string * symbol) list | `Include of string ] option> toplevel_eof_v2
-
 %%
-toplevel_eof:
-  | EOF        { None }
-  | command    { Some $1 }
 
-toplevel_eof_v2:
+toplevel_eof:
   | EOF          { None }
-  | command_v2   { Some $1 }
+  | command   { Some $1 }
 
 symbol:
   | s = SYMBOL { s }
@@ -138,151 +125,6 @@ common_command:
   | LPAREN; POP; n = option(NUMERAL); RPAREN
   { [] }
 
-command:
-  | LPAREN; ASSUME;
-      s = symbol ;
-      t = term;
-    RPAREN
-  {
-    [(s, Assume t)]
-  }
-  | LPAREN; ASSUME_PUSH;
-      s = symbol ;
-      t = term;
-    RPAREN
-  {
-    [(s, Assume t)]  (* Treat assume-push same as assume for now *)
-  }
-  | LPAREN; DECLARE_CONSTS;
-      l = lit_category;
-      t = term;
-    RPAREN
-  {
-    [(Literal.lit_category_str l, Ltrl (l, t))]
-  }
-  | LPAREN; DECLARE_PARAM_CONST;
-      s = symbol ;
-      LPAREN; ps = list(param); RPAREN;
-      ty = term;
-      att_opt = option(symbol_attr);
-    RPAREN
-  {
-    [(s, Decl (ps, ty, att_opt))]
-  }
-  | LPAREN; DECLARE_RULE;
-      s = symbol ;
-      LPAREN; xs = list(param); RPAREN;
-      assm_opt  = option(assumption);
-      prems_opt = option(premises);
-      args_opt  = option(arguments);
-      reqs_opt  = option(reqs);
-      conc = conclusion;
-      att_opt = option(rule_attr);
-    RPAREN
-  {
-    ignore att_opt; (* :sorry attribute - ignored *)
-    let assm = match assm_opt with
-      | Some t -> t
-      | None -> Symbol "eo::nil_assumption"  (* placeholder for no assumption *)
-    in
-    let prems = match prems_opt with
-      | Some (Simple ts) -> ts
-      | Some (PremiseList (t, op)) -> [Apply ("eo::premise_list", [t; op])]
-      | None -> []
-    in
-    let args = flatten args_opt in
-    let reqs = match reqs_opt with
-      | Some cs -> cs
-      | None -> []
-    in
-    let conc_term = match conc with
-      | Conclusion t -> t
-      | ConclusionExplicit t -> t  (* TODO: handle explicit conclusions differently *)
-    in
-    [(s, Rule (xs, assm, prems, args, reqs, conc_term))]
-  }
-  | LPAREN; DEFINE;
-      s = symbol ;
-      LPAREN; ps = list(param); RPAREN; t = term;
-      ty_opt = option(defn_attr);
-    RPAREN
-  {
-    [(s, Defn (ps, t, ty_opt))]
-  }
-  | LPAREN; INCLUDE;
-      str = STRING;
-    RPAREN
-  {
-    !Parse_ctx.parse_include_callback str
-  }
-
-  | LPAREN; PROGRAM;
-      s = symbol ;
-      LPAREN; ps = list(param); RPAREN;
-      SIGNATURE;
-        LPAREN; doms = nonempty_list(term); RPAREN;
-        ran = term;
-      cs_opt = option(cases);
-    RPAREN
-  { let cs = Option.fold ~none:[] ~some:(fun x -> x) cs_opt in
-    [(s, Prog (ps, doms, ran, cs))]
-  }
-
-  | LPAREN; REFERENCE;
-      str = STRING ;
-      s_opt = option(symbol);
-    RPAREN
-  { [] }
-
-  | LPAREN; STEP;
-      s1 = symbol ;
-      t = term;
-      RULE; s2 = symbol ;
-      prem_opt = option(simple_premises);
-      args_opt = option(arguments);
-    RPAREN
-  {
-    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    [(s1, Step (s2, xs, ys, Some t))]
-  }
-
-  | LPAREN; STEP;
-      s1 = symbol ;
-      RULE; s2 = symbol ;
-      prem_opt = option(simple_premises);
-      args_opt = option(arguments);
-    RPAREN
-  {
-    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    [(s1, Step (s2, xs, ys, None))]
-  }
-
-  | LPAREN; STEP_POP;
-      s1 = symbol ;
-      t = term;
-      RULE; s2 = symbol ;
-      prem_opt = option(simple_premises);
-      args_opt = option(arguments);
-    RPAREN
-  {
-    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    [(s1, Step (s2, xs, ys, Some t))]  (* Treat step-pop same as step for now *)
-  }
-
-  | LPAREN; STEP_POP;
-      s1 = symbol ;
-      RULE; s2 = symbol ;
-      prem_opt = option(simple_premises);
-      args_opt = option(arguments);
-    RPAREN
-  {
-    let (xs,ys) = (flatten prem_opt, flatten args_opt) in
-    [(s1, Step (s2, xs, ys, None))]  (* Treat step-pop same as step for now *)
-  }
-
-  | c = common_command
-  { c }
-
 symbol_attr:
   | RIGHT_ASSOC_NIL; t = term { RightAssocNil t }
   | RIGHT_ASSOC_NIL_NSN; t = term { RightAssocNilNSN t }
@@ -303,7 +145,7 @@ param_attr:
   | IMPLICIT { Implicit }
   | OPAQUE   { Opaque }
   | SYNTAX; t = term { Syntax t }
-  | SYNTAX; lc = lit_category { Syntax (Symbol (lit_cat_to_str lc)) }
+  | SYNTAX; lc = lit_category { Syntax (Symbol (lit_category_str lc)) }
   | RESTRICT; t = term { Restrict t }
 
 defn_attr:
@@ -419,17 +261,15 @@ conclusion:
   | CONCLUSION_EXPLICIT; t = term
   { ConclusionExplicit t }
 
-(* v2 command: separates includes from signature entries *)
-command_v2:
+command:
   | LPAREN; INCLUDE;
       str = STRING;
     RPAREN
   { `Include str }
-  | c = command_no_include
+  | c = sig_command
   { `Sig c }
 
-(* command without include - for use by command_v2 *)
-command_no_include:
+sig_command:
   | LPAREN; ASSUME;
       s = symbol ;
       t = term;
@@ -467,24 +307,18 @@ command_no_include:
   {
     ignore att_opt; (* :sorry attribute - ignored *)
     let assm = match assm_opt with
-      | Some t -> t
-      | None -> Symbol "eo::nil_assumption"
+      | Some t -> Some t
+      | None -> None
     in
-    let prems = match prems_opt with
-      | Some (Simple ts) -> ts
-      | Some (PremiseList (t, op)) -> [Apply ("eo::premise_list", [t; op])]
-      | None -> []
-    in
-    let args = flatten args_opt in
-    let reqs = match reqs_opt with
-      | Some cs -> cs
-      | None -> []
-    in
-    let conc_term = match conc with
-      | Conclusion t -> t
-      | ConclusionExplicit t -> t
-    in
-    [(s, Rule (xs, assm, prems, args, reqs, conc_term))]
+    let prem = prems_opt in
+    let rdec = {
+      assm;
+      prem;
+      args = flatten args_opt;
+      reqs = (match reqs_opt with Some cs -> cs | None -> []);
+      conc;
+    } in
+    [(s, Rule (xs, rdec))]
   }
   | LPAREN; DEFINE;
       s = symbol ;

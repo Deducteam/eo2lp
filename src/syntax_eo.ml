@@ -72,21 +72,43 @@ type symbol =
   | Defn of param list * term * term option  (* params, body, optional :type *)
   | Ltrl of lit_category * term
   | Prog of param list * term list * term * case list
-  | Rule of param list * term * term list
-         * term list * case list * term
+  | Rule of param list * rule_dec
   | Assume of term                            (* formula being assumed *)
   | Step of string * term list * term list * term option
          (* rule_name, premises, args, optional conclusion *)
 
+(* Builtin constants *)
 
-
-(* Builtins *)
+module Builtin = struct
+  let ty_type   = "Type"
+  let ty_arrow  = "->"
+  let ty_app    = "_"
+  let ty_as     = "as"
+  let eo_and    = "eo::and"
+  let eo_or     = "eo::or"
+  let eo_xor    = "eo::xor"
+  let eo_add    = "eo::add"
+  let eo_mul    = "eo::mul"
+  let eo_define = "eo::define"
+  let eo_typeof = "eo::typeof"
+  let eo_var    = "eo::var"
+  let eo_as     = "eo::as"
+  let eo_quote  = "eo::quote"
+  let eo_requires = "eo::requires"
+  let eo_list_cons   = "eo::List::cons"
+  let eo_list_nil    = "eo::List::nil"
+  let eo_list_concat = "eo::List::concat"
+  let eo_list_concat_old = "eo::list_concat"
+  let eo_nil_assumption = "eo::nil_assumption"
+  let eo_premise_list   = "eo::premise_list"
+  let eo_int  = "eo::Int"
+  let eo_real = "eo::Real"
+end
 
 let is_builtin s =
-  s = "->" || s = "Type" || s = "_" || s = "as"
-  || (S.starts_with ~prefix:"eo::" s
-      && s <> "eo::List::cons"
-      && s <> "eo::List::nil")
+  s = Builtin.ty_arrow || s = Builtin.ty_type
+  || s = Builtin.ty_app || s = Builtin.ty_as
+  || S.starts_with ~prefix:"eo::" s
 
 (* Parameter queries *)
 
@@ -105,16 +127,9 @@ let prm_has_attr s pa =
 
 (* Term operations *)
 
-let app_ho t t' = Apply ("_", [t; t'])
+let app_ho t t' = Apply (Builtin.ty_app, [t; t'])
 
 let app_ho_list t ts = L.fold_left app_ho t ts
-
-let app_raw t ts =
-  match t, ts with
-  | Symbol s, []   -> Symbol s
-  | Symbol s, ts   -> Apply (s, ts)
-  | Apply (s, ts), ts' -> Apply (s, L.append ts ts')
-  | _ -> app_ho_list t ts
 
 let rec subst t s t' =
   match t with
@@ -130,42 +145,6 @@ let rec subst t s t' =
       L.map (fun (x, tx) -> (x, subst tx s t')) xs
     in
     Bind (b, ys, subst body s t')
-
-(* Free parameters *)
-
-let rec free_params ps = function
-  | Symbol s ->
-    (match prm_find s ps with
-     | Some p -> [p]
-     | None   -> [])
-  | Literal _ -> []
-  | Apply (_, ts) -> L.concat_map (free_params ps) ts
-  | Bind (_, xs, body) ->
-    let bound = L.map fst xs in
-    let body_fvs = free_params ps body in
-    L.filter (fun (s, _, _) -> not (L.mem s bound)) body_fvs
-
-module P = struct
-  type t = param
-  let compare = compare
-end
-
-let free_params_many ps ts =
-  L.concat_map (free_params ps) ts
-  |> L.sort_uniq P.compare
-
-let rec splice (ps, t, ts) =
-  match ps, ts with
-  | [], _ | _, [] -> (ps, t, ts)
-  | (s, _, atts) :: ps', ts when List.mem Implicit atts ->
-    splice (ps', t, ts)
-  | (s, _, _) :: ps', t' :: ts' ->
-    splice (ps', subst t s t', ts')
-
-let rec is_kind = function
-  | Symbol "Type"   -> true
-  | Apply ("->", ts) -> L.exists is_kind ts
-  | _ -> false
 
 (* Free variables *)
 
@@ -197,184 +176,18 @@ let rec is_free s = function
   | Apply (s', ts) -> s = s' || L.exists (is_free s) ts
   | Literal _ -> false
   | Bind (_, vs, t) ->
-    let b1 = List.exists (fun (_, ty) -> is_free s ty) vs in
-    let b2 = is_free s t in
-    b1 || b2
+    let in_binder_types = List.exists (fun (_, ty) -> is_free s ty) vs in
+    let is_bound = List.exists (fun (x, _) -> x = s) vs in
+    in_binder_types || (not is_bound && is_free s t)
 
 (* Program helpers *)
 
-let prog_ty (doms, ran) =
-  Apply ("->", List.append doms [ran])
-
 let rec returns_type = function
-  | Symbol "Type" -> true
-  | Apply ("->", ts) when ts <> [] ->
+  | Symbol s when s = Builtin.ty_type -> true
+  | Apply (s, ts) when s = Builtin.ty_arrow && ts <> [] ->
     returns_type (L.hd (L.rev ts))
   | _ -> false
 
-let prog_ty_params t ps =
-  let type_params =
-    L.filter (fun (_, ty, _) -> ty = Symbol "Type") ps
-  in
-  let free_type_params term =
-    let free = params_in type_params term in
-    L.filter (fun (s, _, _) -> Set.mem s free) type_params
-  in
-  let sig_params =
-    let free = params_in ps t in
-    L.filter (fun (s, _, _) -> Set.mem s free) ps
-  in
-  let collected =
-    L.fold_left (fun acc (s, ty, _) ->
-      if ty = Symbol "Type" then Set.add s acc
-      else
-        let deps = free_type_params ty in
-        L.fold_left
-          (fun a (s', _, _) -> Set.add s' a)
-          acc deps)
-    Set.empty sig_params
-  in
-  type_params
-  |> L.filter (fun (s, _, _) -> Set.mem s collected)
-  |> L.map (fun (s, ty, atts) ->
-       if L.mem Implicit atts then (s, ty, atts)
-       else (s, ty, [Implicit]))
-
-let prog_cs_params cs =
-  let f ((s, ty, _) as p) =
-    let g (t, t') = is_free s t || is_free s t' in
-    if L.exists g cs || ty = Symbol "Type"
-    then Some p
-    else None
-  in
-  L.filter_map f
-
-(* Type parameter unification for program rules.
-   When f : (-> S S S) is applied to x : U, we need S = U.
-   This function computes a substitution mapping redundant type params to their canonical form. *)
-
-module UnionFind = struct
-  type t = (string, string) Hashtbl.t
-
-  let create () : t = Hashtbl.create 8
-
-  let rec find (uf : t) x =
-    match Hashtbl.find_opt uf x with
-    | None -> x
-    | Some parent when parent = x -> x
-    | Some parent ->
-      let root = find uf parent in
-      Hashtbl.replace uf x root;
-      root
-
-  let union (uf : t) x y =
-    let rx = find uf x in
-    let ry = find uf y in
-    if rx <> ry then Hashtbl.replace uf rx ry
-end
-
-(* Extract type parameter from arrow type at given position.
-   E.g., for (-> S S S), position 0 returns S (first arg type),
-   position 1 returns S (second arg type), position 2 returns S (result type). *)
-let arrow_type_at ty pos =
-  match ty with
-  | Apply ("->", args) when pos < L.length args ->
-    Some (L.nth args pos)
-  | _ -> None
-
-(* Get the type of a term given parameter context.
-   Returns Some type if the term is a parameter, None otherwise. *)
-let rec term_type ps = function
-  | Symbol s ->
-    (match prm_find s ps with
-     | Some (_, ty, _) -> Some ty
-     | None -> None)
-  | Apply ("_", [f; _]) ->
-    (* HOL application: type of (f x) is the result type of f's arrow type *)
-    (match term_type ps f with
-     | Some (Apply ("->", _ :: rest)) when rest <> [] ->
-       Some (Apply ("->", rest))
-     | Some (Apply ("->", [result])) ->
-       Some result
-     | _ -> None)
-  | _ -> None
-
-(* Collect type constraints from a term.
-   When we see f applied to args (via _ or direct Apply), and f : (-> T1 T2 ... Tn R),
-   we unify each arg's type with Ti. *)
-let rec collect_type_constraints uf ps term =
-  match term with
-  | Symbol _ | Literal _ -> ()
-  | Apply ("_", [f; x]) ->
-    (* HOL application: f x where f : (-> A ...) means x : A *)
-    (match term_type ps f with
-     | Some (Apply ("->", expected_ty :: _)) ->
-       (* expected_ty is the first param type of f's arrow *)
-       (match expected_ty with
-        | Symbol expected_ty_name when prm_typ expected_ty_name (Symbol "Type") ps ->
-          (* x should have type expected_ty_name *)
-          (match x with
-           | Symbol arg_name ->
-             (match prm_find arg_name ps with
-              | Some (_, Symbol arg_ty, _) when prm_typ arg_ty (Symbol "Type") ps ->
-                (* Unify expected_ty_name with arg_ty *)
-                UnionFind.union uf expected_ty_name arg_ty
-              | _ -> ())
-           | _ -> ())
-        | _ -> ())
-     | _ -> ());
-    (* Recurse *)
-    collect_type_constraints uf ps f;
-    collect_type_constraints uf ps x
-  | Apply (s, args) ->
-    (* Direct application (not HOL _): If s is a parameter with arrow type *)
-    (match prm_find s ps with
-     | Some (_, fn_ty, _) ->
-       L.iteri (fun i arg ->
-         match arrow_type_at fn_ty i with
-         | Some (Symbol expected_ty) when prm_typ expected_ty (Symbol "Type") ps ->
-           (match arg with
-            | Symbol arg_name ->
-              (match prm_find arg_name ps with
-               | Some (_, Symbol arg_ty, _) when prm_typ arg_ty (Symbol "Type") ps ->
-                 UnionFind.union uf expected_ty arg_ty
-               | _ -> ())
-            | _ -> ())
-         | _ -> ()
-       ) args
-     | None -> ());
-    (* Recurse into args *)
-    L.iter (collect_type_constraints uf ps) args
-  | Bind (_, vs, body) ->
-    L.iter (fun (_, ty) -> collect_type_constraints uf ps ty) vs;
-    collect_type_constraints uf ps body
-
-(* Unify type parameters in a program based on case patterns.
-   Returns a substituted parameter list and substituted cases. *)
-let unify_type_params ps cases =
-  let uf = UnionFind.create () in
-  (* Collect constraints from all case LHS patterns *)
-  L.iter (fun (lhs, _) -> collect_type_constraints uf ps lhs) cases;
-  (* Build substitution: for each type param, find its canonical form *)
-  let type_params = L.filter (fun (_, ty, _) -> ty = Symbol "Type") ps in
-  let canonical = L.map (fun (s, _, _) -> (s, UnionFind.find uf s)) type_params in
-  (* Apply substitution to a term *)
-  let apply_subst_term t =
-    L.fold_left (fun acc (from, to_) ->
-      if from <> to_ then subst acc from (Symbol to_) else acc
-    ) t canonical
-  in
-  (* Apply substitution to parameter types *)
-  let ps' = L.map (fun (s, ty, atts) -> (s, apply_subst_term ty, atts)) ps in
-  (* Filter out type params that were unified away.
-     Keep s if s is its own canonical representative. *)
-  L.filter (fun (s, ty, _) ->
-    if ty = Symbol "Type" then
-      match L.find_opt (fun (from, _) -> from = s) canonical with
-      | Some (_, to_) -> s = to_  (* Keep only if s is canonical *)
-      | None -> true              (* Not a type param we tracked, keep *)
-    else true
-  ) ps'
 
 (* Literal types *)
 
@@ -384,150 +197,38 @@ let lit_cat_of = function
   | Rational _    -> RAT
   | Binary _      -> BIN
   | Hexadecimal _ -> HEX
-  | String _      -> STR
+  | String _      -> failwith "string literals not supported"
 
-let lit_type_table : (lit_category, string) Hashtbl.t =
+let lit_type_table : (lit_category, term) Hashtbl.t =
   Hashtbl.create 8
 
-let clear_lit_types () = Hashtbl.clear lit_type_table
 let set_lit_type cat ty = Hashtbl.replace lit_type_table cat ty
 let get_lit_type cat = Hashtbl.find_opt lit_type_table cat
 let type_of_literal l = get_lit_type (lit_cat_of l)
 
-(* Pretty printing *)
+(* Placeholder name → concrete type, populated by declare-consts *)
+let lit_alias_table : (string, term) Hashtbl.t = Hashtbl.create 4
 
-let opt_newline f = function
-  | Some x -> Printf.sprintf "  %s\n" (f x)
-  | None   -> ""
+let placeholder_of_cat = function
+  | Literal.NUM -> Builtin.eo_int
+  | Literal.RAT -> Builtin.eo_real
+  | Literal.STR -> failwith "string literal category not supported"
+  | _           -> failwith "placeholder_of_cat: unsupported"
 
-let opt_str f = Option.fold ~none:"" ~some:f
+let register_lit_alias cat ty =
+  Hashtbl.replace lit_alias_table (placeholder_of_cat cat) ty
 
-let opt_suffix_str f =
-  Option.fold ~none:"" ~some:(fun x -> " " ^ f x)
+let clear_lit_aliases () = Hashtbl.clear lit_alias_table
 
-let list_str f xs =
-  String.concat " " (List.map f xs)
-
-let list_suffix_str f = function
-  | [] -> ""
-  | ys -> " " ^ list_str f ys
-
-let rec var_str (str, t) =
-  Printf.sprintf "(%s %s)" str (term_str t)
-
-and symbol_attr_str = function
-  | RightAssoc -> ":right-assoc"
-  | LeftAssoc  -> ":left-assoc"
-  | RightAssocNil t ->
-    Printf.sprintf ":right-assoc-nil %s" (term_str t)
-  | LeftAssocNil t ->
-    Printf.sprintf ":left-assoc-nil %s" (term_str t)
-  | RightAssocNilNSN t ->
-    Printf.sprintf
-      ":right-assoc-nil-non-singleton-nil %s"
-      (term_str t)
-  | LeftAssocNilNSN t ->
-    Printf.sprintf
-      ":left-assoc-nil-non-singleton-nil %s"
-      (term_str t)
-  | RightAssocNSN t ->
-    Printf.sprintf
-      ":right-assoc-non-singleton-nil %s"
-      (term_str t)
-  | LeftAssocNSN t ->
-    Printf.sprintf
-      ":left-assoc-non-singleton-nil %s"
-      (term_str t)
-  | Chainable s  -> Printf.sprintf ":chainable %s" s
-  | Binder s     -> Printf.sprintf ":binder %s" s
-  | Pairwise s   -> Printf.sprintf ":pairwise %s" s
-  | ArgList s    -> Printf.sprintf ":arg-list %s" s
-  | LetBinder t  ->
-    Printf.sprintf ":let-binder %s" (term_str t)
-  | Implicit     -> ":implicit"
-  | Opaque       -> ":opaque"
-  | List         -> ":list"
-  | Syntax t     ->
-    Printf.sprintf ":syntax %s" (term_str t)
-  | Restrict t   ->
-    Printf.sprintf ":restrict %s" (term_str t)
-
-and term_str = function
-  | Symbol str  -> str
-  | Literal l   -> literal_str l
-  | Bind (str, xs, t) ->
-    let xs' = List.map var_str xs in
-    Printf.sprintf "(%s (%s) %s)"
-      str (String.concat ", " xs') (term_str t)
-  | Apply (s, ts) ->
-    Printf.sprintf "(%s %s)"
-      s (String.concat " " (List.map term_str ts))
-
-and term_list_str ts =
-  String.concat " " (List.map term_str ts)
-
-let param_str (s, t, atts) =
-  Printf.sprintf "(%s %s%s)"
-    s (term_str t)
-    (list_suffix_str symbol_attr_str atts)
-
-let case_str (t, t') =
-  Printf.sprintf "(%s %s)" (term_str t) (term_str t')
-
-let case_list_str = list_str case_str
-
-let premises_str = function
-  | Simple ts ->
-    Printf.sprintf ":premises %s" (term_list_str ts)
-  | PremiseList (t, t') ->
-    Printf.sprintf ":premise-list %s %s"
-      (term_str t) (term_str t')
-
-and assumption_str t =
-  Printf.sprintf ":assumption %s" (term_str t)
-
-and arguments_str ts =
-  Printf.sprintf ":args %s" (term_list_str ts)
-
-and reqs_str cs =
-  Printf.sprintf ":requires (%s)" (case_list_str cs)
-
-and conclusion_str = function
-  | Conclusion t ->
-    Printf.sprintf ":conclusion %s" (term_str t)
-  | ConclusionExplicit t ->
-    Printf.sprintf ":conclusion-explicit %s" (term_str t)
-
-let rule_dec_str { assm; prem; args; reqs; conc } =
-  Printf.sprintf "%s%s%s%s%s"
-    (opt_newline assumption_str assm)
-    (opt_newline premises_str prem)
-    (opt_newline arguments_str (Some args))
-    (opt_newline reqs_str (Some reqs))
-    (opt_newline conclusion_str (Some conc))
-
-let symbol_str = function
-  | s, Decl (ps, t, ao) ->
-    Printf.sprintf "(decl %s (%s) %s (%s))"
-      s (list_str param_str ps)
-      (term_str t) (opt_str symbol_attr_str ao)
-  | s, Defn (ps, t, ty_opt) ->
-    Printf.sprintf "(defn %s (%s) %s%s)"
-      s (list_str param_str ps) (term_str t)
-      (match ty_opt with None -> "" | Some ty -> " :type " ^ term_str ty)
-  | s, Ltrl (cat, t) ->
-    Printf.sprintf "(declare-consts %s %s)"
-      (Literal.lit_category_str cat) (term_str t)
-  | s, Prog (ps, doms, ran, cs) ->
-    Printf.sprintf "(prog %s ((%s) :signature (%s) %s) (%s))"
-      s (list_str param_str ps)
-      (term_list_str doms) (term_str ran)
-      (case_list_str cs)
-  | s, Rule _ ->
-    Printf.sprintf "(rule %s ...)" s
-
-let sig_str sgn =
-  S.concat "\n" (L.map symbol_str sgn)
+(* Substitute placeholder type names in an Eunoia term *)
+let rec subst_lit_aliases = function
+  | Symbol s as t ->
+    (match Hashtbl.find_opt lit_alias_table s with
+     | Some replacement -> replacement
+     | None -> t)
+  | Apply (s, ts) -> Apply (s, List.map subst_lit_aliases ts)
+  | Bind (b, vs, body) -> Bind (b, vs, subst_lit_aliases body)
+  | t -> t
 
 (* Datatype declarations *)
 
@@ -537,471 +238,91 @@ and sel_dec  = SelDec  of string * term
 and cons_dec = ConsDec of string * sel_dec list
 and dt_dec   = DatatypeDec of cons_dec list
 
-let sort_dec_str = function
-  | SortDec (s, n) -> Printf.sprintf "(%s %d)" s n
-
-and sel_dec_str = function
-  | SelDec (s, t) ->
-    Printf.sprintf "(%s %s)" s (term_str t)
-
-let cons_dec_str = function
-  | ConsDec (s, xs) ->
-    Printf.sprintf "(%s %s)"
-      s (String.concat " " (List.map sel_dec_str xs))
-
-let dt_dec_str = function
-  | DatatypeDec xs ->
-    Printf.sprintf "(%s)"
-      (String.concat " " (List.map cons_dec_str xs))
-
-(* Commands *)
-
-type common_command =
-  | DeclareConst     of string * term * attr option
-  | DeclareDatatype  of string * dt_dec
-  | DeclareDatatypes of sort_dec list * dt_dec list
-  | Echo             of string option
-  | Exit
-  | Reset
-  | SetOption        of string
-
-type command =
-  | Assume            of string * term
-  | AssumePush        of string * term
-  | DeclareConsts     of lit_category * term
-  | DeclareParamConst of string * param list
-                      * term * attr option
-  | DeclareRule       of string * param list
-                      * rule_dec * sorry option
-  | Define            of string * param list
-                      * term * term option
-  | Include           of path
-  | Program           of string
-                      * (param list * term)
-                      * (param list * case list)
-  | Reference         of string * string option
-  | Step              of string * term * string
-                      * term list * term list
-  | StepPop           of string * term * string
-                      * term list * term list
-  | Common            of common_command
-
-let common_command_str = function
-  | DeclareConst (s, t, att) ->
-    Printf.sprintf "(declare-const %s %s %s)"
-      s (term_str t) (opt_suffix_str symbol_attr_str att)
-  | DeclareDatatype (s, dt) ->
-    Printf.sprintf "(declare-datatype %s %s)"
-      s (dt_dec_str dt)
-  | DeclareDatatypes (xs, ys) ->
-    Printf.sprintf "(declare-datatypes (%s) (%s))"
-      (String.concat "" (List.map sort_dec_str xs))
-      (String.concat "" (List.map dt_dec_str ys))
-  | Echo str_opt ->
-    Printf.sprintf "(echo%s)"
-      (opt_suffix_str (fun x -> x) str_opt)
-  | Reset -> "(reset)"
-  | SetOption x -> Printf.sprintf "(set-option %s)" x
-  | Exit -> "(exit)"
-
-let command_str = function
-  | Assume (s, t) ->
-    Printf.sprintf "(assume %s %s)" s (term_str t)
-  | AssumePush (s, t) ->
-    Printf.sprintf "(assume-push %s %s)" s (term_str t)
-  | DeclareConsts (lc, t) ->
-    Printf.sprintf "(declare-consts %s %s)"
-      (lit_category_str lc) (term_str t)
-  | DeclareParamConst (s, ps, t, att_opt) ->
-    Printf.sprintf "(declare-parameterized-const %s (%s) %s%s)"
-      s (list_str param_str ps)
-      (term_str t) (opt_suffix_str symbol_attr_str att_opt)
-  | DeclareRule (s, xs, rdec, sorry_opt) ->
-    Printf.sprintf "(declare-rule %s (%s)\n%s\n%s)"
-      s (list_str param_str xs)
-      (rule_dec_str rdec)
-      (opt_newline (fun _ -> ":sorry") sorry_opt)
-  | Define (s, xs, t, t_opt) ->
-    Printf.sprintf "(define %s (%s) %s%s)"
-      s (list_str param_str xs)
-      (term_str t) (opt_suffix_str term_str t_opt)
-  | Include p ->
-    Printf.sprintf "(include %s)" (String.concat "." p)
-  | Program (s, (ps, ty), (qs, cs)) ->
-    Printf.sprintf "(program %s\n:type (%s) %s\n:cases (%s) (%s))"
-      s (list_str param_str ps) (term_str ty)
-      (list_str param_str qs) (case_list_str cs)
-  | Reference (str, s_opt) ->
-    Printf.sprintf "(reference %s %s)"
-      str (opt_str (fun x -> x) s_opt)
-  | Step (s, t_opt, s', ts, ts') ->
-    Printf.sprintf "(step %s %s %s%s%s)"
-      s (term_str t_opt) s'
-      (list_suffix_str term_str ts)
-      (list_suffix_str term_str ts')
-  | StepPop (s, t_opt, s', ts, ts') ->
-    Printf.sprintf "(step-pop %s %s %s%s%s)"
-      s (term_str t_opt) s'
-      (list_suffix_str term_str ts)
-      (list_suffix_str term_str ts')
-  | Common c -> common_command_str c
-
 (* ============================================================
-   Symbol Graph - Primary data structure
+   Signature and Module Graph
    ============================================================ *)
 
+(* Simple flat signature: association list of name -> symbol *)
+type signature = (string * symbol) list
+
+(* Context for elaboration: full signature + local parameters *)
+type context = signature * param list
+
+(* Module graph for tracking file structure and includes *)
 module PathMap = Map.Make(struct
   type t = path
   let compare = compare
 end)
 
-(* Symbol identifier: module path + symbol name *)
-type symbol_id = {
-  sid_module : path;   (* e.g., ["theories"; "Arith"] *)
-  sid_name   : string; (* e.g., "+" *)
+type sig_node = {
+  node_path     : path;
+  node_file     : string;
+  node_includes : path list;
+  node_sig      : signature;
 }
 
-module SymbolId = struct
-  type t = symbol_id
-  let compare a b =
-    match compare a.sid_module b.sid_module with
-    | 0 -> String.compare a.sid_name b.sid_name
-    | n -> n
-  let equal a b = compare a b = 0
-  let hash a = Hashtbl.hash (a.sid_module, a.sid_name)
-  let to_string a = String.concat "." a.sid_module ^ "." ^ a.sid_name
-end
-
-module SymbolMap = Map.Make(SymbolId)
-module SymbolSet = Stdlib.Set.Make(SymbolId)
-
-(* A symbol entry in the signature graph *)
-type symbol_entry = {
-  se_id   : symbol_id;
-  se_def  : symbol;
-  se_deps : SymbolSet.t;  (* direct dependencies - edges in the graph *)
-}
-
-(* The signature: a graph of symbols with dependencies
-   This is the primary data structure for representing parsed Eunoia code *)
-type signature = {
-  sig_nodes   : symbol_entry SymbolMap.t;
-  sig_by_name : symbol_id list M.t;  (* for resolving unqualified names *)
-}
-
-(* Context for elaboration: local parameters only (signature is global) *)
-type context = param list
-
-let empty_sig : signature = {
-  sig_nodes = SymbolMap.empty;
-  sig_by_name = M.empty;
-}
-
-let sig_add (entry : symbol_entry) (s : signature) : signature =
-  let name = entry.se_id.sid_name in
-  let existing = Option.value ~default:[] (M.find_opt name s.sig_by_name) in
-  {
-    sig_nodes = SymbolMap.add entry.se_id entry s.sig_nodes;
-    sig_by_name = M.add name (entry.se_id :: existing) s.sig_by_name;
-  }
-
-let sig_find (s : signature) (sid : symbol_id) : symbol_entry option =
-  SymbolMap.find_opt sid s.sig_nodes
-
-let sig_find_by_name (s : signature) (name : string) : symbol_id list =
-  Option.value ~default:[] (M.find_opt name s.sig_by_name)
-
-let sig_mem (s : signature) (sid : symbol_id) : bool =
-  SymbolMap.mem sid s.sig_nodes
-
-let sig_fold f (s : signature) acc =
-  SymbolMap.fold (fun _ entry acc -> f entry acc) s.sig_nodes acc
-
-let sig_cardinal (s : signature) : int =
-  SymbolMap.cardinal s.sig_nodes
-
-(* Resolve an unqualified symbol name, preferring the given module context *)
-let sig_resolve (s : signature) (context : path) (name : string) : symbol_id option =
-  match sig_find_by_name s name with
-  | [] -> None
-  | [single] -> Some single
-  | multiple ->
-    (* Prefer symbol from same module *)
-    match L.find_opt (fun sid -> sid.sid_module = context) multiple with
-    | Some found -> Some found
-    | None -> Some (L.hd multiple)
-
-(* Compute transitive closure of symbol dependencies *)
-let sig_closure (s : signature) (seeds : SymbolSet.t) : SymbolSet.t =
-  let rec go visited frontier =
-    if SymbolSet.is_empty frontier then visited
-    else
-      let new_visited = SymbolSet.union visited frontier in
-      let new_deps =
-        SymbolSet.fold (fun sid acc ->
-          match sig_find s sid with
-          | Some entry -> SymbolSet.union acc entry.se_deps
-          | None -> acc
-        ) frontier SymbolSet.empty
-      in
-      let new_frontier = SymbolSet.diff new_deps new_visited in
-      go new_visited new_frontier
-  in
-  go SymbolSet.empty seeds
-
-(* Filter signature to only include symbols in the given set *)
-let sig_filter (s : signature) (keep : SymbolSet.t) : signature =
-  SymbolMap.fold (fun sid entry acc ->
-    if SymbolSet.mem sid keep then sig_add entry acc else acc
-  ) s.sig_nodes empty_sig
-
-(* Group symbols by module path *)
-let sig_group_by_module (s : signature) : (path * (string * symbol) list) list =
-  let by_module = SymbolMap.fold (fun sid entry acc ->
-    let existing = Option.value ~default:[] (PathMap.find_opt sid.sid_module acc) in
-    PathMap.add sid.sid_module ((sid.sid_name, entry.se_def) :: existing) acc
-  ) s.sig_nodes PathMap.empty in
-  PathMap.bindings by_module
-
-(* Get all modules in the signature *)
-let sig_modules (s : signature) : path list =
-  SymbolMap.fold (fun sid _ acc ->
-    if L.mem sid.sid_module acc then acc else sid.sid_module :: acc
-  ) s.sig_nodes []
-
-(* Merge two signatures *)
-let sig_union (s1 : signature) (s2 : signature) : signature =
-  SymbolMap.fold (fun _ entry acc -> sig_add entry acc) s2.sig_nodes s1
-
-(* Topological sort of symbols in the signature *)
-let sig_topo_sort (s : signature) : symbol_id list =
-  let visiting = Hashtbl.create (sig_cardinal s) in
-  let visited = Hashtbl.create (sig_cardinal s) in
-  let result = ref [] in
-
-  let rec visit sid =
-    if Hashtbl.mem visited sid then ()
-    else if Hashtbl.mem visiting sid then
-      (* Cycle - just skip for now *)
-      ()
-    else begin
-      Hashtbl.add visiting sid ();
-      (match sig_find s sid with
-       | Some entry ->
-         SymbolSet.iter visit entry.se_deps
-       | None -> ());
-      Hashtbl.remove visiting sid;
-      Hashtbl.add visited sid ();
-      result := sid :: !result
-    end
-  in
-  SymbolMap.iter (fun sid _ -> visit sid) s.sig_nodes;
-  L.rev !result
-
-(* Topological sort of modules based on symbol dependencies *)
-let sig_module_order (s : signature) : path list =
-  let symbol_order = sig_topo_sort s in
-  (* Extract unique modules in order *)
-  let seen = Hashtbl.create 16 in
-  L.filter_map (fun sid ->
-    if Hashtbl.mem seen sid.sid_module then None
-    else begin
-      Hashtbl.add seen sid.sid_module ();
-      Some sid.sid_module
-    end
-  ) symbol_order
-
-(* Get symbols for a specific module in topological order *)
-let sig_module_symbols (s : signature) (mod_path : path) : (string * symbol) list =
-  let order = sig_topo_sort s in
-  L.filter_map (fun sid ->
-    if sid.sid_module = mod_path then
-      match sig_find s sid with
-      | Some entry -> Some (sid.sid_name, entry.se_def)
-      | None -> None
-    else None
-  ) order
+type sig_graph = sig_node PathMap.t
 
 let path_str : path -> string = S.concat "."
 
-(* Core prelude *)
-
-let core_prelude : (string * symbol) list ref = ref []
+(* Core prelude - symbols available in all modules *)
+let core_prelude : signature ref = ref []
 
 let set_core_prelude sig_ = core_prelude := sig_
 
-let core_eo_source = {|
-(declare-const eo::Bool Type)
-(declare-const eo::true eo::Bool)
-(declare-const eo::false eo::Bool)
+(* Get full signature at a path by collecting transitive includes *)
+let full_sig_at graph path =
+  let visited = Hashtbl.create 16 in
+  let rec collect p =
+    if Hashtbl.mem visited p then []
+    else begin
+      Hashtbl.add visited p ();
+      match PathMap.find_opt p graph with
+      | None -> []
+      | Some node ->
+        let deps = L.concat_map collect node.node_includes in
+        deps @ node.node_sig
+    end
+  in
+  !core_prelude @ collect path
 
-(declare-const eo::String Type)
-(declare-const eo::Z Type)
-(declare-const eo::Q Type)
+(* Topological sort of modules in the graph *)
+let topo_sort_graph (graph : sig_graph) : path list =
+  let visiting = Hashtbl.create (PathMap.cardinal graph) in
+  let visited = Hashtbl.create (PathMap.cardinal graph) in
+  let result = ref [] in
 
-(declare-parameterized-const eo::as
-  ((T Type :implicit))
-  (-> T Type T)
-)
+  let rec visit path =
+    if Hashtbl.mem visited path then ()
+    else if Hashtbl.mem visiting path then ()  (* cycle - skip *)
+    else begin
+      Hashtbl.add visiting path ();
+      (match PathMap.find_opt path graph with
+       | Some node -> L.iter visit node.node_includes
+       | None -> ());
+      Hashtbl.remove visiting path;
+      Hashtbl.add visited path ();
+      (* Only emit paths that are actually in the graph *)
+      if PathMap.mem path graph then
+        result := path :: !result
+    end
+  in
+  PathMap.iter (fun path _ -> visit path) graph;
+  L.rev !result
 
-(declare-parameterized-const eo::is_ok
-  ((T Type :implicit))
-  (-> T eo::Bool)
-)
-(declare-parameterized-const eo::ite
-  ((T Type :implicit))
-  (-> eo::Bool T T T)
-)
-(declare-parameterized-const eo::eq
-  ((U Type :implicit))
-  (-> U U eo::Bool)
-)
-(declare-parameterized-const eo::is_eq
-    ((T Type :implicit) (S Type :implicit))
-    (-> T S eo::Bool)
-)
-(declare-parameterized-const eo::requires
-  ((T Type :implicit) (U Type :implicit) (V Type :implicit))
-  (-> T U V V)
-)
-(declare-parameterized-const eo::hash
-    ((T Type :implicit))
-    (-> T eo::Z)
-)
-(declare-parameterized-const eo::typeof
-  ((T Type :implicit))
-  (-> T Type)
-)
-(declare-parameterized-const eo::nameof
-    ((T Type :implicit))
-    (-> T eo::String)
-)
-(declare-parameterized-const eo::var
-    ((T Type :implicit))
-    (-> eo::String T T)
-)
-(declare-parameterized-const eo::cmp
-  ((T Type :implicit) (U Type :implicit))
-  (-> T U eo::Bool)
-)
-(declare-parameterized-const eo::is_var
-  ((T Type :implicit))
-  (-> T eo::Bool)
-)
-(declare-parameterized-const eo::is_z
-  ((T Type :implicit))
-  (-> T eo::Bool)
-)
+(* ============================================================
+   Job files for proof processing
+   ============================================================ *)
 
-(declare-const eo::and (-> eo::Bool eo::Bool eo::Bool))
-(declare-const eo::or (-> eo::Bool eo::Bool eo::Bool))
-(declare-const eo::xor (-> eo::Bool eo::Bool eo::Bool))
-(declare-const eo::not (-> eo::Bool eo::Bool))
+type proof_source =
+  | ProofDir of string
+  | ProofFiles of string list
 
-(declare-parameterized-const eo::add
-    ((T Type :implicit))
-    (-> T T T)
-)
-(declare-parameterized-const eo::mul
-    ((T Type :implicit))
-    (-> T T T)
-)
-(declare-parameterized-const eo::neg
-    ((T Type :implicit))
-    (-> T T)
-)
-(declare-parameterized-const eo::qdiv
-    ((T Type :implicit))
-    (-> T T T)
-)
-(declare-parameterized-const eo::zdiv
-    ((T Type :implicit))
-    (-> T T T)
-)
-(declare-parameterized-const eo::zmod
-    ((T Type :implicit))
-    (-> T T T)
-)
-(declare-parameterized-const eo::is_neg
-    ((T Type :implicit))
-    (-> T eo::Bool)
-)
-(declare-parameterized-const eo::gt
-    ((T Type :implicit) (U Type :implicit))
-    (-> T U eo::Bool)
-)
-
-(declare-parameterized-const eo::len
-    ((T Type :implicit))
-    (-> T eo::Z)
-)
-(declare-parameterized-const eo::concat
-    ((T Type :implicit))
-    (-> T T T)
-)
-(declare-parameterized-const eo::extract
-    ((T Type :implicit))
-    (-> T eo::Z eo::Z T)
-)
-(declare-const eo::find (-> eo::String eo::String eo::Z))
-
-(declare-parameterized-const eo::to_z
-    ((T Type :implicit))
-    (-> T eo::Z)
-)
-(declare-parameterized-const eo::to_q
-    ((T Type :implicit))
-    (-> T eo::Q)
-)
-(declare-parameterized-const eo::to_bin
-    ((T Type :implicit))
-    (-> eo::Z T T)
-)
-(declare-parameterized-const eo::to_str
-    ((T Type :implicit))
-    (-> T eo::String)
-)
-
-(declare-parameterized-const eo::nil
-  ((U Type :implicit) (T Type :implicit))
-  (-> (-> U T T) Type T)
-)
-(declare-parameterized-const eo::cons
-  ((U Type :implicit) (T Type :implicit))
-  (-> (-> U T T) U T T)
-)
-(declare-parameterized-const eo::list_concat
-  ((U Type :implicit) (T Type :implicit))
-  (-> (-> U T T) T T T)
-)
-; Note: list operations (eo::list_len, eo::list_meq, etc.) are defined
-; in src/Prelude.lp, not here. They are loaded from Prelude at runtime.
-
-(declare-const eo::List Type)
-(declare-const eo::List::nil eo::List)
-(declare-parameterized-const eo::List::cons
-  ((T Type :implicit))
-  (-> T eo::List eo::List)
-  :right-assoc-nil eo::List::nil
-)
-
-; Specialized eo::List operations for heterogeneous lists
-(declare-const eo::List::concat (-> eo::List eo::List eo::List))
-(declare-parameterized-const eo::List::find
-  ((T Type :implicit))
-  (-> eo::List T eo::Int))
-; Note: eo::List::nth uses dependent types in LambdaPi - no type param here
-(declare-const eo::List::nth (-> eo::List eo::Int Type))
-|}
-
-(* Get the full flattened signature in topological order *)
-let sig_flatten (s : signature) : (string * symbol) list =
-  let order = sig_topo_sort s in
-  L.map (fun sid ->
-    match sig_find s sid with
-    | Some entry -> (sid.sid_name, entry.se_def)
-    | None -> failwith ("missing symbol: " ^ SymbolId.to_string sid)
-  ) order
+type job = {
+  job_name   : string;
+  job_logic  : string;
+  job_proofs : proof_source;
+}
 
 (* ============================================================
    Symbol dependency analysis for minimal CPC generation
@@ -1022,106 +343,3 @@ let rec symbols_in_term acc = function
 (* Extract all symbol references from a list of terms *)
 let symbols_in_terms ts =
   L.fold_left symbols_in_term Set.empty ts
-
-(* Extract all symbol references from a case *)
-let symbols_in_case (lhs, rhs) =
-  Set.union (symbols_in_term Set.empty lhs) (symbols_in_term Set.empty rhs)
-
-(* Extract all symbol references from params *)
-let symbols_in_params ps =
-  L.fold_left (fun acc (_, ty, _) -> symbols_in_term acc ty) Set.empty ps
-
-(* Extract all symbol references from a rule_dec *)
-let symbols_in_rule_dec rd =
-  let acc = Set.empty in
-  let acc = match rd.assm with Some t -> symbols_in_term acc t | None -> acc in
-  let acc = match rd.prem with
-    | Some (Simple ts) -> L.fold_left symbols_in_term acc ts
-    | Some (PremiseList (t1, t2)) ->
-      symbols_in_term (symbols_in_term acc t1) t2
-    | None -> acc
-  in
-  let acc = L.fold_left symbols_in_term acc rd.args in
-  let acc = L.fold_left (fun a c -> Set.union a (symbols_in_case c)) acc rd.reqs in
-  match rd.conc with
-  | Conclusion t | ConclusionExplicit t -> symbols_in_term acc t
-
-(* Extract all symbol references from attr *)
-let symbols_in_attr = function
-  | RightAssocNil t | LeftAssocNil t
-  | LeftAssocNilNSN t | RightAssocNilNSN t
-  | RightAssocNSN t | LeftAssocNSN t
-  | Syntax t | Restrict t | LetBinder t -> symbols_in_term Set.empty t
-  | ArgList s | Chainable s | Pairwise s | Binder s -> Set.singleton s
-  | _ -> Set.empty
-
-(* Extract all symbol dependencies from a symbol definition *)
-let symbols_in_symbol = function
-  | Decl (ps, ty, attr_opt) ->
-    let acc = symbols_in_params ps in
-    let acc = symbols_in_term acc ty in
-    (match attr_opt with
-     | Some attr -> Set.union acc (symbols_in_attr attr)
-     | None -> acc)
-  | Defn (ps, body, ty_opt) ->
-    let acc = symbols_in_params ps in
-    let acc = symbols_in_term acc body in
-    (match ty_opt with
-     | Some ty -> symbols_in_term acc ty
-     | None -> acc)
-  | Ltrl (_, ty) -> symbols_in_term Set.empty ty
-  | Prog (ps, sig_tys, ret_ty, cases) ->
-    let acc = symbols_in_params ps in
-    let acc = L.fold_left symbols_in_term acc sig_tys in
-    let acc = symbols_in_term acc ret_ty in
-    L.fold_left (fun a c -> Set.union a (symbols_in_case c)) acc cases
-  | Rule (ps, assm, prems, args, reqs, conc) ->
-    let acc = symbols_in_params ps in
-    let acc = symbols_in_term acc assm in
-    let acc = L.fold_left symbols_in_term acc prems in
-    let acc = L.fold_left symbols_in_term acc args in
-    let acc = L.fold_left (fun a c -> Set.union a (symbols_in_case c)) acc reqs in
-    symbols_in_term acc conc
-  | Assume t -> symbols_in_term Set.empty t
-  | Step (rule_name, prems, args, conc_opt) ->
-    let acc = Set.singleton rule_name in
-    let acc = L.fold_left symbols_in_term acc prems in
-    let acc = L.fold_left symbols_in_term acc args in
-    (match conc_opt with
-     | Some conc -> symbols_in_term acc conc
-     | None -> acc)
-
-(* Build a signature from parsed modules.
-   Takes a list of (module_path, symbols) pairs.
-   Dependencies are resolved in two passes:
-   1. Add all symbols with empty deps
-   2. Resolve deps using the complete signature *)
-let build_sig (modules : (path * (string * symbol) list) list) : signature =
-  (* Pass 1: add all symbols with empty deps *)
-  let s = L.fold_left (fun s (mod_path, syms) ->
-    L.fold_left (fun s (name, def) ->
-      let entry = {
-        se_id = { sid_module = mod_path; sid_name = name };
-        se_def = def;
-        se_deps = SymbolSet.empty;
-      } in
-      sig_add entry s
-    ) s syms
-  ) empty_sig modules in
-
-  (* Pass 2: resolve dependencies *)
-  let resolve_deps (entry : symbol_entry) : symbol_entry =
-    let string_deps = symbols_in_symbol entry.se_def in
-    let resolved_deps = Set.fold (fun name acc ->
-      (* Skip self-reference *)
-      if name = entry.se_id.sid_name then acc
-      else match sig_resolve s entry.se_id.sid_module name with
-        | Some sid -> SymbolSet.add sid acc
-        | None -> acc  (* unresolved - builtin or unknown *)
-    ) string_deps SymbolSet.empty in
-    { entry with se_deps = resolved_deps }
-  in
-
-  SymbolMap.fold (fun _sid entry acc ->
-    sig_add (resolve_deps entry) acc
-  ) s.sig_nodes empty_sig

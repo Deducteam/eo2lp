@@ -1,26 +1,38 @@
 (* main.ml
-   eo2lp driver: translate Eunoia signatures to LambdaPi *)
+   eo2lp driver: translate Eunoia signatures to LambdaPi
+
+   Pipeline stages:
+   1. Parse all .eo files into a signature graph
+   2. Initialize LambdaPi (prelude, package config)
+   3. Encode all modules (encode → write .lp)
+   4. Check all generated .lp files with LambdaPi
+   5. Report results *)
 
 open Syntax_eo
 
-module Elab = Elaborate
 module Enc  = Encode
 module LP   = Api_lp
 
-(* CLI config *)
+(* ---------------------------------------------------------------------------
+   CLI config
+   --------------------------------------------------------------------------- *)
 
 type config = {
-  input_dir  : string;
-  output_dir : string;
-  verbose    : bool;
-  no_color   : bool;
+  input_dir      : string;
+  output_dir     : string;
+  verbose        : bool;
+  log_level      : LP.log_level;
+  no_color       : bool;
+  include_expert : bool;
 }
 
 let default_config = {
-  input_dir  = "./cpc";
-  output_dir = "./_build/cpc";
-  verbose    = false;
-  no_color   = false;
+  input_dir      = "./cpc";
+  output_dir     = "./_build/cpc";
+  verbose        = false;
+  log_level      = LP.Silent;
+  no_color       = false;
+  include_expert = false;
 }
 
 let config = ref default_config
@@ -32,27 +44,57 @@ let speclist = [
    "<dir> Input directory with .eo files (default: ./cpc)");
   ("-o", Arg.String (fun s -> config := { !config with output_dir = s }),
    "<dir> Output directory for LambdaPi package (default: ./_build/cpc)");
-  ("-v", Arg.Unit (fun () -> config := { !config with verbose = true }),
-   " Verbose output");
+  ("-v", Arg.String (fun s ->
+     let level = LP.log_level_of_string s in
+     config := { !config with verbose = true; log_level = level }),
+   "<level> Verbose output with log level: info, warn, error");
   ("--no-color", Arg.Unit (fun () -> config := { !config with no_color = true }),
    " Disable colored output");
+  ("--expert", Arg.Unit (fun () -> config := { !config with include_expert = true }),
+   " Include files from expert/ directory");
 ]
 
-(* Terminal colors *)
+(* ---------------------------------------------------------------------------
+   Terminal colors
+   --------------------------------------------------------------------------- *)
 
-let color code s = if !config.no_color then s else Printf.sprintf "\027[%sm%s\027[0m" code s
-let red s = color "31" s
-let green s = color "32" s
-let cyan s = color "36" s
-let dim s = color "2" s
+let color code s =
+  if !config.no_color then s
+  else Printf.sprintf "\027[%sm%s\027[0m" code s
 
-(* Helpers *)
+let red s    = color "31" s
+let green s  = color "32" s
+let _yellow s = color "33" s
+let dim s    = color "2" s
+
+(* ---------------------------------------------------------------------------
+   Helpers
+   --------------------------------------------------------------------------- *)
 
 let path_to_module pkg path = pkg ^ "." ^ String.concat "." path
 
-(* LambdaPi initialization *)
+let exn_msg = function
+  | Failure msg -> msg
+  | exn -> Printexc.to_string exn
+
+let fmt_ms dt =
+  let ms = dt *. 1000. in
+  if ms < 1.0 then dim "<1ms"
+  else if ms < 10.0 then Printf.sprintf "%.1fms" ms
+  else Printf.sprintf "%.0fms" ms
+
+(* ---------------------------------------------------------------------------
+   LambdaPi initialization
+   --------------------------------------------------------------------------- *)
+
+let clean_output_dir output_dir =
+  if Sys.file_exists output_dir then begin
+    let cmd = Printf.sprintf "rm -rf %s" (Filename.quote output_dir) in
+    ignore (Sys.command cmd)
+  end
 
 let init_lambdapi ~output_dir ~pkg_name =
+  clean_output_dir output_dir;
   LP.mkdir_p output_dir;
   LP.generate_pkg_file output_dir pkg_name;
   LP.generate_prelude output_dir;
@@ -65,144 +107,121 @@ let init_lambdapi ~output_dir ~pkg_name =
   Sys.chdir cwd;
   sign
 
-(* Module processing *)
+(* ---------------------------------------------------------------------------
+   Result types
+   --------------------------------------------------------------------------- *)
 
-type process_result =
-  | Success of float * float * float  (* elab, enc, check times *)
-  | Skipped of string
-  | Error of string
+type encode_result = {
+  enc_errors   : (string * string) list;  (* (symbol_name, error_msg) *)
+  enc_warnings : string list;             (* free-form warning messages *)
+  enc_time     : float;
+}
 
-let processed_modules : (path, bool) Hashtbl.t = Hashtbl.create 32
+type check_outcome =
+  | Check_ok
+  | Check_error of string
+  | Check_skipped of string
 
-(* Get module dependencies from the signature graph *)
-let module_deps (s : signature) (mod_path : path) : path list =
-  (* Collect all dependencies from symbols in this module *)
-  let syms = sig_module_symbols s mod_path in
-  let all_dep_sids = List.fold_left (fun acc (name, _) ->
-    let sid = { sid_module = mod_path; sid_name = name } in
-    match sig_find s sid with
-    | Some entry -> SymbolSet.union acc entry.se_deps
-    | None -> acc
-  ) SymbolSet.empty syms in
-  (* Extract unique module paths from dependencies *)
-  SymbolSet.fold (fun sid acc ->
-    if sid.sid_module <> mod_path && not (List.mem sid.sid_module acc) then
-      sid.sid_module :: acc
-    else acc
-  ) all_dep_sids []
+type module_result = {
+  mod_path     : path;
+  mod_name     : string;
+  encode       : encode_result;
+  check        : check_outcome;
+  check_time   : float;
+  total_time   : float;
+}
 
-let process_module ~pkg_name ~output_dir ~verbose (s : signature) (mod_path : path) =
-  let deps = module_deps s mod_path in
-  let all_modules = sig_modules s in
+(* ---------------------------------------------------------------------------
+   Stage 3a: Encode a single module (elab → encode → write .lp)
+   --------------------------------------------------------------------------- *)
 
-  (* Check if dependencies have been processed successfully *)
-  let deps_ok = List.for_all (fun dep ->
-    match Hashtbl.find_opt processed_modules dep with
-    | Some true -> true
-    | _ -> not (List.mem dep all_modules)  (* external dep is ok *)
-  ) deps in
+let encode_module ~pkg_name ~output_dir ~verbose
+    (graph : sig_graph) (mod_path : path) =
+  let node = PathMap.find mod_path graph in
+  let deps = node.node_includes in
+  let module_name = path_to_module pkg_name mod_path in
 
-  if not deps_ok then begin
-    let failed_dep = List.find (fun dep ->
-      match Hashtbl.find_opt processed_modules dep with
-      | Some true -> false
-      | _ -> List.mem dep all_modules
-    ) deps in
-    Skipped (Printf.sprintf "dep %s" (path_to_module pkg_name failed_dep))
-  end
-  else begin
-    let phase = ref "init" in
+  LP.set_current_module module_name;
+
+  (* Set up encoding context *)
+  let full_sig = full_sig_at graph mod_path in
+  Enc.set_signature full_sig;
+
+  (* Init encoding state *)
+  let module_path = pkg_name :: mod_path in
+  let dep_paths = List.map (fun dep -> pkg_name :: dep) deps in
+  let _sign = LP.init_sign ~deps:dep_paths module_path in
+  Enc.reset_overloads ();
+
+  (* Process every symbol: encode directly from raw Eunoia AST.
+     Errors are collected, not fatal — we always write the .lp file. *)
+  let errors = ref [] in
+  let output_items = ref [] in
+
+  List.iter (fun (name, def) ->
     try
-      let module_name = path_to_module pkg_name mod_path in
-      LP.set_current_module module_name;
-      let t0 = Unix.gettimeofday () in
+      let result = Enc.enc_one name def in
+      output_items :=
+        { LP.oi_syms  = result.Enc.syms;
+          oi_rules = result.Enc.rules;
+          oi_raw   = result.Enc.raw } :: !output_items
+    with e ->
+      let msg = exn_msg e in
+      errors := (name, msg) :: !errors
+  ) node.node_sig;
 
-      (* Elaborate this module's symbols *)
-      phase := "elaborate";
-      let elab_syms = Elab.elab_module mod_path in
-      let t1 = Unix.gettimeofday () in
+  let errors = List.rev !errors in
 
-      (* Encode to LambdaPi *)
-      phase := "encode";
-      let module_path = pkg_name :: mod_path in
-      let dep_paths = List.map (fun dep -> pkg_name :: dep) deps in
-      let _sign = LP.init_sign ~deps:dep_paths module_path in
-      let enc_result = Enc.enc_signature elab_syms in
-      let t2 = Unix.gettimeofday () in
+  (* Always write the .lp file with whatever succeeded *)
+  let out_path =
+    Filename.concat output_dir (String.concat "/" mod_path ^ ".lp")
+  in
+  LP.mkdir_p (Filename.dirname out_path);
+  let prelude_module = pkg_name ^ ".Prelude" in
+  let dep_modules = List.map (path_to_module pkg_name) deps in
+  LP.write_lp_file out_path ~prelude_module ~deps:dep_modules
+    (List.rev !output_items);
 
-      if enc_result.Enc.errors <> [] then begin
-        Hashtbl.replace processed_modules mod_path false;
-        let first_err = List.hd enc_result.Enc.errors in
-        Error (snd first_err)
-      end
-      else begin
-        (* Write .lp file *)
-        phase := "write";
-        let out_path = Filename.concat output_dir (String.concat "/" mod_path ^ ".lp") in
-        LP.mkdir_p (Filename.dirname out_path);
-        let prelude_module = pkg_name ^ ".Prelude" in
-        let dep_modules = List.map (path_to_module pkg_name) deps in
-        LP.write_lp_file out_path ~prelude_module ~deps:dep_modules _sign
-          enc_result.Enc.rules ~after_rules_map:enc_result.Enc.after_rules_map;
+  if verbose && errors <> [] then
+    List.iter (fun (sym, msg) ->
+      Printf.eprintf "  [%s:%s] %s\n%!" module_name sym msg
+    ) errors;
 
-        (* Check with LambdaPi *)
-        phase := "check";
-        let rel_path = String.concat "/" mod_path ^ ".lp" in
-        let check_result = LP.check_file ~verbose output_dir rel_path in
-        let t3 = Unix.gettimeofday () in
+  LP.set_current_module "";
+  errors
 
-        match check_result with
-        | LP.Check_ok ->
-          Hashtbl.replace processed_modules mod_path true;
-          Success (t1-.t0, t2-.t1, t3-.t2)
-        | LP.Check_error msg ->
-          Hashtbl.replace processed_modules mod_path false;
-          Error (Printf.sprintf "[check] %s" msg)
-      end
+(* ---------------------------------------------------------------------------
+   Stage 3b: Check a single module with LambdaPi
+   --------------------------------------------------------------------------- *)
 
-    with
-    | Failure msg ->
-      Hashtbl.replace processed_modules mod_path false;
-      Error (Printf.sprintf "[%s] %s" !phase msg)
-    | exn ->
-      Hashtbl.replace processed_modules mod_path false;
-      Error (Printf.sprintf "[%s] %s" !phase (Printexc.to_string exn))
-  end
+let check_module ~output_dir ~verbose:_ (mod_path : path) =
+  let rel_path = String.concat "/" mod_path ^ ".lp" in
+  LP.check_file ~verbose:false output_dir rel_path
 
-(* Main entry point *)
+(* ---------------------------------------------------------------------------
+   Module tree display
+   --------------------------------------------------------------------------- *)
 
-let run () =
-  Arg.parse speclist (fun _ -> ()) usage;
-
-  let input_dir = !config.input_dir in
-  let output_dir = !config.output_dir in
-
-  let pkg_name = Filename.basename output_dir in
-
-  (* Stage 1: Parse *)
-  let t_parse_start = Unix.gettimeofday () in
-  Printf.printf "parsing %s... " input_dir;
-  flush stdout;
-  let s = Parse_eo.build_sig input_dir in
-  let t_parse = Unix.gettimeofday () -. t_parse_start in
-  Printf.printf "%s (%.0fms)\n" (green "ok") (t_parse *. 1000.);
-
-  (* Print modules as a grouped tree, wrapping at 60 chars *)
-  let modules = sig_modules s in
+let print_module_tree graph =
+  let modules = PathMap.fold (fun p _ acc -> p :: acc) graph [] in
   let grouped = List.fold_left (fun acc path ->
     match path with
     | [] -> acc
     | group :: rest ->
       let name = String.concat "/" rest in
-      let existing = Option.value ~default:[] (List.assoc_opt group acc) in
+      let existing =
+        Option.value ~default:[] (List.assoc_opt group acc)
+      in
       (group, name :: existing) :: List.remove_assoc group acc
   ) [] modules in
-  let grouped = List.map (fun (g, ns) -> (g, List.rev ns)) (List.rev grouped) in
+  let grouped =
+    List.map (fun (g, ns) -> (g, List.rev ns)) (List.rev grouped)
+  in
   Printf.printf "[\n";
   List.iter (fun (group, names) ->
     match names with
-    | [] -> Printf.printf "  %s\n" group  (* single module at root *)
-    | [""] -> Printf.printf "  %s\n" group  (* single module at root *)
+    | [] -> Printf.printf "  %s\n" group
+    | [""] -> Printf.printf "  %s\n" group
     | _ ->
       Printf.printf "  %s.(\n" group;
       let rec print_wrapped col = function
@@ -222,87 +241,267 @@ let run () =
       print_wrapped 4 names;
       Printf.printf "\n  ),\n"
   ) grouped;
-  Printf.printf "]\n";
+  Printf.printf "]\n"
 
-  (* Set up elaboration with the full signature *)
-  Elab.set_signature s;
+(* ---------------------------------------------------------------------------
+   Failure report: extract location, source line, and error body
+   --------------------------------------------------------------------------- *)
 
-  (* Stage 2: Initialize LambdaPi *)
-  let t_init_start = Unix.gettimeofday () in
+let print_failure output_dir (name, phase, msg) =
+  (* Convert module name cpc.programs.Foo to file path programs/Foo.lp *)
+  let lp_path =
+    match String.split_on_char '.' name with
+    | _ :: rest ->
+      Filename.concat output_dir (String.concat "/" rest ^ ".lp")
+    | [] -> ""
+  in
+  let lines = String.split_on_char '\n' msg in
+  let first_line = match lines with l :: _ -> l | [] -> msg in
+  let body_lines = match lines with _ :: rest -> rest | [] -> [] in
+  (* Try to extract a [line:col-col] location bracket *)
+  let loc_source =
+    try
+      let _ = Str.search_forward
+        (Str.regexp "\\(\\[[0-9][^]]*\\]\\)") first_line 0 in
+      let loc = Str.matched_group 1 first_line in
+      let line_num =
+        let _ = Str.search_forward
+          (Str.regexp "\\[\\([0-9]+\\):[0-9]") loc 0 in
+        int_of_string (Str.matched_group 1 loc)
+      in
+      let source =
+        try
+          let ic = open_in lp_path in
+          Fun.protect ~finally:(fun () -> close_in ic) (fun () ->
+            for _ = 1 to line_num - 1 do ignore (input_line ic) done;
+            let line = String.trim (input_line ic) in
+            let max_len = 72 in
+            if String.length line > max_len
+            then String.sub line 0 max_len ^ "..."
+            else line)
+        with _ -> ""
+      in
+      Some (loc, source)
+    with Not_found -> None
+  in
+  Printf.printf "  %s: %s\n" (red name) (dim (Printf.sprintf "[%s]" phase));
+  (match loc_source with
+   | Some (loc, source) ->
+     if source <> "" then
+       Printf.printf "    %s %s\n" loc (dim source)
+     else
+       Printf.printf "    %s\n" loc
+   | None ->
+     Printf.printf "    %s\n" first_line);
+  List.iter (fun l ->
+    Printf.printf "      %s\n" l
+  ) body_lines
+
+(* ---------------------------------------------------------------------------
+   Main entry point
+   --------------------------------------------------------------------------- *)
+
+let run () =
+  Arg.parse speclist (fun _ -> ()) usage;
+
+  let input_dir  = !config.input_dir in
+  let output_dir = !config.output_dir in
+  let pkg_name   = Filename.basename output_dir in
+  let verbose    = !config.verbose in
+
+  (* -- Stage 1: Parse ---------------------------------------------------- *)
+
+  let t0 = Unix.gettimeofday () in
+  Printf.printf "parsing %s... " input_dir;
+  flush stdout;
+  let graph =
+    Parse_eo.build_sig ~include_expert:!config.include_expert input_dir
+  in
+  (match Parse_eo.check_dag graph with
+   | Ok () -> ()
+   | Error cycle ->
+     Printf.printf "%s\n" (red "FAIL");
+     Printf.printf "  Cycle in include graph: %s\n"
+       (String.concat " -> " (List.map path_str cycle));
+     exit 1);
+  Printf.printf "%s (%s)\n" (green "ok") (fmt_ms (Unix.gettimeofday () -. t0));
+
+  print_module_tree graph;
+
+  (* -- Stage 2: Initialize LambdaPi -------------------------------------- *)
+
+  let t1 = Unix.gettimeofday () in
   Printf.printf "initializing lambdapi... ";
   flush stdout;
   let prelude_sign = init_lambdapi ~output_dir ~pkg_name in
   LP.init prelude_sign;
-  LP.set_verbose false;
-  let t_init = Unix.gettimeofday () -. t_init_start in
-  Printf.printf "%s (%.0fms)\n" (green "ok") (t_init *. 1000.);
+  LP.set_log_level !config.log_level;
+  LP.set_verbose verbose;
+  Printf.printf "%s (%s)\n"
+    (green "ok") (fmt_ms (Unix.gettimeofday () -. t1));
 
-  (* Get module order *)
-  let order = sig_module_order s in
-
-  (* Stage 3: Encode modules *)
+  (* Topological order for processing *)
+  let order = topo_sort_graph graph in
   let total = List.length order in
-  let t_encode_start = Unix.gettimeofday () in
+
+  (* -- Stage 3: Encode all modules --------------------------------------- *)
+
+  let t2 = Unix.gettimeofday () in
   Printf.printf "encoding %d modules... " total;
   flush stdout;
 
-  Hashtbl.clear processed_modules;
-  let passed = ref 0 in
-  let skipped = ref 0 in
-  let failed = ref 0 in
+  let encode_results : (path * encode_result) list =
+    List.map (fun mod_path ->
+      let t_start = Unix.gettimeofday () in
+      let errors =
+        try encode_module ~pkg_name ~output_dir ~verbose graph mod_path
+        with e ->
+          let name = path_to_module pkg_name mod_path in
+          [("(module)", Printf.sprintf "%s: %s" name (exn_msg e))]
+      in
+      let enc = {
+        enc_errors   = errors;
+        enc_warnings = [];  (* warnings go to stderr via enc_prog *)
+        enc_time     = Unix.gettimeofday () -. t_start;
+      } in
+      (mod_path, enc)
+    ) order
+  in
+
+  let encode_errs =
+    List.filter (fun (_, enc) -> enc.enc_errors <> []) encode_results
+  in
+  let t_encode = Unix.gettimeofday () -. t2 in
+  if encode_errs = [] then
+    Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_encode)
+  else
+    Printf.printf "%s %d/%d with errors (%s)\n"
+      (red "WARN") (List.length encode_errs) total (fmt_ms t_encode);
+
+  (* -- Stage 4: Check all modules with LambdaPi ------------------------- *)
+
+  let t3 = Unix.gettimeofday () in
+  Printf.printf "checking %d modules... " total;
+  flush stdout;
+
+  let results : module_result list =
+    List.map (fun (mod_path, enc) ->
+      let mod_name = path_to_module pkg_name mod_path in
+      let t_start = Unix.gettimeofday () in
+      let check, check_time =
+        if enc.enc_errors <> [] then begin
+          (* Still check — the .lp was written with successful symbols.
+             Downstream errors from missing symbols are expected. *)
+          let r = check_module ~output_dir ~verbose mod_path in
+          let dt = Unix.gettimeofday () -. t_start in
+          let outcome = match r with
+            | LP.Check_ok    -> Check_ok
+            | LP.Check_error msg -> Check_error msg
+          in
+          (outcome, dt)
+        end else begin
+          let r = check_module ~output_dir ~verbose mod_path in
+          let dt = Unix.gettimeofday () -. t_start in
+          let outcome = match r with
+            | LP.Check_ok    -> Check_ok
+            | LP.Check_error msg -> Check_error msg
+          in
+          (outcome, dt)
+        end
+      in
+      { mod_path; mod_name; encode = enc;
+        check; check_time;
+        total_time = enc.enc_time +. check_time }
+    ) encode_results
+  in
+
+  let check_failures =
+    List.filter (fun r ->
+      match r.check with Check_error _ -> true | _ -> false) results
+  in
+  let t_check = Unix.gettimeofday () -. t3 in
+  if check_failures = [] then
+    Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_check)
+  else
+    Printf.printf "%s %d/%d failed (%s)\n"
+      (red "FAIL") (List.length check_failures) total (fmt_ms t_check);
+
+  (* -- Stage 5: Report --------------------------------------------------- *)
+
+  (* Collect all failures: encode errors + check errors *)
   let failures = ref [] in
 
-  List.iter (fun mod_path ->
-    let module_name = path_to_module pkg_name mod_path in
-    let result = process_module ~pkg_name ~output_dir ~verbose:!config.verbose s mod_path in
-    match result with
-    | Success (t_elab, t_enc, t_check) ->
-      incr passed;
-      if !config.verbose then
-        Printf.printf "\n  %s %s (%.0f+%.0f+%.0fms)"
-          (green "ok") module_name
-          (t_elab *. 1000.) (t_enc *. 1000.) (t_check *. 1000.)
-    | Skipped reason ->
-      incr skipped;
-      if !config.verbose then
-        Printf.printf "\n  %s %s (%s)" (dim "skip") module_name reason
-    | Error msg ->
-      incr failed;
-      failures := (module_name, msg) :: !failures
-  ) order;
+  List.iter (fun r ->
+    (* Report encode errors *)
+    if r.encode.enc_errors <> [] then begin
+      let first_sym, first_msg = List.hd r.encode.enc_errors in
+      let msg =
+        if List.length r.encode.enc_errors = 1 then
+          Printf.sprintf "%s: %s" first_sym first_msg
+        else
+          Printf.sprintf "%s: %s (+%d more)"
+            first_sym first_msg
+            (List.length r.encode.enc_errors - 1)
+      in
+      failures := (r.mod_name, "encode", msg) :: !failures
+    end;
+    (* Report check errors *)
+    (match r.check with
+     | Check_error msg ->
+       failures := (r.mod_name, "check", msg) :: !failures
+     | _ -> ())
+  ) results;
 
-  let t_encode = Unix.gettimeofday () -. t_encode_start in
-  if !config.verbose then Printf.printf "\n";
-
-  if !failed > 0 then
-    Printf.printf "%s %d/%d failed (%.0fms)\n" (red "FAIL") !failed total (t_encode *. 1000.)
-  else
-    Printf.printf "%s (%.0fms)\n" (green "ok") (t_encode *. 1000.);
-
-  (* Summary *)
-  let status_str, status_color =
-    if !failed > 0 then ("FAIL", red) else ("OK", green)
+  let failures = List.rev !failures in
+  let n_passed =
+    List.length (List.filter (fun r ->
+      r.encode.enc_errors = [] &&
+      (match r.check with Check_ok -> true | _ -> false)
+    ) results)
   in
-  Printf.printf "%s: %d passed" (status_color status_str) !passed;
-  if !skipped > 0 then Printf.printf ", %d skipped" !skipped;
-  if !failed > 0 then Printf.printf ", %d failed" !failed;
+  let n_failed = total - n_passed in
+
+  (* Summary line *)
+  let status_str, status_color =
+    if n_failed > 0 then ("FAIL", red) else ("OK", green)
+  in
+  Printf.printf "%s: %d passed" (status_color status_str) n_passed;
+  if n_failed > 0 then Printf.printf ", %d failed" n_failed;
   Printf.printf "\n";
 
-  (* Print failed names and errors *)
-  if !failures <> [] then begin
-    List.iter (fun (name, msg) ->
-      Printf.printf "  %s: %s\n" (red name) msg
-    ) (List.rev !failures);
-    let failed_names = List.map (fun (name, _) ->
-      match String.split_on_char '.' name with
-      | _ :: rest -> String.concat "/" rest
-      | [] -> name
-    ) !failures in
+  (* Detailed failure output *)
+  if failures <> [] then begin
+    List.iter (print_failure output_dir) failures;
+    let failed_names =
+      List.filter_map (fun r ->
+        if r.encode.enc_errors <> [] ||
+           (match r.check with Check_error _ -> true | _ -> false)
+        then Some (String.concat "/" r.mod_path)
+        else None
+      ) results
+      |> List.sort_uniq String.compare
+    in
     Printf.printf "Failed: %s\n" (String.concat ", " failed_names)
   end;
 
-  LP.reset ();
-  if !failed > 0 then exit 1;
-  exit 0
+  (* Verbose: per-module detail *)
+  if verbose then begin
+    Printf.printf "\n%s\n" (dim "--- per-module detail ---");
+    List.iter (fun r ->
+      let status = match r.check with
+        | Check_ok -> green "ok"
+        | Check_error _ -> red "FAIL"
+        | Check_skipped reason -> dim (Printf.sprintf "skip (%s)" reason)
+      in
+      Printf.printf "%s %s  enc %s  check %s\n"
+        status r.mod_name (fmt_ms r.encode.enc_time) (fmt_ms r.check_time);
+      if r.encode.enc_errors <> [] then
+        List.iter (fun (sym, msg) ->
+          Printf.printf "  ├─ %s %s\n" (red sym) msg
+        ) r.encode.enc_errors
+    ) results
+  end;
 
-let () = run ()
+  LP.reset ();
+  if n_failed > 0 then exit 1;
+  exit 0

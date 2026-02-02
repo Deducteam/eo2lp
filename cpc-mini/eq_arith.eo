@@ -1,4 +1,0 @@
-(include "./theories/Arith.eo")
-(include "./programs/Arith.eo")
-
-(define foo () (eo::ite (eo::eq 1 1.0) 0 1))

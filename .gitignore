@@ -17,7 +17,6 @@ cpc-upstream
 cpc-mini/
 
 # Generated output directories
-cpc/
 output.lp/
 test.lp/
 tests/
@@ -29,7 +28,6 @@ cvc5
 ethos
 
 # Generated files
-*.eo
 *.pkg
 *.lp
 *.lpo

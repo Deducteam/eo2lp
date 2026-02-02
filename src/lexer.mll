@@ -34,7 +34,6 @@ rule token = parse
   | ')'             { RPAREN }
   (* common commands *)
   | "declare-const"      { DECLARE_CONST }
-  | "declare-type"       { DECLARE_TYPE }
   | "declare-datatype"   { DECLARE_DATATYPE }
   | "declare-datatypes"  { DECLARE_DATATYPES }
   | "set-option"         { SET_OPTION }
@@ -69,7 +68,7 @@ rule token = parse
   | ":list"            { LIST }
   | ":syntax"          { SYNTAX }
   | ":restrict"        { RESTRICT }
-  | ":var"             { VAR }
+
   (* type attribute for `define` command *)
   | ":type" { TYPE }
   (* sorry attribute for `declare-rule` command *)
@@ -103,8 +102,9 @@ rule token = parse
   | numeral as x     { NUMERAL (int_of_string x) }
   | decimal as x     { DECIMAL (float_of_string x) }
   | rational as x    { RATIONAL
-        (let [y;z] = String.split_on_char '/' x in
-            (int_of_string y, int_of_string z)) }
+        (match String.split_on_char '/' x with
+         | [y; z] -> (int_of_string y, int_of_string z)
+         | _ -> failwith ("invalid rational literal: " ^ x)) }
   | binary as x      { BINARY x }
   | hexadecimal as x { HEXADECIMAL x }
   | symbol as s      { SYMBOL s }

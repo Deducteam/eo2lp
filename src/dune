@@ -11,10 +11,10 @@
  (public_name eo2lp)
  (modules
    parser lexer literal
-   syntax_eo parse_eo parse_ctx
-   elaborate api_lp encode main
+   syntax_eo pp_eo parse_eo
+   api_lp encode main
  )
- (flags :standard -w -8 -w -26 -w -27)
+ (flags :standard -w -26 -w -27)
  (libraries str unix fpath lambdapi.core lambdapi.common lambdapi.handle lambdapi.parsing)
 )
 

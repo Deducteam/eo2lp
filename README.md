@@ -1,10 +1,12 @@
 # eo2lp
 
-An OCaml tool for translating signatures and proof scripts from [Eunoia](https://github.com/cvc5/ethos/blob/main/user_manual.md) to [LambdaPi](https://github.com/Deducteam/lambdapi).
+Translate proof signatures and scripts from [Eunoia](https://github.com/cvc5/ethos/blob/main/user_manual.md) (cvc5's proof language) to [LambdaPi](https://github.com/Deducteam/lambdapi).
+
+Currently translates the full CPC (Co-operating Proof Calculus) -- 21 modules covering theories, inference rules, computational programs, and the main proof orchestration module -- with all generated files passing LambdaPi type checking including subject reduction verification.
 
 ## Building
 
-Build the project with dune:
+Requires OCaml, Dune, and LambdaPi (installed as an opam library).
 
 ```bash
 dune build
@@ -19,86 +21,106 @@ dune exec eo2lp -- -d <input_dir> -o <output_dir>
 ```
 
 Options:
-- `-d <dir>` - Input directory containing `.eo` files (required)
-- `-o <dir>` - Output directory for LambdaPi package (required)
-- `-v` - Verbose output
+- `-d <dir>` -- Input directory containing `.eo` files (default: `./cpc`)
+- `-o <dir>` -- Output directory for LambdaPi package (default: `./_build/cpc`)
+- `-v <level>` -- Log verbosity: `info`, `warn`, or `error`
+- `--expert` -- Include files from `expert/` directory
+- `--no-color` -- Disable colored output
 
-Example:
+### Example
 
 ```bash
-dune exec eo2lp -- -d cpc-mini -o cpclp -v
+# Translate CPC with error-level reporting
+dune exec eo2lp -- -d cpc -o _build/cpc -v error
+
+# Full verbose output
+dune exec eo2lp -- -v info
 ```
 
 This will:
-1. Build a signature graph from all `.eo` files in `cpc-mini/`
-2. Check for cycles in the dependency graph
-3. Generate a LambdaPi package in `cpclp/` with:
-   - `Prelude.lp` - Core Eunoia builtin symbols
-   - `lambdapi.pkg` - Package configuration
-   - One `.lp` file for each `.eo` file
+1. Parse all `.eo` files and build a dependency graph
+2. Topologically sort modules by their include dependencies
+3. Encode each module to LambdaPi, generating `.lp` files
+4. Verify each generated file with `lambdapi check`
 
-### Generated File Structure
+### Verifying Output
 
-Each generated `.lp` file has the following import structure:
+Generated `.lp` files can be independently checked with LambdaPi:
 
-```lambdapi
-require <package>.Prelude as eo;
-require open Stdlib.Set Stdlib.HOL ... <dependencies>;
+```bash
+cd _build/cpc && lambdapi check Cpc.lp
 ```
 
-This allows Eunoia builtin symbols to be accessed via the `eo` namespace (e.g., `eo.ite`, `eo.eq`) while keeping Stdlib symbols in the global namespace.
-
 ## Testing
-
-Run the test suite:
 
 ```bash
 dune test
 ```
 
-The test suite includes:
-- **Parsing tests** - Verify `.eo` files parse correctly
-- **Elaboration tests** - Test term elaboration and type inference
-- **Encoding tests** - Test translation to LambdaPi
-- **Graph tests** - Verify signature graph construction and topological sorting
-- **Integration tests** - Full pipeline including optional LambdaPi checking
+The test suite covers parsing, Prelude.lp rewrite rule verification, and signature graph construction.
 
-Run tests with custom timeout:
+## How It Works
 
-```bash
-dune test -- -t 0.5  # 0.5 second timeout per test
+eo2lp implements a 3-phase translation pipeline:
+
+```
+.eo files  -->  [Parse]  -->  Eunoia AST  -->  [Sig Graph]  -->  [Encode]  -->  .lp files
 ```
 
-Run tests in verbose mode:
+**Parsing**: A Menhir parser (`parser.mly`) and ocamllex tokenizer (`lexer.mll`) produce an Eunoia AST defined in `syntax_eo.ml`.
 
-```bash
-dune test -- -v
-```
+**Signature Graph**: Module dependencies are resolved from `include` directives. Cycles are detected and modules are topologically sorted.
+
+**Encoding**: Each Eunoia symbol is translated directly to LambdaPi `Core.Term` values via `encode.ml`. Key transformations include:
+- **N-ary expansion**: Operators with `:right-assoc-nil`, `:left-assoc`, `:chainable`, `:pairwise`, etc. are expanded to binary form
+- **Overload resolution**: Multiple declarations of the same symbol (e.g., unary and binary `-`) are resolved by arity filtering and index-based LP symbol selection
+- **`:arg-list` desugaring**: Operators like `distinct` that take argument lists have their arguments wrapped in list constructors
+- **Binder encoding**: Quantifiers (`forall`, `exists`) with `:binder` attributes are encoded using variable-list constructors
+- **Type lifting**: Eunoia types are lifted into LambdaPi via `tau : Set -> TYPE`
+
+The `Prelude.lp` file provides ~420 lines of core Eunoia builtins (type universe, HOL application, boolean operators, arithmetic, list operations) as LambdaPi declarations and rewrite rules.
+
+## CPC Coverage
+
+The CPC (Co-operating Proof Calculus) defines cvc5's proof system. eo2lp currently translates:
+
+| Category | Modules |
+|----------|---------|
+| **Theories** | Builtin, Arith, Ints, Arrays, Sets, Quantifiers |
+| **Rules** | Builtin, Booleans, Arith, Arrays, Uf, Sets, Quantifiers, Rewrites |
+| **Programs** | Utils, Nary, Arith, AciNorm, DistinctValues, Quantifiers |
+| **Root** | Cpc |
+
+All 21 modules pass `lambdapi check` with full subject reduction verification.
 
 ## Project Structure
 
 ```
 eo2lp/
-├── src/           # Core library and CLI
-│   ├── lexer.mll, parser.mly  # Eunoia parser
-│   ├── syntax_eo.ml           # Eunoia AST and signature graphs
-│   ├── elaborate.ml           # Term elaboration
-│   ├── encode.ml              # Translation to LambdaPi
-│   ├── syntax_lp.ml           # LambdaPi AST
-│   ├── api_lp.ml              # LambdaPi file I/O
-│   ├── main.ml                # CLI and package generation
-│   └── eo2lp_cli.ml           # Entry point
-├── test/          # Test suite
-│   ├── test_infra.ml          # Shared test infrastructure
-│   ├── test_core.ml           # Core.eo tests
-│   ├── test_cpc_mini_*.ml     # CPC test suite
-│   ├── test_graph.ml          # Graph algorithm tests
-│   └── test_lp_check.ml       # LambdaPi integration tests
-├── eo/            # Core Eunoia prelude
-├── cpc-mini/      # Example: CPC proof calculus (miniature)
-└── ethos-tests/   # Additional test files
+  src/
+    lexer.mll, parser.mly     Eunoia parser
+    syntax_eo.ml               Eunoia AST and signature graphs
+    parse_eo.ml                Parsing orchestration
+    encode.ml                  Eunoia to LambdaPi translation
+    api_lp.ml                  LambdaPi API wrapper and .lp output
+    pp_eo.ml                   Eunoia pretty-printer
+    literal.ml                 Literal type handling
+    main.ml                    CLI driver
+    eo2lp_cli.ml               Entry point
+    Prelude.lp                 Core Eunoia builtins in LambdaPi
+  test/
+    test_parsing.ml            Parser unit tests
+    test_encoding.ml           Prelude rewrite rule verification
+    test_sig_graph.ml          Dependency graph tests
+    test_util.ml               Shared test infrastructure
+  scripts/
+    setup-cpc.sh               Fetch CPC source from cvc5 fork
+    diff-cpc.sh                Compare local CPC with upstream
+    gen-proofs.sh              Generate proofs from SMT2 benchmarks
+  cpc -> (symlink)             CPC source files (.eo)
+  _build/cpc/                  Generated LambdaPi package (.lp)
 ```
 
 ## License
 
-This repository is currently under construction.
+This project is under development.

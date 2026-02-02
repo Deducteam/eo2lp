@@ -15,7 +15,7 @@ and literal =
 let lit_category_str = function
   | NUM -> "<numeral>"
   | DEC -> "<decimal>"
-  | RAT -> "<decimal>"
+  | RAT -> "<rational>"
   | BIN -> "<binary>"
   | HEX -> "<hexadecimal>"
   | STR -> "<string>"
