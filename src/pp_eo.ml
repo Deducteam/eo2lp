@@ -114,13 +114,18 @@ let conclusion_str = function
   | ConclusionExplicit t ->
     Printf.sprintf ":conclusion-explicit %s" (term_str t)
 
-let rule_dec_str { assm; prem; args; reqs; conc } =
+let rule_dec_str ?(indent="  ") { assm; prem; args; reqs; conc } =
+  let opt_list = function [] -> None | xs -> Some xs in
+  let line f = function
+    | Some x -> Printf.sprintf "%s%s\n" indent (f x)
+    | None   -> ""
+  in
   Printf.sprintf "%s%s%s%s%s"
-    (opt_newline assumption_str assm)
-    (opt_newline premises_str prem)
-    (opt_newline arguments_str (Some args))
-    (opt_newline reqs_str (Some reqs))
-    (opt_newline conclusion_str (Some conc))
+    (line assumption_str assm)
+    (line premises_str prem)
+    (line arguments_str (opt_list args))
+    (line reqs_str (opt_list reqs))
+    (line conclusion_str (Some conc))
 
 (* Symbol printers *)
 
@@ -137,16 +142,28 @@ let symbol_str = function
     Printf.sprintf "(declare-consts %s %s)"
       (lit_category_str cat) (term_str t)
   | s, Prog (ps, doms, ran, cs) ->
-    Printf.sprintf "(prog %s ((%s) :signature (%s) %s) (%s))"
+    let cases = List.map case_str cs in
+    Printf.sprintf "(prog %s ((%s)\n    :signature (%s) %s)\n  (%s))"
       s (list_str param_str ps)
       (term_list_str doms) (term_str ran)
-      (case_list_str cs)
-  | s, Rule _ ->
-    Printf.sprintf "(rule %s ...)" s
+      (String.concat "\n   " cases)
+  | s, Rule (ps, rd) ->
+    let body = rule_dec_str ~indent:"    " rd in
+    let body = if String.ends_with ~suffix:"\n" body
+      then String.sub body 0 (String.length body - 1) else body in
+    Printf.sprintf "(rule %s (%s)\n%s)" s (list_str param_str ps) body
   | s, Assume t ->
     Printf.sprintf "(assume %s %s)" s (term_str t)
+  | s, AssumePush t ->
+    Printf.sprintf "(assume-push %s %s)" s (term_str t)
   | s, Step (rule_name, prems, args, conc_opt) ->
     Printf.sprintf "(step %s %s %s%s%s)"
+      s rule_name
+      (list_suffix_str term_str prems)
+      (list_suffix_str term_str args)
+      (opt_suffix_str term_str conc_opt)
+  | s, StepPop (rule_name, prems, args, conc_opt) ->
+    Printf.sprintf "(step-pop %s %s %s%s%s)"
       s rule_name
       (list_suffix_str term_str prems)
       (list_suffix_str term_str args)

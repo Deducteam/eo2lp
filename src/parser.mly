@@ -279,7 +279,7 @@ sig_command:
       s = symbol ;
       t = term;
     RPAREN
-  { [(s, Assume t)] }
+  { [(s, AssumePush t)] }
   | LPAREN; DECLARE_CONSTS;
       l = lit_category;
       t = term;
@@ -367,7 +367,7 @@ sig_command:
       args_opt = option(arguments);
     RPAREN
   { let (xs, ys) = (flatten prem_opt, flatten args_opt) in
-    [(s1, Step (s2, xs, ys, Some t))] }
+    [(s1, StepPop (s2, xs, ys, Some t))] }
   | LPAREN; STEP_POP;
       s1 = symbol ;
       RULE; s2 = symbol ;
@@ -375,6 +375,6 @@ sig_command:
       args_opt = option(arguments);
     RPAREN
   { let (xs, ys) = (flatten prem_opt, flatten args_opt) in
-    [(s1, Step (s2, xs, ys, None))] }
+    [(s1, StepPop (s2, xs, ys, None))] }
   | c = common_command
   { c }

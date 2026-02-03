@@ -74,8 +74,11 @@ type symbol =
   | Prog of param list * term list * term * case list
   | Rule of param list * rule_dec
   | Assume of term                            (* formula being assumed *)
+  | AssumePush of term                        (* push assumption onto scope stack *)
   | Step of string * term list * term list * term option
          (* rule_name, premises, args, optional conclusion *)
+  | StepPop of string * term list * term list * term option
+         (* like Step but pops one assumption from scope stack *)
 
 (* Builtin constants *)
 

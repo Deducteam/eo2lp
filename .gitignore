@@ -15,6 +15,7 @@ notes/
 cpc-source/
 cpc-upstream
 cpc-mini/
+proofs/*
 
 # Generated output directories
 output.lp/

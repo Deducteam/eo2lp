@@ -68,7 +68,7 @@ let color code s =
 
 let red s    = color "31" s
 let green s  = color "32" s
-let _yellow s = color "33" s
+let yellow s = color "33" s
 let dim s    = color "2" s
 
 (* ---------------------------------------------------------------------------
@@ -162,13 +162,39 @@ let encode_module ~pkg_name ~output_dir ~verbose
   let errors = ref [] in
   let output_items = ref [] in
 
+  if verbose then
+    Printf.printf "\n%s\n  %s\n%s\n%!"
+      (dim (String.make 72 '='))
+      (String.concat "/" mod_path)
+      (dim (String.make 72 '='));
+
   List.iter (fun (name, def) ->
     try
+      if verbose then LP.clear_resolve_traces ();
       let result = Enc.enc_one name def in
-      output_items :=
+      let item =
         { LP.oi_syms  = result.Enc.syms;
-          oi_rules = result.Enc.rules;
-          oi_raw   = result.Enc.raw } :: !output_items
+          oi_rules = result.Enc.rules; }
+      in
+      output_items := item :: !output_items;
+      if verbose then begin
+        let traces = LP.get_resolve_traces () in
+        let lp_src = LP.render_item item in
+        if lp_src <> "" then begin
+          Printf.printf "\n  %s\n" (dim (Pp_eo.symbol_str (name, def)));
+          Printf.printf "  %s\n" (dim (String.make 40 '-'));
+          if traces <> [] then begin
+            List.iter (fun (pre, post) ->
+              Printf.printf "  %s %s\n" (yellow "[resolve]") (LP.strip_lp_escapes pre);
+              Printf.printf "  %s %s\n" (yellow "       ⇝") (LP.strip_lp_escapes post)
+            ) traces;
+            Printf.printf "  %s\n" (dim (String.make 40 '-'))
+          end;
+          String.split_on_char '\n' lp_src
+          |> List.iter (fun line -> Printf.printf "  %s\n" line);
+          flush stdout
+        end
+      end
     with e ->
       let msg = exn_msg e in
       errors := (name, msg) :: !errors
@@ -222,6 +248,7 @@ let encode_proof ~pkg_name ~output_dir ~verbose
   let dep_path = pkg_name :: top_module in
   let _sign = LP.init_sign ~deps:[dep_path] module_path in
   Enc.reset_overloads ();
+  Enc.reset_assumptions ();
 
   let errors = ref [] in
   let output_items = ref [] in
@@ -231,8 +258,7 @@ let encode_proof ~pkg_name ~output_dir ~verbose
       let result = Enc.enc_one sym_name def in
       output_items :=
         { LP.oi_syms  = result.Enc.syms;
-          oi_rules = result.Enc.rules;
-          oi_raw   = result.Enc.raw } :: !output_items
+          oi_rules = result.Enc.rules; } :: !output_items
     with e ->
       let msg = exn_msg e in
       errors := (sym_name, msg) :: !errors

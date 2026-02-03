@@ -157,25 +157,6 @@ let test_as () =
   check_lp_eq "{|eo::as|} Bool false" "false"
 
 (* ============================================================
-   List Operations (Stdlib lists)
-   ============================================================ *)
-
-let test_lists () =
-  section "Prelude: List Operations";
-
-  (* length *)
-  check_lp_eq "length (true ⸬ □)" "1";
-  check_lp_eq "length (true ⸬ false ⸬ □)" "2";
-
-  (* nth *)
-  check_lp_eq "nth (true ⸬ false ⸬ □) 0" "true";
-  check_lp_eq "nth (true ⸬ false ⸬ □) 1" "false";
-
-  (* index *)
-  check_lp_eq "index true (true ⸬ false ⸬ □)" "0";
-  check_lp_eq "index false (true ⸬ false ⸬ □)" "1"
-
-(* ============================================================
    Main
    ============================================================ *)
 
@@ -186,5 +167,4 @@ let () =
   test_var ();
   test_cond_type ();
   test_as ();
-  test_lists ();
   summary ()

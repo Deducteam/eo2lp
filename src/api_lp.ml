@@ -13,6 +13,13 @@ let set_verbose v =
   verbose := v;
   if v && !log_level = Silent then log_level := Info
 
+(* Collect resolve traces as (pre, post) pairs when verbose *)
+let resolve_traces : (string * string) list ref = ref []
+let clear_resolve_traces () = resolve_traces := []
+let get_resolve_traces () =
+  let ts = List.rev !resolve_traces in
+  resolve_traces := []; ts
+
 let log_level_of_string = function
   | "info"  -> Info
   | "warn"  -> Warn
@@ -241,6 +248,14 @@ let resolve_term ?(debug=false) ?(ctx=[]) ?expected_ty t =
     let saved_phase = !current_phase in
     current_phase := "resolve";
     let restore () = current_phase := saved_phase in
+    let pre_str =
+      if !verbose then begin
+        Timed.(Print.do_not_qualify := true);
+        let s = Format.asprintf "%a" Print.term t in
+        Timed.(Print.do_not_qualify := false);
+        Some s
+      end else None
+    in
     try
       let prob = Term.new_problem () in
       (* Use check if expected type provided, otherwise infer *)
@@ -262,6 +277,15 @@ let resolve_term ?(debug=false) ?(ctx=[]) ?expected_ty t =
             Format.eprintf "    term: %a@." Print.term t;
             Format.eprintf "    got:  %a@." Print.term cleaned;
             Format.eprintf "    type: %a@.@." Print.term ty);
+        (* Collect resolve trace if term changed *)
+        (match pre_str with
+         | Some pre ->
+           Timed.(Print.do_not_qualify := true);
+           let post = Format.asprintf "%a" Print.term cleaned in
+           Timed.(Print.do_not_qualify := false);
+           if pre <> post then
+             resolve_traces := (pre, post) :: !resolve_traces
+         | None -> ());
         restore (); cleaned
       | None ->
         log_warn_pp (fun lbl ->
@@ -486,6 +510,24 @@ let print_term ppf t =
   else
     Print.term ppf t
 
+(* Verbose output helpers *)
+
+let term_to_string t =
+  Format.asprintf "%a" print_term t
+
+let strip_lp_escapes s =
+  let re = Str.regexp "{|\\([^|]*\\)|}" in
+  Str.global_replace re "\\1" s
+
+let verbose_raw_term t =
+  strip_lp_escapes (term_to_string t)
+
+let verbose_term_implicits t =
+  Timed.(Print.print_implicits := true);
+  Timed.(Print.do_not_qualify := true);
+  let s = Format.asprintf "%a" Print.term t in
+  strip_lp_escapes s
+
 (* Symbols whose printed return type text needs post-processing to add
    explicit @-prefixed implicits. Maps symbol name to a list of
    (relation_sym_name, impl_arg_text) pairs, e.g.,
@@ -698,9 +740,10 @@ let print_symbol ppf sym =
      (* Print definition if present *)
      (match sym_def with
       | Some def ->
-        (* Keep print_implicits ON for proof steps (type is Proof ...) *)
-        if not (is_proof_type ret_ty) then
-          set_print_implicits false;
+        (* Turn print_implicits back ON for proof steps (type is Proof ...)
+           so that polymorphic symbols like = get their type args printed *)
+        if is_proof_type ret_ty then
+          set_print_implicits true;
         Format.fprintf ppf " ≔ %a" print_term (unwrap_lambdas n def)
       | None -> ()));
   set_print_implicits false;
@@ -766,8 +809,15 @@ let print_rules ppf rules =
 type output_item = {
   oi_syms  : sym list;
   oi_rules : (sym * rule) list;
-  oi_raw   : string;
 }
+
+let render_item item =
+  let buf = Buffer.create 256 in
+  let ppf = Format.formatter_of_buffer buf in
+  List.iter (print_symbol ppf) item.oi_syms;
+  print_rules ppf item.oi_rules;
+  Format.pp_print_flush ppf ();
+  strip_lp_escapes (String.trim (Buffer.contents buf))
 
 let print_signature ppf ~prelude_module ~deps items =
   let open_deps =
@@ -776,8 +826,6 @@ let print_signature ppf ~prelude_module ~deps items =
   Format.fprintf ppf "require open %s;@.@."
     (String.concat " " open_deps);
   List.iter (fun item ->
-    if item.oi_raw <> "" then
-      Format.fprintf ppf "%s@." item.oi_raw;
     List.iter (print_symbol ppf) item.oi_syms;
     print_rules ppf item.oi_rules
   ) items

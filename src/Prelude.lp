@@ -1,13 +1,7 @@
 require open Stdlib.HOL Stdlib.Bool;
 
-require open Stdlib.List;
 require open Stdlib.String;
-require open Stdlib.Comp;
 require open Stdlib.Z;
-
-symbol length [a] : 𝕃 a → ℤ;
-rule length □ ↪ 0
-with length (_ ⸬ $xs) ↪ 1 + length $xs;
 
 // !! the Set of all Eunoia types. !!
 symbol {|eo::Type|} : Set;
@@ -25,7 +19,7 @@ notation ⤳d infix right 5;
 rule τ ($T ⤳d $F) ↪ (Π x : τ $T, τ ($F x));
 
 // higher-order application (eo::_).
-symbol APP [a b] : τ (a ⤳ b) → τ a → τ b;
+injective symbol APP [a b] : τ (a ⤳ b) → τ a → τ b;
 
 // inlined typechecking (eo::as).
 symbol {|eo::as|} (a : Set) (x : τ a) : τ a;
@@ -35,7 +29,7 @@ rule {|eo::as|} _ $x ↪ $x;
 sequential symbol ?? : 𝔹 → Set → Set → Set;
 rule ?? _ $x $x ↪ $x
 with ?? true $x _ ↪ $x
-with ?? false _ $y ↪ $y;
+with ?submitted? false _ $y ↪ $y;
 
 // ---- ARITHMETIC -----------------------------
 // Arithmetic symbols
@@ -160,58 +154,9 @@ rule {|eo::nameof|} [_] [string] ({|eo::var|} [string] $s _) ↪ $s;
 
 
 
-// ---- LISTS & NRY OPS ----
-
-sequential symbol nth [a] : 𝕃 a → ℤ → τ a;
-rule nth ($x ⸬ _) 0 ↪ $x
-with nth (_ ⸬ $xs) $n ↪ nth $xs ($n + -1);
-
-
-sequential symbol index [a] : τ a → 𝕃 a → ℤ;
-rule index $x ($y ⸬ $xs) ↪
-  {|eo::ite|} ({|eo::eq|} $x $y) 0 (1 + index $x $xs);
-
-sequential symbol rem [a] : τ a → 𝕃 a → 𝕃 a;
-rule rem _ □ ↪ □
-with rem $x ($y ⸬ $ys)
-  ↪ {|eo::ite|} ({|eo::eq|} $x $y) $ys ($y ⸬ rem $x $ys);
-
-// Helper: diff_aux xs ys returns (result, remaining_ys)
-// where result contains elements of xs not in ys (with multiplicity)
-symbol diff_aux [a] : 𝕃 a → 𝕃 a → 𝕃 a;
-rule diff_aux □ _ ↪ □
-with diff_aux ($x ⸬ $xs) $ys ↪
-  {|eo::ite|} (∈ {|eo::eq|} $x $ys)
-      (diff_aux $xs (rem $x $ys))
-      ($x ⸬ diff_aux $xs $ys);
-// Helper: undup that keeps FIRST occurrence (stdlib's undup keeps last)
-// Eunoia spec says list_setof should keep first occurrence
-symbol undup_first [a] : 𝕃 a → 𝕃 a;
-rule undup_first □ ↪ □
-with undup_first ($x ⸬ $xs) ↪
-  $x ⸬ undup_first (filter (λ y, {|eo::not|} ({|eo::eq|} $x y)) $xs);
-
-// Helper: count occurrences of an element in a list
-symbol count_occ [a] : τ a → 𝕃 a → ℤ;
-rule count_occ _ □ ↪ 0
-with count_occ $x ($y ⸬ $ys) ↪ {|eo::ite|} ({|eo::eq|} $x $y) (1 + count_occ $x $ys) (count_occ $x $ys);
-
-// Helper: check if for all elements of first list, their count in first list
-// is <= their count in second list
-symbol minclude_check [a] : 𝕃 a → 𝕃 a → 𝕃 a → 𝔹;
-rule minclude_check _ □ _ ↪ true
-with minclude_check $full ($x ⸬ $xs) $ys ↪
-  {|eo::and|} ({|eo::not|} (isGt (count_occ $x $full ≐ count_occ $x $ys)))
-      (minclude_check $full $xs $ys);
-
-
-// Helper: inter_aux xs ys returns elements of xs that are also in ys (with multiplicity)
-symbol inter_aux [a] : 𝕃 a → 𝕃 a → 𝕃 a;
-rule inter_aux □ _ ↪ □
-with inter_aux ($x ⸬ $xs) $ys ↪
-  {|eo::ite|} (∈ {|eo::eq|} $x $ys)
-      ($x ⸬ inter_aux $xs (rem $x $ys))
-      (inter_aux $xs $ys);
+// ---- LISTS & N-ARY OPS ----
+// All operations work directly on n-ary terms: (f x (f y (f z nil)))
+// Three cases: multi-element APP (APP $f $x) $xs, nil terminator, singleton bare term.
 
 // `(eo::nil f T)`:
 //  If `f` is :right-assoc-nil and `T` is a ground type,
@@ -229,159 +174,118 @@ rule {|eo::cons|} $f $x (APP (APP $f $y) $ys)
 with {|eo::cons|} [_] [$T] $f $x $xs
   ↪ {|eo::requires|} $xs ({|eo::nil|} $f $T) (APP (APP $f $x) $xs);
 
-sequential symbol {|eo::fold|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (list T1 ⤳ T2);
-rule {|eo::fold|} $f ($x ⸬ $xs) ↪ APP (APP $f $x) ({|eo::fold|} $f $xs)
-with {|eo::fold|} [_] [$T2] $f □          ↪ {|eo::nil|} $f $T2;
-
-sequential symbol {|eo::unfold|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ list T1);
-rule {|eo::unfold|} $f (APP (APP $f $x) $xs) ↪ $x ⸬ ({|eo::unfold|} $f $xs)
-with {|eo::unfold|} [_] [$T2] $f $z ↪ {|eo::requires|} $z ({|eo::nil|} $f $T2) □;
-
-// `(eo::list_concat f t1 t2)`: If `t1` is an `f`-list with children
-// `t11 ... t1n` and `t2` is an `f`-list with children `t21 ... t2m`, this
-// returns `(f t11 ... t1n t21 ... t2m)` if `n+m>0` and `nil` otherwise.
-// Otherwise, this operator does not evaluate.
+// `(eo::list_concat f t1 t2)`: Concatenate two f-lists.
 sequential symbol {|eo::list_concat|}
   [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) :
   τ (T2 ⤳ T2 ⤳ T2);
-rule {|eo::list_concat|} $f $xs $ys
- ↪ {|eo::fold|} $f
-     ({|eo::unfold|} $f $xs ++ {|eo::unfold|} $f $ys);
+rule {|eo::list_concat|} $f (APP (APP $f $x) $xs) $ys
+  ↪ APP (APP $f $x) ({|eo::list_concat|} $f $xs $ys)
+with {|eo::list_concat|} [_] [$T2] $f $x $ys
+  ↪ {|eo::requires|} $x ({|eo::nil|} $f $T2) $ys;
 
-// `(eo::list_len f t1)`:
-sequential symbol {|eo::list_len|} [T1 T2 Z]
-  (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ Z);
-rule {|eo::list_len|} [_] [_] [int] $f $xs
-  ↪ length ({|eo::unfold|} $f $xs);
+// NOTE: eo::list_len, eo::list_nth, eo::list_find are generated
+// in enc_ltrl_num (when processing declare-consts <numeral> Int)
+// because they depend on the integer representation (of_Z).
 
-// `(eo::list_nth f t1 t2)`:
-// If `t1` is `(f s0 ... s{n-1})` and `t2` is a numeral
-// value such that `0<=t2<n`, return `s_{t2}`.
-// Otherwise, do not evaluate.
-sequential symbol {|eo::list_nth|} [T U Z]
-  (f : τ (T ⤳ U ⤳ U)) (t : τ U) (i : τ Z) : τ T;
-rule {|eo::list_nth|} [_] [_] [int] $f $xs $i
-  ↪ nth ({|eo::unfold|} $f $xs) $i;
-
-// `(eo::list_mem f t1 t2)`:
+// `(eo::list_mem f t1 t2)`: Check if element is in an f-list.
 sequential symbol {|eo::list_mem|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ Bool);
-rule {|eo::list_mem|} [$T1] [_] $f $xs $x
-  ↪ ∈ ({|eo::eq|} [$T1] [$T1]) $x ({|eo::unfold|} $f $xs);
+rule {|eo::list_mem|} $f (APP (APP $f $y) $ys) $x
+  ↪ {|eo::ite|} ({|eo::eq|} $x $y) true ({|eo::list_mem|} $f $ys $x)
+with {|eo::list_mem|} [_] [$T2] $f $xs $x
+  ↪ {|eo::ite|} ({|eo::eq|} $xs ({|eo::nil|} $f $T2)) false ({|eo::eq|} $xs $x);
 
-// `(eo::list_find f t1 t2)`:
-// If `t1` is `(f s0 ... s{n-1})`, then this returns the
-// smallest numeral value `i` such that `t2` is
-// syntactically equal to `si`, or `-1` if no such `si` can
-// be found. Otherwise, this operator does not evaluate.
-sequential symbol {|eo::list_find|} [T1 T2 Z]
-  (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ Z);
-rule {|eo::list_find|} [_] [_] [int] $f $xs $x
-  ↪ {|eo::ite|} ({|eo::list_mem|} $f $xs $x)
-      (index $x ({|eo::unfold|} $f $xs))
-      -1;
+// `(eo::list_rev f t1)`: Reverse an f-list.
+sequential symbol list_rev_acc [T1 T2]
+  (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
+rule list_rev_acc $f (APP (APP $f $x) $xs) $acc
+  ↪ list_rev_acc $f $xs (APP (APP $f $x) $acc)
+with list_rev_acc [_] [$T2] $f $x $acc
+  ↪ {|eo::requires|} $x ({|eo::nil|} $f $T2) $acc;
 
-// `(eo::list_rev f t1)`:
-// If `t1` is an `f`-list with children `t11 ... t1n`,
-// then this returns `(f t1n ... t11)`.
 sequential symbol {|eo::list_rev|} [T1 T2]
   (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
-rule {|eo::list_rev|} $f $xs ↪ {|eo::fold|} $f (rev ({|eo::unfold|} $f $xs));
+rule {|eo::list_rev|} [_] [$T2] $f (APP (APP $f $x) $xs)
+  ↪ list_rev_acc $f $xs (APP (APP $f $x) ({|eo::nil|} $f $T2))
+with {|eo::list_rev|} _ $x ↪ $x;
 
-// `(eo::list_erase f t1 t2)`:
-// If `t1` is an `f`-list, then this returns the
-// result of removing the first occurrence of `t2` from `t1` if it exists.
-// Returns `t1` unchanged if it does not contain `t2`.
+// `(eo::list_erase f t1 t2)`: Remove first occurrence of element from f-list.
 sequential symbol {|eo::list_erase|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ T2);
-rule {|eo::list_erase|} $f $xs $x ↪ {|eo::fold|} $f (rem $x ({|eo::unfold|} $f $xs));
+rule {|eo::list_erase|} $f (APP (APP $f $y) $ys) $x
+  ↪ {|eo::ite|} ({|eo::eq|} $x $y) $ys (APP (APP $f $y) ({|eo::list_erase|} $f $ys $x))
+with {|eo::list_erase|} [_] [$T2] $f $xs $x
+  ↪ {|eo::ite|} ({|eo::eq|} $xs ({|eo::nil|} $f $T2)) $xs
+     ({|eo::ite|} ({|eo::eq|} $xs $x) ({|eo::nil|} $f $T2) $xs);
 
-// `(eo::list_erase_all f t1 t2)`: If `t1` is an `f`-list, then this returns the
-// result of removing all occurrences of `t2` from `t1`, where the remaining
-// elements are kept in order. Returns `t1` unchanged if it does not
-// contain `t2`.
+// `(eo::list_erase_all f t1 t2)`: Remove all occurrences of element from f-list.
 sequential symbol {|eo::list_erase_all|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T1 ⤳ T2);
-rule {|eo::list_erase_all|} $f $xs $x
-  ↪ let ys ≔ {|eo::unfold|} $f $xs in
-    let ys' ≔ filter (λ y, {|eo::not|} ({|eo::eq|} $x y)) ys in
-    {|eo::fold|} $f ys';
+rule {|eo::list_erase_all|} $f (APP (APP $f $y) $ys) $x
+  ↪ {|eo::ite|} ({|eo::eq|} $x $y)
+     ({|eo::list_erase_all|} $f $ys $x)
+     (APP (APP $f $y) ({|eo::list_erase_all|} $f $ys $x))
+with {|eo::list_erase_all|} [_] [$T2] $f $xs $x
+  ↪ {|eo::ite|} ({|eo::eq|} $xs ({|eo::nil|} $f $T2)) $xs
+     ({|eo::ite|} ({|eo::eq|} $xs $x) ({|eo::nil|} $f $T2) $xs);
 
-// `(eo::list_setof f t1)`: If `t1` is an `f`-list with children `t11 ... t1n`,
-// this returns the `f`-list obtained by dropping each element from this list
-// beyond the first occurrence. Note that the remaining elements are kept in
-// order.
+// `(eo::list_setof f t1)`: Deduplicate f-list (keep first occurrence).
 sequential symbol {|eo::list_setof|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2);
-rule {|eo::list_setof|} $f $xs
-  ↪ let ys ≔ {|eo::unfold|} $f $xs in
-    {|eo::fold|} $f (undup_first ys);
+rule {|eo::list_setof|} $f (APP (APP $f $x) $xs)
+  ↪ APP (APP $f $x) ({|eo::list_setof|} $f ({|eo::list_erase_all|} $f $xs $x))
+with {|eo::list_setof|} _ $x ↪ $x;
 
+// `(eo::list_minclude f t1 t2)`: Multiset inclusion via iterative removal.
+sequential symbol minclude_aux [T1 T2]
+  (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ Bool);
+rule minclude_aux $f (APP (APP $f $x) $xs) $ys
+  ↪ {|eo::ite|} ({|eo::list_mem|} $f $ys $x)
+     (minclude_aux $f $xs ({|eo::list_erase|} $f $ys $x))
+     false
+with minclude_aux [_] [$T2] $f $x _
+  ↪ {|eo::requires|} $x ({|eo::nil|} $f $T2) true;
 
-// `(eo::list_minclude f t1 t2)`: (Multiset inclusion) If `t1` is an `f`-list
-// with children `t11 ... t1n` and `t2` is an `f`-list with children
-// `t21 ... t2m`, then this returns true if each unique element in
-// `t11 ... t1n` occurs with the greater than or equal multiplicity in
-// `t21 ... t2m`. Note that order of the elements does not matter.
 sequential symbol {|eo::list_minclude|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ Bool);
-rule {|eo::list_minclude|} $f $xs $ys ↪
-  let xs' ≔ {|eo::unfold|} $f $xs in
-  let ys' ≔ {|eo::unfold|} $f $ys in
-  minclude_check xs' xs' ys';
+rule {|eo::list_minclude|} $f $xs $ys ↪ minclude_aux $f $xs $ys;
 
-
-// `(eo::list_meq f t1 t2)`: (Multiset equal) Equivalent to
-// `(eo::and (eo::list_minclude f t1 t2) (eo::list_minclude f t2 t1))`.
+// `(eo::list_meq f t1 t2)`: Multiset equality.
 sequential symbol {|eo::list_meq|} [T1 T2] (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ Bool);
 rule {|eo::list_meq|} $f $xs $ys
   ↪ {|eo::and|}
      ({|eo::list_minclude|} $f $xs $ys)
      ({|eo::list_minclude|} $f $ys $xs);
 
+// `(eo::list_diff f t1 t2)`: Multiset difference.
+sequential symbol list_diff_aux [T1 T2]
+  (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
+rule list_diff_aux $f (APP (APP $f $x) $xs) $ys
+  ↪ {|eo::ite|} ({|eo::list_mem|} $f $ys $x)
+     (list_diff_aux $f $xs ({|eo::list_erase|} $f $ys $x))
+     (APP (APP $f $x) (list_diff_aux $f $xs $ys))
+with list_diff_aux [_] [$T2] $f $x _
+  ↪ {|eo::requires|} $x ({|eo::nil|} $f $T2) ({|eo::nil|} $f $T2);
 
-
-// `(eo::list_diff f t1 t2)`: (Difference) If `t1` is an `f`-list with children
-// `t11 ... t1n` and `t2` is an `f`-list with children `t21 ... t2m`, this
-// returns the result of erasing elements of `t11 ... t1n` that occur in
-// `t21 ... t2m` where multiplicity is considered. In detail, for each
-// `i = 1, ..., n`, if `t1i` occurs in `t21 ... t2m`, we remove one copy of
-// it from that list. Otherwise if `t1i` does not occur in `t21 ... t2m`,
-// we append it to the final result.
 sequential symbol {|eo::list_diff|} [T1 T2]
   (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
-rule {|eo::list_diff|} $f $xs $ys ↪
-  {|eo::fold|} $f
-    (diff_aux
-      ({|eo::unfold|} $f $xs)
-      ({|eo::unfold|} $f $ys)
-    );
+rule {|eo::list_diff|} $f $xs $ys ↪ list_diff_aux $f $xs $ys;
 
+// `(eo::list_inter f t1 t2)`: Multiset intersection.
+sequential symbol list_inter_aux [T1 T2]
+  (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
+rule list_inter_aux $f (APP (APP $f $x) $xs) $ys
+  ↪ {|eo::ite|} ({|eo::list_mem|} $f $ys $x)
+     (APP (APP $f $x) (list_inter_aux $f $xs ({|eo::list_erase|} $f $ys $x)))
+     (list_inter_aux $f $xs $ys)
+with list_inter_aux [_] [$T2] $f $x _
+  ↪ {|eo::requires|} $x ({|eo::nil|} $f $T2) ({|eo::nil|} $f $T2);
 
-// `(eo::list_inter f t1 t2)`: (Intersection)
-//  If `t1` is an `f`-list with children `t11 ... t1n` and
-//  `t2` is an `f`-list with children `t21 ... t2m`, return
-//  the result of erasing elements of `t11 ... t1n`  that do
-//  not occur in `t21 ... t2m` where multiplicity is considered.
-// In detail, for each `i = 1, ..., n`, if `t1i` occurs in
-// `t21 ... t2m`, we erase one copy of it from that list and
-// append it to the final result.
 sequential symbol {|eo::list_inter|} [T1 T2]
   (f : τ (T1 ⤳ T2 ⤳ T2)) : τ (T2 ⤳ T2 ⤳ T2);
-rule {|eo::list_inter|} $f $xs $ys ↪
-  {|eo::fold|} $f (inter_aux ({|eo::unfold|} $f $xs) ({|eo::unfold|} $f $ys));
+rule {|eo::list_inter|} $f $xs $ys ↪ list_inter_aux $f $xs $ys;
 
-
-// `(eo::list_singleton_elim f t1)`: (Singleton elimination) If `t1` is an
-// `f`-list containing a single child `t11`, this returns `t11`. All other
-// `f`-lists `t1` are returned unchanged. Otherwise, this operator does not
-// evaluate.
-// Note: In Eunoia, this can return T1 when singleton but T2 otherwise.
-// For our encoding, we restrict to the common case where T1 = T2.
-// Helper to check if unfolded list is a singleton and return element or original
-sequential symbol singleton_elim_aux [T] : τ (T ⤳ T ⤳ T) → 𝕃 T → τ T → τ T;
+// `(eo::list_singleton_elim f t1)`: Extract element from singleton f-list.
 sequential symbol {|eo::list_singleton_elim|} [T] (f : τ (T ⤳ T ⤳ T)) : τ (T ⤳ T);
-// If the list has exactly one element, return that element
-// Otherwise return the original term
-rule singleton_elim_aux _ ($x ⸬ □) _ ↪ $x
-with singleton_elim_aux _ _ $orig ↪ $orig;
-rule {|eo::list_singleton_elim|} $f $xs
-  ↪ singleton_elim_aux $f ({|eo::unfold|} $f $xs) $xs;
+rule {|eo::list_singleton_elim|} [$T] $f (APP (APP $f $x) $xs)
+  ↪ {|eo::ite|} ({|eo::eq|} $xs ({|eo::nil|} $f $T))
+     $x (APP (APP $f $x) $xs)
+with {|eo::list_singleton_elim|} _ $x ↪ $x;
 
 
 // ------ eo::List --- heterogeneous lists ----------------

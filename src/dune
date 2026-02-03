@@ -12,7 +12,7 @@
  (modules
    parser lexer literal
    syntax_eo pp_eo parse_eo
-   api_lp encode main
+   api_lp elaborate encode main
  )
  (flags :standard -w -26 -w -27)
  (libraries str unix fpath lambdapi.core lambdapi.common lambdapi.handle lambdapi.parsing)
