@@ -77,14 +77,39 @@ and typeof_info =
    ============================================================ *)
 
 let global_sig : EO.signature ref = ref []
-let set_signature s = global_sig := s
+
+(* Hash-based index for fast symbol lookup.
+   sig_index maps name -> list of (name, symbol) pairs (for overloads).
+   sig_single maps name -> first symbol (for single-match lookups). *)
+let sig_index : (string, (string * EO.symbol) list) Hashtbl.t = Hashtbl.create 256
+let sig_single : (string, EO.symbol) Hashtbl.t = Hashtbl.create 256
+
+let rebuild_index () =
+  Hashtbl.clear sig_index;
+  Hashtbl.clear sig_single;
+  List.iter (fun (name, sym) ->
+    (* sig_single: keep first occurrence (List.assoc_opt semantics) *)
+    if not (Hashtbl.mem sig_single name) then
+      Hashtbl.add sig_single name sym;
+    (* sig_index: accumulate all occurrences *)
+    let prev = match Hashtbl.find_opt sig_index name with
+      | Some l -> l | None -> [] in
+    Hashtbl.replace sig_index name (prev @ [(name, sym)])
+  ) !global_sig
+
+let set_signature s =
+  global_sig := s;
+  rebuild_index ()
+
 let get_signature () = !global_sig
 
 let lookup_eo_symbol name : EO.symbol option =
-  List.assoc_opt name !global_sig
+  Hashtbl.find_opt sig_single name
 
 let find_all_eo_symbols name : (string * EO.symbol) list =
-  List.filter (fun (n, _) -> n = name) !global_sig
+  match Hashtbl.find_opt sig_index name with
+  | Some l -> l
+  | None -> []
 
 (* ============================================================
    Helpers (moved from encode.ml)

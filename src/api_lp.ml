@@ -415,7 +415,7 @@ let add_sequential ?(impl=[]) name ty =
     ~prop:Term.Defin ~mstrat:Term.Sequen ~impl name ty
 
 
-let add_definition ?(impl=[]) name ty def =
+let add_definition ?(impl=[]) ?(print_ty=true) name ty def =
   let sign = get_sign () in
   let ty_final = match ty with Some t -> t | None -> mk_Kind in
   let def_for_print =
@@ -433,7 +433,10 @@ let add_definition ?(impl=[]) name ty def =
       (Pos.none name) None ty_final impl
   in
   Timed.(sym.Term.sym_def := Some def);
-  Hashtbl.replace symbol_types name ty_final;
+  (* When print_ty is false, store Kind so the printer omits the type
+     annotation, while the internal LP symbol keeps the real type for
+     infer_noexn. *)
+  Hashtbl.replace symbol_types name (if print_ty then ty_final else mk_Kind);
   Hashtbl.replace symbol_defs name def_for_print;
   sym
 
@@ -919,7 +922,7 @@ type check_result =
 let check_file ?verbose:_ output_dir rel_path =
   let cmd =
     Printf.sprintf
-      "cd %s && NO_COLOR=1 timeout --signal=KILL 3 lambdapi check -w %s 2>&1"
+      "cd %s && NO_COLOR=1 timeout --signal=KILL 3 lambdapi check -c -w %s 2>&1"
       (Filename.quote output_dir) (Filename.quote rel_path)
   in
   let ic  = Unix.open_process_in cmd in

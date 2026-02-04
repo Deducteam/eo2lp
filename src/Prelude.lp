@@ -29,7 +29,7 @@ rule {|eo::as|} _ $x ↪ $x;
 sequential symbol ?? : 𝔹 → Set → Set → Set;
 rule ?? _ $x $x ↪ $x
 with ?? true $x _ ↪ $x
-with ?submitted? false _ $y ↪ $y;
+with ?? false _ $y ↪ $y;
 
 // ---- ARITHMETIC -----------------------------
 // Arithmetic symbols

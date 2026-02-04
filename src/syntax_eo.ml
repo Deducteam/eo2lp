@@ -200,7 +200,7 @@ let lit_cat_of = function
   | Rational _    -> RAT
   | Binary _      -> BIN
   | Hexadecimal _ -> HEX
-  | String _      -> failwith "string literals not supported"
+  | String _      -> STR
 
 let lit_type_table : (lit_category, term) Hashtbl.t =
   Hashtbl.create 8
@@ -215,7 +215,7 @@ let lit_alias_table : (string, term) Hashtbl.t = Hashtbl.create 4
 let placeholder_of_cat = function
   | Literal.NUM -> Builtin.eo_int
   | Literal.RAT -> Builtin.eo_real
-  | Literal.STR -> failwith "string literal category not supported"
+  | Literal.STR -> "eo::String"
   | _           -> failwith "placeholder_of_cat: unsupported"
 
 let register_lit_alias cat ty =
@@ -281,7 +281,10 @@ let full_sig_at graph path =
     else begin
       Hashtbl.add visited p ();
       match PathMap.find_opt p graph with
-      | None -> []
+      | None ->
+        Printf.eprintf "warning: missing dependency %s (included from %s)\n%!"
+          (path_str p) (path_str path);
+        []
       | Some node ->
         let deps = L.concat_map collect node.node_includes in
         deps @ node.node_sig

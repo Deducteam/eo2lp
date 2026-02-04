@@ -21,6 +21,7 @@ type config = {
   input_dir      : string;
   output_dir     : string;
   proofs_dir     : string option;
+  proofs_only    : bool;
   verbose        : bool;
   log_level      : LP.log_level;
   no_color       : bool;
@@ -31,6 +32,7 @@ let default_config = {
   input_dir      = "./cpc";
   output_dir     = "./_build/cpc";
   proofs_dir     = None;
+  proofs_only    = false;
   verbose        = false;
   log_level      = LP.Silent;
   no_color       = false;
@@ -56,6 +58,8 @@ let speclist = [
    " Disable colored output");
   ("--expert", Arg.Unit (fun () -> config := { !config with include_expert = true }),
    " Include files from expert/ directory");
+  ("--proofs-only", Arg.Unit (fun () -> config := { !config with proofs_only = true }),
+   " Skip CPC encode/check, only process proofs (requires pre-built CPC in output dir)");
 ]
 
 (* ---------------------------------------------------------------------------
@@ -81,6 +85,18 @@ let exn_msg = function
   | Failure msg -> msg
   | exn -> Printexc.to_string exn
 
+exception Timeout
+
+let with_timeout secs f =
+  let old_handler = Sys.signal Sys.sigalrm
+    (Sys.Signal_handle (fun _ -> raise Timeout)) in
+  let old_alarm = Unix.alarm secs in
+  Fun.protect ~finally:(fun () ->
+    ignore (Unix.alarm 0);
+    Sys.set_signal Sys.sigalrm old_handler;
+    if old_alarm > 0 then ignore (Unix.alarm old_alarm))
+    f
+
 let fmt_ms dt =
   let ms = dt *. 1000. in
   if ms < 1.0 then dim "<1ms"
@@ -93,12 +109,16 @@ let fmt_ms dt =
 
 let clean_output_dir output_dir =
   if Sys.file_exists output_dir then begin
-    let cmd = Printf.sprintf "rm -rf %s" (Filename.quote output_dir) in
+    (* Remove generated files (.lp, .lpo, .pkg) but preserve _test.lp files *)
+    let cmd = Printf.sprintf
+      "find %s \\( -name '*.lpo' -o -name '*.lp' -o -name 'lambdapi.pkg' \\) \
+       ! -name '*_test.lp' -delete"
+      (Filename.quote output_dir) in
     ignore (Sys.command cmd)
   end
 
-let init_lambdapi ~output_dir ~pkg_name =
-  clean_output_dir output_dir;
+let init_lambdapi ?(clean=true) ~output_dir ~pkg_name () =
+  if clean then clean_output_dir output_dir;
   LP.mkdir_p output_dir;
   LP.generate_pkg_file output_dir pkg_name;
   LP.generate_prelude output_dir;
@@ -110,6 +130,17 @@ let init_lambdapi ~output_dir ~pkg_name =
   let sign = LP.compile ~force:true prelude_path in
   Sys.chdir cwd;
   sign
+
+(* Load all pre-built CPC .lp files into lambdapi's memory so that
+   proof encoding can reference CPC symbols without re-encoding. *)
+let load_cpc_modules ~output_dir ~pkg_name (order : path list) =
+  let cwd = Sys.getcwd () in
+  Sys.chdir output_dir;
+  List.iter (fun mod_path ->
+    let lp_path = pkg_name :: mod_path in
+    ignore (LP.compile ~force:true lp_path)
+  ) order;
+  Sys.chdir cwd
 
 (* ---------------------------------------------------------------------------
    Result types
@@ -275,6 +306,15 @@ let encode_proof ~pkg_name ~output_dir ~verbose
   LP.write_lp_file out_path ~prelude_module ~deps:[dep_module]
     (List.rev !output_items);
 
+  (* Validate assumption stack balance *)
+  let stack_depth = Enc.assumption_stack_depth () in
+  let errors =
+    if stack_depth > 0 then
+      errors @ [("(stack)", Printf.sprintf
+        "assumption stack not empty after proof encoding (%d unpopped)" stack_depth)]
+    else errors
+  in
+
   if verbose && errors <> [] then
     List.iter (fun (sym, msg) ->
       Printf.eprintf "  [%s:%s] %s\n%!" module_name sym msg
@@ -418,7 +458,9 @@ let run () =
   let t1 = Unix.gettimeofday () in
   Printf.printf "initializing lambdapi... ";
   flush stdout;
-  let prelude_sign = init_lambdapi ~output_dir ~pkg_name in
+  let proofs_only = !config.proofs_only in
+  let prelude_sign =
+    init_lambdapi ~clean:(not proofs_only) ~output_dir ~pkg_name () in
   LP.init prelude_sign;
   LP.set_log_level !config.log_level;
   LP.set_verbose verbose;
@@ -429,87 +471,87 @@ let run () =
   let order = topo_sort_graph graph in
   let total = List.length order in
 
-  (* -- Stage 3: Encode all modules --------------------------------------- *)
-
-  let t2 = Unix.gettimeofday () in
-  Printf.printf "encoding %d modules... " total;
-  flush stdout;
-
-  let encode_results : (path * encode_result) list =
-    List.map (fun mod_path ->
-      let t_start = Unix.gettimeofday () in
-      let errors =
-        try encode_module ~pkg_name ~output_dir ~verbose graph mod_path
-        with e ->
-          let name = path_to_module pkg_name mod_path in
-          [("(module)", Printf.sprintf "%s: %s" name (exn_msg e))]
-      in
-      let enc = {
-        enc_errors   = errors;
-        enc_warnings = [];  (* warnings go to stderr via enc_prog *)
-        enc_time     = Unix.gettimeofday () -. t_start;
-      } in
-      (mod_path, enc)
-    ) order
-  in
-
-  let encode_errs =
-    List.filter (fun (_, enc) -> enc.enc_errors <> []) encode_results
-  in
-  let t_encode = Unix.gettimeofday () -. t2 in
-  if encode_errs = [] then
-    Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_encode)
-  else
-    Printf.printf "%s %d/%d with errors (%s)\n"
-      (red "WARN") (List.length encode_errs) total (fmt_ms t_encode);
-
-  (* -- Stage 4: Check all modules with LambdaPi ------------------------- *)
-
-  let t3 = Unix.gettimeofday () in
-  Printf.printf "checking %d modules... " total;
-  flush stdout;
+  (* -- Stages 3-4: Encode and check CPC modules (skipped with --proofs-only) *)
 
   let results : module_result list =
-    List.map (fun (mod_path, enc) ->
-      let mod_name = path_to_module pkg_name mod_path in
-      let t_start = Unix.gettimeofday () in
-      let check, check_time =
-        if enc.enc_errors <> [] then begin
-          (* Still check — the .lp was written with successful symbols.
-             Downstream errors from missing symbols are expected. *)
-          let r = check_module ~output_dir ~verbose mod_path in
-          let dt = Unix.gettimeofday () -. t_start in
-          let outcome = match r with
-            | LP.Check_ok    -> Check_ok
-            | LP.Check_error msg -> Check_error msg
-          in
-          (outcome, dt)
-        end else begin
-          let r = check_module ~output_dir ~verbose mod_path in
-          let dt = Unix.gettimeofday () -. t_start in
-          let outcome = match r with
-            | LP.Check_ok    -> Check_ok
-            | LP.Check_error msg -> Check_error msg
-          in
-          (outcome, dt)
-        end
-      in
-      { mod_path; mod_name; encode = enc;
-        check; check_time;
-        total_time = enc.enc_time +. check_time }
-    ) encode_results
-  in
+    if proofs_only then begin
+      (* Load pre-built CPC modules into lambdapi *)
+      let t2 = Unix.gettimeofday () in
+      Printf.printf "loading %d modules... " total;
+      flush stdout;
+      load_cpc_modules ~output_dir ~pkg_name order;
+      Printf.printf "%s (%s)\n"
+        (green "ok") (fmt_ms (Unix.gettimeofday () -. t2));
+      []
+    end else begin
+      (* -- Stage 3: Encode all modules ----------------------------------- *)
+      let t2 = Unix.gettimeofday () in
+      Printf.printf "encoding %d modules... " total;
+      flush stdout;
 
-  let check_failures =
-    List.filter (fun r ->
-      match r.check with Check_error _ -> true | _ -> false) results
+      let encode_results : (path * encode_result) list =
+        List.map (fun mod_path ->
+          let t_start = Unix.gettimeofday () in
+          let errors =
+            try encode_module ~pkg_name ~output_dir ~verbose graph mod_path
+            with e ->
+              let name = path_to_module pkg_name mod_path in
+              [("(module)", Printf.sprintf "%s: %s" name (exn_msg e))]
+          in
+          let enc = {
+            enc_errors   = errors;
+            enc_warnings = [];
+            enc_time     = Unix.gettimeofday () -. t_start;
+          } in
+          (mod_path, enc)
+        ) order
+      in
+
+      let encode_errs =
+        List.filter (fun (_, enc) -> enc.enc_errors <> []) encode_results
+      in
+      let t_encode = Unix.gettimeofday () -. t2 in
+      if encode_errs = [] then
+        Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_encode)
+      else
+        Printf.printf "%s %d/%d with errors (%s)\n"
+          (red "WARN") (List.length encode_errs) total (fmt_ms t_encode);
+
+      (* -- Stage 4: Check all modules with LambdaPi ---------------------- *)
+      let t3 = Unix.gettimeofday () in
+      Printf.printf "checking %d modules... " total;
+      flush stdout;
+
+      let results : module_result list =
+        List.map (fun (mod_path, enc) ->
+          let mod_name = path_to_module pkg_name mod_path in
+          let t_start = Unix.gettimeofday () in
+          let r = check_module ~output_dir ~verbose mod_path in
+          let dt = Unix.gettimeofday () -. t_start in
+          let check = match r with
+            | LP.Check_ok    -> Check_ok
+            | LP.Check_error msg -> Check_error msg
+          in
+          { mod_path; mod_name; encode = enc;
+            check; check_time = dt;
+            total_time = enc.enc_time +. dt }
+        ) encode_results
+      in
+
+      let check_failures =
+        List.filter (fun r ->
+          match r.check with Check_error _ -> true | _ -> false) results
+      in
+      let t_check = Unix.gettimeofday () -. t3 in
+      if check_failures = [] then
+        Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_check)
+      else
+        Printf.printf "%s %d/%d failed (%s)\n"
+          (red "FAIL") (List.length check_failures) total (fmt_ms t_check);
+
+      results
+    end
   in
-  let t_check = Unix.gettimeofday () -. t3 in
-  if check_failures = [] then
-    Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_check)
-  else
-    Printf.printf "%s %d/%d failed (%s)\n"
-      (red "FAIL") (List.length check_failures) total (fmt_ms t_check);
 
   (* -- Stage 5: Encode and check proofs (if --proofs given) -------------- *)
 
@@ -524,83 +566,145 @@ let run () =
 
       (* Parse proof files *)
       let t4 = Unix.gettimeofday () in
-      Printf.printf "parsing proofs in %s... " proofs_dir;
-      flush stdout;
-      let proofs = Parse_eo.parse_proof_dir proofs_dir in
+      let is_tty_parse = Unix.isatty Unix.stdout in
+      Printf.printf "parsing proofs in %s...%!" proofs_dir;
+      let parse_progress i total name =
+        if is_tty_parse then
+          Printf.printf "\rparsing proofs in %s... [%d/%d] %s%s%!"
+            proofs_dir i total name (String.make 20 ' ')
+      in
+      let proofs_raw =
+        Parse_eo.parse_proof_dir ~progress:parse_progress proofs_dir in
+      if is_tty_parse then Printf.printf "\r%s\r%!" (String.make 80 ' ');
+      let n_parse_errors =
+        List.length (List.filter (fun (_, _, e) -> e > 0) proofs_raw) in
+      if n_parse_errors > 0 then
+        Printf.printf "%s %d proofs, %s (%s)\n"
+          (yellow "WARN") (List.length proofs_raw)
+          (yellow (Printf.sprintf "%d with parse errors (skipped)" n_parse_errors))
+          (fmt_ms (Unix.gettimeofday () -. t4))
+      else
+        Printf.printf "%s %d proofs (%s)\n"
+          (green "ok") (List.length proofs_raw)
+          (fmt_ms (Unix.gettimeofday () -. t4));
+      (* Filter out proofs with parse errors *)
+      let proofs = List.filter_map (fun (name, sig_, errs) ->
+        if errs > 0 then begin
+          Printf.printf "  %s: %s\n" name
+            (yellow (Printf.sprintf "%d parse errors, skipping" errs));
+          None
+        end else
+          Some (name, sig_)
+      ) proofs_raw in
       let n_proofs = List.length proofs in
-      Printf.printf "%s %d proofs (%s)\n"
-        (green "ok") n_proofs (fmt_ms (Unix.gettimeofday () -. t4));
 
       if n_proofs = 0 then []
       else begin
         (* Encode proofs *)
         let t5 = Unix.gettimeofday () in
-        Printf.printf "encoding %d proofs... " n_proofs;
+        Printf.printf "encoding %d proofs...\n" n_proofs;
         flush stdout;
 
+        let n_enc_ok = ref 0 in
+        let n_enc_err = ref 0 in
+        let is_tty = Unix.isatty Unix.stdout in
+
         let proof_encode_results =
-          List.map (fun (name, proof_sig) ->
+          List.mapi (fun i (name, proof_sig) ->
             let t_start = Unix.gettimeofday () in
             let errors =
               try
-                encode_proof ~pkg_name ~output_dir ~verbose
-                  ~cpc_sig ~top_module name proof_sig
-              with e ->
+                with_timeout 5 (fun () ->
+                  encode_proof ~pkg_name ~output_dir ~verbose
+                    ~cpc_sig ~top_module name proof_sig)
+              with
+              | Timeout ->
+                [("(timeout)", "encoding timed out (>5s)")]
+              | e ->
                 let mod_name = path_to_module pkg_name ["proofs"; name] in
                 [("(module)", Printf.sprintf "%s: %s" mod_name (exn_msg e))]
             in
+            let dt = Unix.gettimeofday () -. t_start in
             let enc = {
               enc_errors   = errors;
               enc_warnings = [];
-              enc_time     = Unix.gettimeofday () -. t_start;
+              enc_time     = dt;
             } in
+            if errors = [] then incr n_enc_ok
+            else incr n_enc_err;
+            if is_tty then
+              Printf.printf "\r  encode [%d/%d] %d ok, %d err: %s%s%!"
+                (i + 1) n_proofs !n_enc_ok !n_enc_err name
+                (String.make 20 ' ')
+            else if errors <> [] then
+              Printf.printf "  encode [%d/%d] %s: %s\n%!"
+                (i + 1) n_proofs name (snd (List.hd errors));
             (name, enc)
           ) proofs
         in
 
-        let proof_enc_errs =
-          List.filter (fun (_, enc) -> enc.enc_errors <> []) proof_encode_results
-        in
+        if is_tty then Printf.printf "\r%s\r" (String.make 80 ' ');
         let t_penc = Unix.gettimeofday () -. t5 in
-        if proof_enc_errs = [] then
-          Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_penc)
+        if !n_enc_err = 0 then
+          Printf.printf "  encode: %s %d proofs (%s)\n"
+            (green "ok") n_proofs (fmt_ms t_penc)
         else
-          Printf.printf "%s %d/%d with errors (%s)\n"
-            (red "WARN") (List.length proof_enc_errs) n_proofs (fmt_ms t_penc);
+          Printf.printf "  encode: %s %d/%d with errors (%s)\n"
+            (red "WARN") !n_enc_err n_proofs (fmt_ms t_penc);
+        flush stdout;
 
         (* Check proofs *)
         let t6 = Unix.gettimeofday () in
-        Printf.printf "checking %d proofs... " n_proofs;
-        flush stdout;
+        let n_chk_ok = ref 0 in
+        let n_chk_fail = ref 0 in
 
         let proof_results =
-          List.map (fun (name, enc) ->
+          List.mapi (fun i (name, enc) ->
             let proof_path = ["proofs"; name] in
             let mod_name = path_to_module pkg_name proof_path in
             let t_start = Unix.gettimeofday () in
-            let r = check_module ~output_dir ~verbose proof_path in
-            let dt = Unix.gettimeofday () -. t_start in
-            let check = match r with
-              | LP.Check_ok -> Check_ok
-              | LP.Check_error msg -> Check_error msg
+            let check =
+              if enc.enc_errors <> [] then
+                Check_skipped "encode errors"
+              else
+                (try
+                  let r = with_timeout 10 (fun () ->
+                    check_module ~output_dir ~verbose proof_path) in
+                  (match r with
+                   | LP.Check_ok -> Check_ok
+                   | LP.Check_error msg -> Check_error msg)
+                with Timeout ->
+                  Check_error "check timed out (>10s)")
             in
+            let dt = Unix.gettimeofday () -. t_start in
+            (match check with
+             | Check_ok -> incr n_chk_ok
+             | Check_error _ | Check_skipped _ -> incr n_chk_fail);
+            if is_tty then
+              Printf.printf "\r  check  [%d/%d] %d ok, %d fail: %s%s%!"
+                (i + 1) n_proofs !n_chk_ok !n_chk_fail name
+                (String.make 20 ' ')
+            else
+              (match check with
+               | Check_error msg ->
+                 Printf.printf "  check  [%d/%d] %s: %s\n%!"
+                   (i + 1) n_proofs name msg
+               | _ -> ());
             { mod_path = proof_path; mod_name;
               encode = enc; check; check_time = dt;
               total_time = enc.enc_time +. dt }
           ) proof_encode_results
         in
 
-        let proof_check_failures =
-          List.filter (fun r ->
-            match r.check with Check_error _ -> true | _ -> false) proof_results
-        in
+        if is_tty then Printf.printf "\r%s\r" (String.make 80 ' ');
         let t_pchk = Unix.gettimeofday () -. t6 in
-        if proof_check_failures = [] then
-          Printf.printf "%s (%s)\n" (green "ok") (fmt_ms t_pchk)
+        if !n_chk_fail = 0 then
+          Printf.printf "  check:  %s %d proofs (%s)\n"
+            (green "ok") n_proofs (fmt_ms t_pchk)
         else
-          Printf.printf "%s %d/%d failed (%s)\n"
-            (red "FAIL") (List.length proof_check_failures) n_proofs
-            (fmt_ms t_pchk);
+          Printf.printf "  check:  %s %d/%d failed (%s)\n"
+            (red "FAIL") !n_chk_fail n_proofs (fmt_ms t_pchk);
+        flush stdout;
 
         proof_results
       end

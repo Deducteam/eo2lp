@@ -5,6 +5,7 @@ open Lexing
 open Syntax_eo
 
 let had_parse_error : bool ref = ref false
+let parse_error_count : int ref = ref 0
 
 (* Path utilities *)
 
@@ -85,6 +86,7 @@ let parse_command lx =
       (pos.pos_cnum - pos.pos_bol + 1)
       token_display;
     had_parse_error := true;
+    incr parse_error_count;
     None
 
 (* Parse a single file and return a sig_node *)
@@ -190,12 +192,13 @@ let check_dag graph =
 
 (* Parse a single .eo proof file into a flat signature.
    Proof files have no includes — just declarations, defines, assumes, steps. *)
-let parse_proof_file (filepath : string) : string * signature =
+let parse_proof_file (filepath : string) : string * signature * int =
   let stem = Filename.chop_extension (Filename.basename filepath) in
   let ch = open_in filepath in
   let lx = Lexing.from_channel ch in
   lx.lex_curr_p <- { lx.lex_curr_p with pos_fname = filepath };
   let sig_ = ref [] in
+  let errors_before = !parse_error_count in
   (try
     while true do
       match parse_command lx with
@@ -208,10 +211,12 @@ let parse_proof_file (filepath : string) : string * signature =
   with
   | Exit -> close_in ch
   | exn  -> close_in ch; raise exn);
-  (stem, List.rev !sig_)
+  let n_errors = !parse_error_count - errors_before in
+  (stem, List.rev !sig_, n_errors)
 
-(* Parse all .eo files in a directory into a list of (name, signature) pairs *)
-let parse_proof_dir (dir : string) : (string * signature) list =
+(* Parse all .eo files in a directory into a list of (name, signature, parse_errors) triples *)
+let parse_proof_dir ?(progress : (int -> int -> string -> unit) option)
+    (dir : string) : (string * signature * int) list =
   let files =
     Sys.readdir dir
     |> Array.to_list
@@ -219,7 +224,13 @@ let parse_proof_dir (dir : string) : (string * signature) list =
     |> List.sort String.compare
     |> List.map (Filename.concat dir)
   in
-  List.map parse_proof_file files
+  let total = List.length files in
+  List.mapi (fun i f ->
+    (match progress with
+     | Some cb -> cb (i + 1) total (Filename.basename f)
+     | None -> ());
+    parse_proof_file f
+  ) files
 
 (* ============================================================
    Job file parsing

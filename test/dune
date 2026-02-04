@@ -5,3 +5,15 @@
  (deps ../src/Prelude.lp)
  (action (chdir %{project_root} (run %{test})))
 )
+
+; CPC module tests: run eo2lp first, then check each module
+(test
+ (name test_cpc)
+ (libraries eo2lp unix str)
+ (deps ../src/Prelude.lp (source_tree ../cpc) (source_tree cpc) (source_tree proofs))
+ (action
+  (chdir %{project_root}
+   (progn
+    (run %{bin:eo2lp} -o test/cpc)
+    (run %{test}))))
+)

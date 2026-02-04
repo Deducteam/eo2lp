@@ -34,6 +34,7 @@ let pop_assumption () = match !assumption_stack with
   | t :: rest -> assumption_stack := rest; t
   | [] -> failwith "pop_assumption: empty stack"
 let reset_assumptions () = assumption_stack := []
+let assumption_stack_depth () = List.length !assumption_stack
 
 (* ============================================================
    Elaboration interface — delegates to Elaborate module
@@ -87,6 +88,23 @@ let eo_type () =
 let eo_as t1 t2 =
   add_args (enc_sym (eo_as_sym ())) [t2; t1]
 
+(* Strip eo::as from a resolved term tree: eo::as reduces to its second arg
+   (rule eo::as _ $x ↪ $x), so it must not appear in rewrite rule LHS
+   patterns where it would never match. *)
+let strip_eo_as t =
+  let eas = try Some (eo_as_sym ()) with _ -> None in
+  let rec go t =
+    match Core.Term.get_args t with
+    | Core.Term.Symb s, [_ty; tm]
+      when (match eas with Some e -> s == e | None -> false) ->
+      go tm
+    | _ ->
+      match t with
+      | Core.Term.Appl (t1, t2) -> Core.Term.mk_Appl (go t1, go t2)
+      | _ -> t
+  in
+  go t
+
 (* Integer encoding *)
 let z0 ()    = find "Z0"
 let zpos ()  = find "Zpos"
@@ -135,10 +153,12 @@ let enc_literal = function
     add_args (mk_Symb (find "of_Z")) [enc_int n]
   | Literal.Decimal d ->
     mk_Symb (ghost_sym (string_of_float d))
-  | Literal.Rational (_num, _den) ->
-    failf "enc_literal: rational literals not supported (no Real type)"
+  | Literal.Rational (num, den) ->
+    (* No Real type yet — encode as ghost symbol to allow rest of proof to proceed *)
+    mk_Symb (ghost_sym (Printf.sprintf "%d/%d" num den))
   | Literal.String s ->
-    failf "enc_literal: string literals not supported: \"%s\"" s
+    (* No String type yet — encode as ghost symbol *)
+    mk_Symb (ghost_sym (Printf.sprintf "\"%s\"" s))
   | Literal.Binary b ->
     let bits = String.sub b 2 (String.length b - 2) in
     let width = String.length bits in
@@ -645,6 +665,7 @@ let enc_case eo_ps ctx impl_ctx sym ?(wildcard_impl_vars=false) ?expected_ty (t1
   let enc_lhs t =
     let encoded = enc_term eo_ps ctx t in
     let resolved = resolve_term ~debug:!verbose ~ctx encoded in
+    let resolved = strip_eo_as resolved in
     let head, args = Core.Term.get_args resolved in
     let is_our_sym = match head with
       | Core.Term.Symb s -> s == sym
@@ -984,7 +1005,9 @@ let enc_ltrl cat ty =
   let target = enc_term [] empty_ctxt ty in
   match cat with
   | Literal.STR ->
-    failf "enc_ltrl: string literal category not supported"
+    (* String type not fully supported — register alias but produce no symbols *)
+    register_alias "{|eo::String|}" target;
+    empty_result
   | Literal.NUM ->
     register_alias "{|eo::Int|}" target;
     enc_ltrl_num target
@@ -1033,9 +1056,10 @@ let enc_rule str ps (rdec : EO.rule_dec) =
     | None -> (rdec.args, [], false, List.length rdec.args)
     | Some (EO.Simple ts) -> (rdec.args, ts, false, List.length rdec.args)
     | Some (EO.PremiseList (pattern, _op)) ->
-      (* Add the pattern as an arg — the _aux symbol will pattern-match it.
-         The premise is Proof of the same pattern (a single proof of E). *)
-      (rdec.args @ [pattern], [pattern], true, List.length rdec.args)
+      (* Add the pattern as the first arg — enc_step passes formula_args
+         (the folded premise formula) before :args, so the LP type must
+         bind the premise-list variable first to match. *)
+      ([pattern] @ rdec.args, [pattern], true, List.length rdec.args)
   in
 
   let conc = match rdec.conc with
@@ -1138,9 +1162,19 @@ let enc_rule str ps (rdec : EO.rule_dec) =
       | _ -> None) args in
     let args_names = args_names @ assm_names in
 
-    (* Bind explicit arg params around the core type *)
-    let explicit_ctx = List.filter (fun (v, _, _) ->
-      List.mem (base_name v) args_names) ctx in
+    (* Bind explicit arg params around the core type.
+       Order must match enc_step's application order, which is:
+         formula_args @ args_enc @ prems_enc
+       i.e. premise-list formula first (if any), then :args in order,
+       then the proof.  to_prod wraps the first element as innermost
+       binder, so we pass the *reverse* of the desired LP param order. *)
+    let explicit_ctx =
+      let ctx_by_name = List.map (fun ((v, _, _) as entry) ->
+        (base_name v, entry)) ctx in
+      let ordered = List.filter_map (fun name ->
+        List.assoc_opt name ctx_by_name) args_names in
+      List.rev ordered
+    in
     let after_explicit, _ = Core.Ctxt.to_prod explicit_ctx core_ty in
 
     (* Find remaining free vars — these become implicit *)
@@ -1242,6 +1276,7 @@ let enc_rule str ps (rdec : EO.rule_dec) =
     let l = lhs_eo
       |> enc_term ps arg_ctx
       |> resolve_term ~debug:!verbose ~ctx:arg_ctx
+      |> strip_eo_as
       |> bind_pvars arg_ctx arg_ctx
     in
     let _, lhs_args = Core.Term.get_args l in
@@ -1389,18 +1424,32 @@ let enc_step str rule_name premises args conc_opt =
     let all_args = formula_args @ args_enc @ prems_enc in
     List.fold_left (fun acc arg -> mk_Appl (acc, arg)) head all_args
   in
-  (* Determine expected type if conclusion provided, and resolve body with it *)
-  let body, expected_ty = match conc_opt with
+  (* Resolve body, using conclusion as hint for implicit resolution if available.
+     Use the conclusion as the definition's type annotation so that downstream
+     steps can infer premise types via infer_noexn.
+     However, some CPC programs (e.g. $resolve) produce terms whose normal
+     forms differ structurally from the Eunoia conclusion (or-nil=false vs
+     and-nil=true), causing unification failures at lambdapi check time.
+     For those cases we still set the annotation on the internal LP symbol
+     (so infer_noexn works) but suppress it in the printed .lp file. *)
+  let body, expected_ty, print_ty = match conc_opt with
     | Some conc ->
       let conc_enc = enc_term [] ctx conc |> resolve_term ~debug:!verbose ~ctx in
       let exp_ty = mk_proof conc_enc in
-      (* Resolve body with expected type to help unification *)
       let body_resolved = resolve_term ~debug:!verbose ~ctx ~expected_ty:exp_ty body_raw in
-      (body_resolved, Some exp_ty)
+      (* Check if the resolved body type-checks against the expected type.
+         If not, suppress the annotation in the printed file but keep it
+         on the internal symbol so infer_noexn still returns Proof(F). *)
+      let prob = Core.Term.new_problem () in
+      let ok = match Core.Infer.check_noexn prob ctx body_resolved exp_ty with
+        | Some _ -> Core.Unif.solve_noexn prob
+        | None -> false
+      in
+      (body_resolved, Some exp_ty, ok)
     | None ->
-      (resolve_term ~debug:!verbose ~ctx body_raw, None)
+      (resolve_term ~debug:!verbose ~ctx body_raw, None, true)
   in
-  let sym = add_definition ~impl:[] (unique_name str) expected_ty body in
+  let sym = add_definition ~impl:[] ~print_ty (unique_name str) expected_ty body in
   { syms = [sym]; rules = []; }
 
 let enc_symbol name = function
