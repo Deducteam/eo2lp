@@ -64,8 +64,9 @@
 \newcommand{\prf}{\mbf{prf}}
 \newcommand{\step}{\mbf{step}}
 
+\newcommand{\eo}[1]{\mtt{eo::#1}}
 \newcommand{\eor}{\mtt{or}}
-\newcommand{\econcat}[3]{\eapp{\mtt{eo::concat}}{#1\ #2\ #3}}
+\newcommand{\econcat}[3]{\eapp{\eo{list\_concat}}{#1\ #2\ #3}}
 \newcommand{\econs}[3]{\eapp{#1}{#2\ #3}}
 \newcommand{\false}{\mtt{false}}
 
@@ -75,7 +76,14 @@
 \newcommand{\lcn}[1]{\mtt{:left-assoc-nil}\ {#1}}
 \newcommand{\lc}{\mtt{:left-assoc}}
 
+\newcommand{\ch}[1]{\mtt{:chainable}\ {#1}}
+\newcommand{\pw}[1]{\mtt{:pairwise}\ {#1}}
+\newcommand{\bd}[1]{\mtt{:binder}\ {#1}}
+\newcommand{\al}[1]{\mtt{:arg-list}\ {#1}}
+\newcommand{\eovar}[2]{\eapp{\eo{var}}{#1\ #2}}
 
+
+\newcommand{\cons}{{\text{cons}}}
 \newcommand{\nil}{{\text{nil}}}
 \newcommand{\foldl}{\mbf{foldl}}
 \newcommand{\foldr}{\mbf{foldr}}
@@ -93,40 +101,44 @@
 \newcommand{\eoTermSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l@{\qquad}r@{\ }l@{\quad}l}
 		%!----------------------------------------!%
-		t & {⦂}\ s \mid \eapp{s}{\vec t} & \mcomment{(terms)}      &
-		ρ & {⦂}\ \epar{s\ t\ \maybe{ν}}  & \mcomment{(parameters)}   \\[1mm]
+		t & {⦂}\ s \mid ℓ \mid \eapp{s}{\vec t} \mid \eapp{s}{\epar{\vec{ρ}}\ t} & \mcomment{(terms)}      &
+		ρ & {⦂}\ \epar{s\ t\ \maybe{ν}}                                          & \mcomment{(parameters)}   \\[1mm]
+		ℓ & {⦂}\ \msf{int}(n) ∣ \msf{str}(s)                                     & \mcomment{(literals)}   &
+		c & {⦂}\ \epar{t\ t'}                                                    & \mcomment{(cases)}        \\[1mm]
 	\end{array}
 }
 
 \newcommand{\eoAttrSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}l}
-		ν & {⦂} & \mtt{:implicit} \mid \mtt{:list}                       & \mcomment{(var. attributes)}   \\[1mm]
-		α & {⦂} & \mtt{:right-assoc} ∣ \mtt{:right-assoc-nil}\,\some{t}  & \mcomment{(const. attributes)} \\
-		  & {∣} & \mtt{:left-assoc} ∣ \mtt{:left-assoc-nil}\,\some{t}                                     \\
-		  & {∣} & \mtt{:chainable}\,\some{s} ∣ \mtt{:pairwise}\,\some{s}
+		ν & {⦂} & \mtt{:implicit} \mid \mtt{:list}               & \mcomment{(prm. attributes)}   \\
+		α & {⦂} & \mtt{:right-assoc} ∣ \mtt{:right-assoc-nil}\ t & \mcomment{(const. attributes)} \\
+		  & {∣} & \mtt{:left-assoc} ∣ \mtt{:left-assoc-nil}\ t                                    \\
+		  & {∣} & \mtt{:chainable}\ s ∣ \mtt{:pairwise}\ s                                        \\
+		  & {∣} & \mtt{:binder}\ s ∣ \mtt{:arg-list}\ s
 	\end{array}
 }
 
 \newcommand{\eoCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
-		r & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \epar{t\ t'}
-		    \end{array}
-		  & \mcomment{(term pairs)}
-		\\[1mm]
 		δ & \begin{array}[t]{c@{\ }l}
 			    {⦂} & \epar{\mtt{declare-const}\ s\ t\ \maybe{α}}                               \\
 			    {∣} & \epar{\mtt{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}} \\
+			    {∣} & \epar{\mtt{declare-consts}\ ℓ\ t}                                         \\
 			    {∣} & \epar{\mtt{define}\ {s} \ \epar{\vec ρ} \ t\ \ \maybe{\mtt{:type}\,t'}}   \\
 			    {∣} & \epar{\mtt{program}\ {s} \ \epar{\vec ρ}\
 			    \mtt{:signature}\,\epar{\vec{t}}\,t'\
-			    \epar{\vec{r}}
+			    \epar{\vec{c}}
 			    }                                                                               \\
 			    {∣} & {\color{MaterialGrey600}{\texttt{(}}}
 			    \mtt{declare-rule}\ s\ \epar{\vec ρ}\
-			    \\ & \quad \maybe{\mtt{:premises}\ \epar{\vec{t}_{\text{prem}}}}\
+			    \\ & \quad \maybe{\mtt{:assumption}\ t_{\text{assm}}}\
+			    \\ & \quad \maybe{
+			    \mtt{:premises}\ \epar{\vec{t}_{\text{prem}}}
+			    \mid
+			    \mtt{:premise-list}\ t_{\text{prem}}\ t_{\text{op}}
+			    }\
 			    \\ & \quad \maybe{\mtt{:args}\ \epar{\vec{t}_{\text{args}}}}\
-			    \\ & \quad \maybe{\mtt{:requires}\ \epar{\vec{r}}}\
+			    \\ & \quad \maybe{\mtt{:requires}\ \epar{\vec{c}}}\
 			    \\ & \quad \mtt{:conclusion}\ {t_{\text{conc}}}
 			    {\color{MaterialGrey600}{\texttt{)}}}                                           \\
 			    {∣} & \epar{\mtt{include}\ μ}
@@ -138,20 +150,21 @@
 \newcommand{\eoPrfCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
 		π & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \epar{\mtt{assume}\ s\ φ} \\
-			    % {∣} & \prn{\mtt{assume-push}\ s\ e}      \\
+			    {⦂} & \epar{\mtt{assume}\ s\ φ}      \\
+			    {∣} & \epar{\mtt{assume-push}\ s\ φ} \\
 			    {∣} & \epar{\mtt{step}\ s\ φ\
-			    \some{\mtt{:rule}\ s'}\
+			    \mtt{:rule}\ s'\
 			    \maybe{\mtt{:premises}\ {\vec ψ}}\
-			    \maybe{\mtt{:args}\ {\vec t}}}  \\
-			    % {∣} & \prn{\mtt{step-pop}\ s\ \maybe{e}\
-			    % \prn{\mtt{:rule}\ {s_r}}\
-			    % \maybe{\mtt{:premises}\ {\vec φ}}\
-			    % \maybe{\mtt{:args}\ {\vec e}} }
+			    \maybe{\mtt{:args}\ {\vec t}}}       \\
+			    {∣} & \epar{\mtt{step-pop}\ s\ φ\
+			    \mtt{:rule}\ s'\
+			    \maybe{\mtt{:premises}\ {\vec ψ}}\
+			    \maybe{\mtt{:args}\ {\vec t}}}       \\
 		    \end{array}
 		  & \mcomment{(prf. commands)}
 	\end{array}
 }
+
 
 % --- macros for `lp.tex` ------------------------------
 \newcommand{\esc}[1]{\wrapp{MaterialGrey600}{⦃}{⦄}{#1}}
@@ -343,8 +356,8 @@
 \newcommand{\Term}{\msf{Term}}
 
 %
-\newcommand{\eo}{\msf{eo}}
-\newcommand{\lp}{\msf{lp}}
+\newcommand{\EO}{\msf{EO}}
+\newcommand{\LP}{\msf{LP}}
 \newcommand{\trans}[1]{\left⟦{#1}\right⟧}
 \newcommand{\tm}[1]{\trans{#1}_\msf{tm}}
 \newcommand{\ty}[1]{\trans{#1}_\msf{ty}}

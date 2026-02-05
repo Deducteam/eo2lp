@@ -1,76 +1,15 @@
 (* elaborate.ml
-   Eunoia elaboration: resolve the Eunoia AST into an annotated
-   intermediate form that encode.ml can translate to LambdaPi
-   without consulting the Eunoia signature or parameter context.
+   Eunoia elaboration: normalize the Eunoia AST so that encode.ml
+   can translate it to LambdaPi without consulting the Eunoia
+   signature or parameter context.
 
    This module owns the Eunoia signature state and all decision
    logic: nullary define expansion, overload resolution, variable
-   vs symbol dispatch, :list detection, n-ary attribute dispatch. *)
+   vs symbol dispatch, :list detection, n-ary attribute dispatch.
+
+   Elaboration maps EO terms to EO terms. *)
 
 module EO = Syntax_eo
-
-(* ============================================================
-   Annotated term type
-   ============================================================ *)
-
-type elab_term =
-  | ELit of Literal.literal
-  | EType                                    (* eo::Type *)
-  | EVar of string                           (* resolved as a bound variable *)
-  | ESym of string                           (* resolved as a global LP symbol *)
-  | EAs of elab_term * elab_term             (* type cast: (as ty tm) *)
-  | EHolApp of elab_term * elab_term list    (* variable application via APP *)
-  | EBuiltinNary of string * elab_term list  (* n-ary builtin folded to binary *)
-  | EBuiltin of string * elab_term list      (* other builtin application *)
-  | EListCons of elab_arg list               (* eo::List::cons with :list annotations *)
-  | ENary of nary_info * elab_arg list       (* resolved n-ary decl application *)
-  | EApp of string * elab_term list          (* direct application (prog, defn, type-returning) *)
-  | EArrow of arrow_seg list                 (* arrow type segments *)
-  | EBinder of binder_info                   (* resolved binder application *)
-  | ELet of string * elab_term * elab_term   (* eo::define *)
-  | ETypeof of typeof_info                   (* eo::typeof *)
-
-and elab_arg = {
-  arg : elab_term;
-  is_list : bool;     (* true if this arg is a :list parameter *)
-}
-
-and nary_info = {
-  head : string;           (* LP symbol name for the head *)
-  opaque_args : elab_term list;
-  rest_args : elab_arg list;
-  fold : fold_kind;
-}
-
-and fold_kind =
-  | FoldNone                           (* no folding, direct hol_app *)
-  | FoldRightNil of elab_term          (* right-assoc-nil with nil term *)
-  | FoldLeftNil of elab_term           (* left-assoc-nil with nil term *)
-  | FoldRight                          (* right-assoc without nil *)
-  | FoldLeft                           (* left-assoc without nil *)
-  | FoldChainable of string * EO.term list * EO.param list  (* op, original args, ps *)
-  | FoldPairwise of string * EO.term list * EO.param list   (* op, original args, ps *)
-  | FoldArgList of string * EO.term list * EO.param list    (* cons, original args, ps *)
-  | FoldRightNilNSN of elab_term       (* right-assoc-nil-non-singleton-nil *)
-  | FoldLeftNilNSN of elab_term        (* left-assoc-nil-non-singleton-nil *)
-  | FoldRightNSN of elab_term          (* right-assoc-non-singleton-nil *)
-  | FoldLeftNSN of elab_term           (* left-assoc-non-singleton-nil *)
-
-and arrow_seg =
-  | APlain of elab_term
-  | ADepVar of string * elab_term * elab_term  (* name, eo_ty, rest elaborated in context *)
-  | ADepQuote of string                         (* quoted variable name *)
-  | AResult of elab_term                        (* final result type *)
-
-and binder_info = {
-  binder_head : string;        (* LP name for the binder symbol *)
-  cons_term : elab_term;       (* elaborated cons application *)
-  body : elab_term;            (* elaborated body with var substitutions *)
-}
-
-and typeof_info =
-  | TypeofParam of EO.term     (* param type from ps, needs encoding *)
-  | TypeofFallback of elab_term (* fallback: encode eo::typeof application *)
 
 (* ============================================================
    Eunoia signature state
@@ -80,26 +19,61 @@ let global_sig : EO.signature ref = ref []
 
 (* Hash-based index for fast symbol lookup.
    sig_index maps name -> list of (name, symbol) pairs (for overloads).
-   sig_single maps name -> first symbol (for single-match lookups). *)
+   sig_single maps name -> first symbol (for single-match lookups).
+   base_* tables cache the CPC portion, so per-proof rebuilds only
+   process the proof-specific symbols (overlay). *)
 let sig_index : (string, (string * EO.symbol) list) Hashtbl.t = Hashtbl.create 256
 let sig_single : (string, EO.symbol) Hashtbl.t = Hashtbl.create 256
+let base_index : (string, (string * EO.symbol) list) Hashtbl.t = Hashtbl.create 256
+let base_single : (string, EO.symbol) Hashtbl.t = Hashtbl.create 256
+let base_sig : EO.signature ref = ref []
+
+let build_index_from sig_ tbl_index tbl_single =
+  let rev_index : (string, (string * EO.symbol) list) Hashtbl.t =
+    Hashtbl.create (max 16 (List.length sig_))
+  in
+  List.iter (fun (name, sym) ->
+    if not (Hashtbl.mem tbl_single name) then Hashtbl.add tbl_single name sym;
+    let prev = Option.value ~default:[] (Hashtbl.find_opt rev_index name) in
+    Hashtbl.replace rev_index name ((name, sym) :: prev)
+  ) sig_;
+  Hashtbl.iter (fun name rev_list ->
+    Hashtbl.replace tbl_index name (List.rev rev_list)
+  ) rev_index
 
 let rebuild_index () =
-  Hashtbl.clear sig_index;
-  Hashtbl.clear sig_single;
-  List.iter (fun (name, sym) ->
-    (* sig_single: keep first occurrence (List.assoc_opt semantics) *)
-    if not (Hashtbl.mem sig_single name) then
-      Hashtbl.add sig_single name sym;
-    (* sig_index: accumulate all occurrences *)
-    let prev = match Hashtbl.find_opt sig_index name with
-      | Some l -> l | None -> [] in
-    Hashtbl.replace sig_index name (prev @ [(name, sym)])
-  ) !global_sig
+  Hashtbl.reset sig_index;
+  Hashtbl.reset sig_single;
+  build_index_from !global_sig sig_index sig_single
+
+(* Snapshot the current index as the base (CPC) portion.
+   After this, set_signature_overlay can cheaply add proof symbols. *)
+let snapshot_base_sig () =
+  base_sig := !global_sig;
+  Hashtbl.reset base_index;
+  Hashtbl.reset base_single;
+  Hashtbl.iter (fun k v -> Hashtbl.replace base_index k v) sig_index;
+  Hashtbl.iter (fun k v -> Hashtbl.replace base_single k v) sig_single
 
 let set_signature s =
   global_sig := s;
   rebuild_index ()
+
+(* Set signature by overlaying proof symbols on top of the cached base.
+   Avoids re-indexing the ~1000 CPC symbols for each proof. *)
+let set_signature_overlay (proof_sig : EO.signature) =
+  global_sig := !base_sig @ proof_sig;
+  (* Start from a copy of the base tables *)
+  Hashtbl.reset sig_index;
+  Hashtbl.reset sig_single;
+  Hashtbl.iter (fun k v -> Hashtbl.replace sig_index k v) base_index;
+  Hashtbl.iter (fun k v -> Hashtbl.replace sig_single k v) base_single;
+  (* Add proof-specific symbols on top *)
+  List.iter (fun (name, sym) ->
+    if not (Hashtbl.mem sig_single name) then Hashtbl.add sig_single name sym;
+    let prev = Option.value ~default:[] (Hashtbl.find_opt sig_index name) in
+    Hashtbl.replace sig_index name (prev @ [(name, sym)])
+  ) proof_sig
 
 let get_signature () = !global_sig
 
@@ -112,16 +86,13 @@ let find_all_eo_symbols name : (string * EO.symbol) list =
   | None -> []
 
 (* ============================================================
-   Helpers (moved from encode.ml)
+   Helpers
    ============================================================ *)
 
 (* Debug logging — delegates to Api_lp severity logging *)
 let dbg fmt =
-  let saved = !Api_lp.current_phase in
-  Api_lp.current_phase := "elab";
   Printf.ksprintf (fun s ->
-    Api_lp.log_info "%s" s;
-    Api_lp.current_phase := saved
+    Api_lp.with_phase "elab" (fun () -> Api_lp.log_info "%s" s)
   ) fmt
 
 (* Check if a symbol is an n-ary builtin that needs folding to binary *)
@@ -181,54 +152,68 @@ let infer_nil_subst decl_ps ty ts ps =
 let apply_substs substs t =
   List.fold_left (fun acc (s, t') -> EO.subst acc s t') t substs
 
+let take_drop n xs =
+  let rec go n = function
+    | x :: rest when n > 0 -> let (t, d) = go (n - 1) rest in (x :: t, d)
+    | xs -> ([], xs)
+  in go n xs
+
+let split_last xs =
+  match List.rev xs with
+  | last :: rev_init -> (List.rev rev_init, last)
+  | [] -> failwith "split_last: empty list"
+
+(* Overload-resolved name: raw EO name with _N suffix for overload index > 0 *)
+let overload_name s idx =
+  if idx = 0 then s
+  else Printf.sprintf "%s_%d" s idx
+
 (* ============================================================
-   Core elaboration
+   Core elaboration: EO.term -> EO.term
    ============================================================ *)
 
 (* Elaborate an Eunoia term given the parameter context.
-   ps = Eunoia param context (for :list checks, variable detection, etc.)
-   Returns an elab_term with all signature-consulting decisions resolved. *)
-let rec elab_term (ps : EO.param list) (t : EO.term) : elab_term =
-  elab_term_inner ps (EO.subst_lit_aliases t)
+   Returns a normalized EO term with all signature-level decisions resolved.
+   subst_lit_aliases is applied once at the top level; inner recursive
+   calls go directly to elab_inner to avoid O(n^2) re-traversal. *)
+let rec elab (ps : EO.param list) (t : EO.term) : EO.term =
+  elab_inner ps (EO.subst_lit_aliases t)
 
-and elab_term_inner ps = function
+and elab_inner ps = function
   | EO.Symbol s when s = EO.Builtin.ty_type ->
-    EType
+    EO.Symbol EO.Builtin.ty_type
 
   | EO.Symbol "String" ->
-    ESym "string"
+    EO.Symbol "string"
 
-  (* Symbol: check for nullary define expansion, then context/global lookup *)
   | EO.Symbol s ->
     begin match lookup_eo_symbol s with
     | Some (EO.Defn ([], body, _)) ->
-      dbg "define: %s → %s" s (Pp_eo.term_str body);
-      elab_term ps body
-    | _ ->
-      if EO.prm_mem s ps then EVar s
-      else ESym s
+      dbg "define: %s -> %s" s (Pp_eo.term_str body);
+      elab_inner ps body
+    | _ -> EO.Symbol s
     end
 
   | EO.Literal lit ->
-    ELit lit
+    EO.Literal lit
 
-  (* Arrow types *)
+  (* Arrow types: elaborate each segment *)
   | EO.Apply (s, args) when s = EO.Builtin.ty_arrow ->
-    EArrow (elab_arrow ps args)
+    EO.Apply (EO.Builtin.ty_arrow, elab_arrow ps args)
 
-  (* Type cast: (as T x) or (eo::as T x) *)
+  (* Type cast *)
   | EO.Apply (s, [ty; tm]) when s = EO.Builtin.ty_as || s = EO.Builtin.eo_as ->
-    EAs (elab_term ps ty, elab_term ps tm)
+    EO.Apply (EO.Builtin.eo_as, [elab_inner ps ty; elab_inner ps tm])
 
-  (* HOL application: (_ f x) — already elaborated form *)
+  (* HOL application: (_ f x) *)
   | EO.Apply (s, [f; x]) when s = EO.Builtin.ty_app ->
-    EHolApp (elab_term ps f, [elab_term ps x])
+    EO.Apply (EO.Builtin.ty_app, [elab_inner ps f; elab_inner ps x])
 
-  (* eo::typeof x → type of x from context *)
+  (* eo::typeof x -> type of x from context *)
   | EO.Apply (op, [EO.Symbol s]) when op = EO.Builtin.eo_typeof ->
     begin match EO.prm_find s ps with
-    | Some (_, ty, _) -> ETypeof (TypeofParam ty)
-    | None -> ETypeof (TypeofFallback (elab_term ps (EO.Symbol s)))
+    | Some (_, ty, _) -> ty
+    | None -> EO.Apply (EO.Builtin.eo_typeof, [elab_inner ps (EO.Symbol s)])
     end
 
   (* Builtin applications *)
@@ -250,32 +235,43 @@ and elab_term_inner ps = function
 (* Elaborate builtin applications *)
 and elab_builtin ps s ts =
   if is_nary_binop s && List.length ts > 2 then begin
-    (* Fold n-ary builtins (eo::and, eo::or, etc.) to binary *)
-    EBuiltinNary (s, List.map (elab_term ps) ts)
+    (* Fold n-ary builtins to right-associative binary *)
+    match List.rev ts with
+    | [] | [_] -> EO.Apply (s, List.map (elab_inner ps) ts)
+    | last :: rev_init ->
+      let folded = List.fold_left
+        (fun acc t -> EO.Apply (s, [t; acc])) last rev_init in
+      elab_inner ps folded
   end
   else if s = EO.Builtin.eo_list_cons then begin
-    (* eo::List::cons: handle :list params *)
-    let annotated = List.map (fun t ->
-      let is_list = match t with
-        | EO.Symbol s' -> EO.prm_has_attr s' EO.List ps
-        | _ -> false
-      in
-      { arg = elab_term ps t; is_list }
-    ) ts in
-    EListCons annotated
+    (* eo::List::cons: expand :list params eagerly *)
+    match ts with
+    | [x; xs] when (match xs with EO.Symbol s' -> EO.prm_has_attr s' EO.List ps | _ -> false)
+                 && not (match x with EO.Symbol s' -> EO.prm_has_attr s' EO.List ps | _ -> false) ->
+      EO.Apply (s, List.map (elab_inner ps) ts)
+    | _ ->
+      let nil = EO.Symbol EO.Builtin.eo_list_nil in
+      List.fold_right (fun t acc ->
+        let t' = elab_inner ps t in
+        let is_list = match t with
+          | EO.Symbol s' -> EO.prm_has_attr s' EO.List ps
+          | _ -> false
+        in
+        if is_list then
+          EO.Apply (EO.Builtin.eo_list_concat, [t'; acc])
+        else
+          EO.Apply (EO.Builtin.eo_list_cons, [t'; acc])
+      ) ts nil
   end
-  else begin
-    (* Other builtins: encode normally *)
-    EBuiltin (s, List.map (elab_term ps) ts)
-  end
+  else
+    EO.Apply (s, List.map (elab_inner ps) ts)
 
 (* Elaborate non-builtin applications *)
 and elab_apply ps s ts =
   match EO.prm_find s ps with
   | Some _ ->
     (* Variable application: use HOL app *)
-    let head = if EO.prm_mem s ps then EVar s else ESym s in
-    EHolApp (head, List.map (elab_term ps) ts)
+    EO.app_ho_list (EO.Symbol s) (List.map (elab_inner ps) ts)
   | None ->
     let eo_type_arity = function
       | EO.Apply (s, ts) when s = EO.Builtin.ty_arrow && ts <> [] ->
@@ -310,42 +306,35 @@ and elab_apply ps s ts =
     with
     | t' :: _ -> t'
     | [] ->
-      (* Symbol not in Eunoia signature — direct LP symbol *)
-      let head = if EO.prm_mem s ps then EVar s else ESym s in
-      EApp (Api_lp.esc s, List.map (elab_term ps) ts)
+      (* Symbol not in Eunoia signature — direct application *)
+      EO.Apply (s, List.map (elab_inner ps) ts)
     end
 
 (* Elaborate an n-ary application *)
 and elab_nary ?(overload_idx=0) ps s k ts =
+  let name = overload_name s overload_idx in
   match k with
-  (* Program constants: direct application *)
   | EO.Prog _ ->
-    EApp (Api_lp.esc s, List.map (elab_term ps) ts)
+    EO.Apply (name, List.map (elab_inner ps) ts)
 
-  (* Nullary define: expand head, keep args *)
   | EO.Defn ([], body, _) ->
-    begin match body with
-    | EO.Symbol s' when ts = [] ->
-      dbg "define: %s → %s" s s';
-      elab_term ps (EO.Symbol s')
-    | EO.Symbol s' ->
-      dbg "define: %s(%d args) → %s(%d args)" s (List.length ts) s' (List.length ts);
-      elab_term ps (EO.Apply (s', ts))
-    | _ when ts = [] ->
-      dbg "define: %s → %s" s (Pp_eo.term_str body);
-      elab_term ps body
-    | _ ->
-      EApp (Api_lp.esc s, List.map (elab_term ps) ts)
-    end
+    dbg "define: %s -> %s" s (Pp_eo.term_str body);
+    if ts = [] then
+      elab_inner ps body
+    else
+      (* Apply remaining args to the expanded body *)
+      (match body with
+       | EO.Symbol s' ->
+         elab_inner ps (EO.Apply (s', ts))
+       | _ ->
+         elab_inner ps (EO.Apply (name, ts)))
 
-  (* Parametric define: encode normally *)
   | EO.Defn _ ->
-    EApp (Api_lp.esc s, List.map (elab_term ps) ts)
+    EO.Apply (name, List.map (elab_inner ps) ts)
 
-  (* Declarations: dispatch on associativity attribute *)
   | EO.Decl (decl_ps, ty, ao) ->
     if EO.returns_type ty then
-      EApp (Api_lp.esc s, List.map (elab_term ps) ts)
+      EO.Apply (name, List.map (elab_inner ps) ts)
     else
       elab_nary_decl ~overload_idx ps s decl_ps ty ao ts
 
@@ -358,125 +347,191 @@ and elab_nary_decl ?(overload_idx=0) ps s decl_ps ty ao ts =
   in
   if n_opaque > 0 then
     dbg "opaque: %s n_opaque=%d n_args=%d" s n_opaque (List.length ts);
-  let take_drop n xs =
-    let rec go n = function
-      | x :: rest when n > 0 -> let (t, d) = go (n - 1) rest in (x :: t, d)
-      | xs -> ([], xs)
-    in go n xs
-  in
   let opaque_args, rest_ts =
     if n_opaque > 0 && n_opaque <= List.length ts then take_drop n_opaque ts
     else ([], ts)
   in
-  let opaque_elab = List.map (elab_term ps) opaque_args in
-  (* Annotate rest args with :list status *)
-  let rest_annotated = List.map (fun t ->
-    let is_list = match t with
-      | EO.Symbol s' -> EO.prm_has_attr s' EO.List ps
-      | _ -> false
-    in
-    { arg = elab_term ps t; is_list }
-  ) rest_ts in
-  (* Compute LP head name from overload index *)
-  let lp_name =
-    if overload_idx = 0 then Api_lp.esc s
-    else Printf.sprintf "%s_%d" (Api_lp.esc s) overload_idx
-  in
-  dbg "overload: %s idx=%d -> LP %s" s overload_idx lp_name;
+  let name = overload_name s overload_idx in
+  dbg "overload: %s idx=%d -> %s" s overload_idx name;
   (* Elaborate nil term with type param substitution *)
-  let elab_nil t_nil =
+  let elab_nil_eo t_nil =
     let subs = infer_nil_subst decl_ps ty ts ps in
-    if subs = [] then elab_term ps t_nil
-    else elab_term ps (apply_substs subs t_nil)
+    if subs = [] then t_nil
+    else apply_substs subs t_nil
   in
-  let fold = match ao with
-    | None -> FoldNone
-    | Some (EO.RightAssocNil t_nil) ->
-      (* Check for special :list cases *)
-      begin match rest_ts with
+  (* EO-level fold helpers *)
+  let glue_eo is_list arg acc =
+    if is_list then
+      EO.Apply (EO.Builtin.eo_list_concat_old, [EO.Symbol name; arg; acc])
+    else
+      EO.app_ho (EO.app_ho (EO.Symbol name) arg) acc
+  in
+  let is_list_of t = match t with
+    | EO.Symbol s' -> EO.prm_has_attr s' EO.List ps
+    | _ -> false
+  in
+  let n_rest = List.length rest_ts in
+  (* Direct application: HOL-app chain with opaque args prepended *)
+  let mk_direct () =
+    let opaque_elab = List.map (elab_inner ps) opaque_args in
+    let rest_elab = List.map (elab_inner ps) rest_ts in
+    let head =
+      if opaque_elab = [] then EO.Symbol name
+      else EO.Apply (name, opaque_elab)
+    in
+    EO.app_ho_list head rest_elab
+  in
+  (* Factored fold helpers for associativity attributes.
+     ~check_boundary: when true, check if the boundary arg (last for right,
+     first for left) is a :list param, and if a 2-arg form has a list param
+     in the boundary position, use direct application instead. *)
+  let fold_right_nil ?(check_boundary=false) label t_nil =
+    dbg "%s: %s(%d args)" label s n_rest;
+    if check_boundary then begin
+      match rest_ts with
       | [_; EO.Symbol s'] when EO.prm_has_attr s' EO.List ps ->
-        FoldNone  (* single explicit + :list → direct hol_app *)
+        mk_direct ()
       | _ ->
         let last_is_list = match List.rev rest_ts with
           | EO.Symbol s' :: _ when EO.prm_has_attr s' EO.List ps -> true
           | _ -> false
         in
-        if last_is_list then FoldRightNil (EVar "__last_is_list__")
-        else FoldRightNil (elab_nil t_nil)
-      end
-    | Some (EO.LeftAssocNil t_nil) ->
-      begin match rest_ts with
+        if last_is_list then
+          let init, last = split_last rest_ts in
+          elab_inner ps (List.fold_right (fun t acc -> glue_eo (is_list_of t) t acc) init last)
+        else
+          let nil = elab_nil_eo t_nil in
+          elab_inner ps (List.fold_right (fun t acc -> glue_eo (is_list_of t) t acc) rest_ts nil)
+    end else begin
+      let nil = elab_nil_eo t_nil in
+      elab_inner ps (List.fold_right (fun t acc -> glue_eo (is_list_of t) t acc) rest_ts nil)
+    end
+  in
+  let fold_left_nil ?(check_boundary=false) label t_nil =
+    dbg "%s: %s(%d args)" label s n_rest;
+    if check_boundary then begin
+      match rest_ts with
       | [EO.Symbol s'; _] when EO.prm_has_attr s' EO.List ps ->
-        FoldNone
+        mk_direct ()
       | _ ->
         let first_is_list = match rest_ts with
           | EO.Symbol s' :: _ when EO.prm_has_attr s' EO.List ps -> true
           | _ -> false
         in
-        if first_is_list then FoldLeftNil (EVar "__first_is_list__")
-        else FoldLeftNil (elab_nil t_nil)
-      end
-    | Some EO.RightAssoc -> FoldRight
-    | Some EO.LeftAssoc -> FoldLeft
-    | Some (EO.Chainable op) ->
-      if List.length rest_ts <= 2 then FoldNone
-      else FoldChainable (op, rest_ts, ps)
-    | Some (EO.Pairwise op) ->
-      if List.length rest_ts <= 2 then FoldNone
-      else FoldPairwise (op, rest_ts, ps)
-    | Some (EO.RightAssocNilNSN t_nil) -> FoldRightNilNSN (elab_nil t_nil)
-    | Some (EO.LeftAssocNilNSN t_nil) -> FoldLeftNilNSN (elab_nil t_nil)
-    | Some (EO.RightAssocNSN t_nil) -> FoldRightNSN (elab_nil t_nil)
-    | Some (EO.LeftAssocNSN t_nil) -> FoldLeftNSN (elab_nil t_nil)
-    | Some (EO.ArgList cons_name) ->
-      (* Check if single :list arg *)
-      begin match rest_ts with
-      | [EO.Symbol s'] when EO.prm_has_attr s' EO.List ps ->
-        FoldNone  (* single :list → direct hol_app *)
-      | _ -> FoldArgList (cons_name, rest_ts, ps)
-      end
-    | Some (EO.Binder _ | EO.LetBinder _
-           | EO.Implicit | EO.Opaque | EO.List
-           | EO.Syntax _ | EO.Restrict _) ->
-      FoldNone
+        if first_is_list then
+          match rest_ts with
+          | [] -> failwith "left-assoc-nil: empty args"
+          | acc :: tail ->
+            elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) acc tail)
+        else
+          let nil = elab_nil_eo t_nil in
+          elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) nil rest_ts)
+    end else begin
+      let nil = elab_nil_eo t_nil in
+      elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) nil rest_ts)
+    end
   in
-  let n_rest = List.length rest_ts in
-  (match fold with
-   | FoldNone -> ()
-   | FoldRightNil _ -> dbg "right-assoc-nil: %s(%d args)" s n_rest
-   | FoldLeftNil _ -> dbg "left-assoc-nil: %s(%d args)" s n_rest
-   | FoldRight -> dbg "right-assoc: %s(%d args)" s n_rest
-   | FoldLeft -> dbg "left-assoc: %s(%d args)" s n_rest
-   | FoldChainable (op, _, _) -> dbg "chainable: %s(%d args), op=%s" s n_rest op
-   | FoldPairwise (op, _, _) -> dbg "pairwise: %s(%d args), op=%s" s n_rest op
-   | FoldArgList (cons, _, _) -> dbg "arg-list: %s(%d args), cons=%s" s n_rest cons
-   | FoldRightNilNSN _ -> dbg "right-assoc-nil-nsn: %s(%d args)" s n_rest
-   | FoldLeftNilNSN _ -> dbg "left-assoc-nil-nsn: %s(%d args)" s n_rest
-   | FoldRightNSN _ -> dbg "right-assoc-nsn: %s(%d args)" s n_rest
-   | FoldLeftNSN _ -> dbg "left-assoc-nsn: %s(%d args)" s n_rest);
-  ENary ({ head = lp_name; opaque_args = opaque_elab;
-           rest_args = rest_annotated; fold }, rest_annotated)
+  match ao with
+  | None ->
+    mk_direct ()
 
-(* Elaborate arrow type segments *)
+  | Some (EO.RightAssocNil t_nil) ->
+    fold_right_nil ~check_boundary:true "right-assoc-nil" t_nil
+
+  | Some (EO.LeftAssocNil t_nil) ->
+    fold_left_nil ~check_boundary:true "left-assoc-nil" t_nil
+
+  | Some EO.RightAssoc ->
+    dbg "right-assoc: %s(%d args)" s n_rest;
+    let init, last = split_last rest_ts in
+    elab_inner ps (List.fold_right (fun t acc -> glue_eo (is_list_of t) t acc) init last)
+
+  | Some EO.LeftAssoc ->
+    dbg "left-assoc: %s(%d args)" s n_rest;
+    begin match rest_ts with
+    | [] -> failwith "left-assoc: empty args"
+    | acc :: tail ->
+      elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) acc tail)
+    end
+
+  | Some (EO.Chainable op) ->
+    if List.length rest_ts <= 2 then mk_direct ()
+    else begin
+      dbg "chainable: %s(%d args), op=%s" s n_rest op;
+      let rec aux = function
+        | v :: w :: vs ->
+          (EO.app_ho_list (EO.Symbol s) [v; w]) :: aux (w :: vs)
+        | _ -> []
+      in
+      elab_inner ps (EO.Apply (op, aux rest_ts))
+    end
+
+  | Some (EO.Pairwise op) ->
+    if List.length rest_ts <= 2 then mk_direct ()
+    else begin
+      dbg "pairwise: %s(%d args), op=%s" s n_rest op;
+      let rec aux = function
+        | v :: vs ->
+          List.append
+            (List.map (fun w -> EO.app_ho_list (EO.Symbol s) [v; w]) vs)
+            (aux vs)
+        | [] -> []
+      in
+      elab_inner ps (EO.Apply (op, aux rest_ts))
+    end
+
+  | Some (EO.RightAssocNilNSN t_nil) ->
+    fold_right_nil "right-assoc-nil-nsn" t_nil
+
+  | Some (EO.LeftAssocNilNSN t_nil) ->
+    fold_left_nil "left-assoc-nil-nsn" t_nil
+
+  | Some (EO.RightAssocNSN t_nil) ->
+    fold_right_nil "right-assoc-nsn" t_nil
+
+  | Some (EO.LeftAssocNSN t_nil) ->
+    fold_left_nil "left-assoc-nsn" t_nil
+
+  | Some (EO.ArgList cons_name) ->
+    begin match rest_ts with
+    | [EO.Symbol s'] when EO.prm_has_attr s' EO.List ps ->
+      mk_direct ()
+    | _ ->
+      dbg "arg-list: %s(%d args), cons=%s" s n_rest cons_name;
+      let list_term = EO.Apply (cons_name, rest_ts) in
+      let list_elab = elab_inner ps list_term in
+      let head =
+        if opaque_args = [] then EO.Symbol name
+        else EO.Apply (name, List.map (elab_inner ps) opaque_args)
+      in
+      EO.app_ho head list_elab
+    end
+
+  | Some (EO.Binder _ | EO.LetBinder _
+         | EO.Implicit | EO.Opaque | EO.List
+         | EO.Syntax _ | EO.Restrict _) ->
+    mk_direct ()
+
+(* Elaborate arrow type segments — preserve eo::var and eo::quote forms *)
 and elab_arrow ps = function
-  | [] -> [AResult EType]  (* shouldn't happen *)
-  | [t] -> [AResult (elab_term ps t)]
+  | [] -> []
+  | [t] -> [elab_inner ps t]
   | EO.Apply (op, [ty; EO.Symbol s]) :: rest when op = EO.Builtin.eo_var ->
-    ADepVar (s, elab_term ps ty, elab_term ps ty) :: elab_arrow ps rest
+    EO.Apply (EO.Builtin.eo_var, [elab_inner ps ty; EO.Symbol s]) :: elab_arrow ps rest
   | EO.Apply (op, [EO.Symbol s]) :: rest when op = EO.Builtin.eo_quote ->
-    ADepQuote s :: elab_arrow ps rest
+    EO.Apply (EO.Builtin.eo_quote, [EO.Symbol s]) :: elab_arrow ps rest
   | t :: rest ->
-    APlain (elab_term ps t) :: elab_arrow ps rest
+    elab_inner ps t :: elab_arrow ps rest
 
 (* Elaborate eo::define let-bindings *)
 and elab_let ps xs body =
   match xs with
-  | [] -> elab_term ps body
+  | [] -> elab_inner ps body
   | (name, rhs) :: rest ->
-    let rhs_elab = elab_term ps rhs in
+    let rhs' = elab_inner ps rhs in
     let ps' = (name, EO.Symbol "NONE", []) :: ps in
-    let body_elab = elab_let ps' rest body in
-    ELet (name, rhs_elab, body_elab)
+    let body' = elab_let ps' rest body in
+    EO.Bind (EO.Builtin.eo_define, [(name, rhs')], body')
 
 (* Elaborate binder applications *)
 and elab_binder ps s xs body =
@@ -501,16 +556,9 @@ and elab_binder_one ps s k xs body =
     in
     let bound_params = List.map (fun (n, ty) -> (n, ty, [])) xs in
     let ps' = ps @ bound_params in
-    let var_terms = List.map (fun v -> elab_term ps (mk_var_eo v)) xs in
-    (* Build cons application as an EO term and elaborate it *)
-    let cons_elab =
-      EApp (Api_lp.esc t_cons_name, var_terms)
-    in
-    let body_elab = elab_term ps' body' in
-    EBinder {
-      binder_head = Api_lp.esc s;
-      cons_term = cons_elab;
-      body = body_elab;
-    }
+    let var_terms = List.map (fun v -> elab_inner ps (mk_var_eo v)) xs in
+    let cons_elab = EO.Apply (t_cons_name, var_terms) in
+    let body_elab = elab_inner ps' body' in
+    EO.Apply (s, [cons_elab; body_elab])
   | _ ->
     failwith (Printf.sprintf "No :binder attribute for `%s`" s)

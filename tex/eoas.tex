@@ -17,28 +17,24 @@
 	$$ \eoPrfCommandSyntax $$
 \end{boxfigure}
 % ---------------------------------------------------------
-With respect to a fixed set $𝒮_{\mbf{eo}}$ of \emph{symbols},
-the rules in \autoref{fig:eo-syntax} define syntax for a
-fragment of Eunoia.
+\Autoref{fig:eo-syntax} defines syntax for the
+fragment Eunoia considered in this document, where the
+metavariable $s$ ranges over a set of \emph{symbols}.
 %
-In particular, we define sets of expressions
-for \emph{terms}, \emph{parameters}, and \emph{attributes}.
+First, we define grammars for the core term syntax.
 %
-Each term is either a symbol $s$ or an \emph{application}
-$\eapp{s}{\vec t}$ for some list of terms $\vec t$.
+Each term is either a symbol $s$, an (integer or string)
+\emph{literal} $ℓ$, an \emph{application} $\eapp{s}{\vec t}$,
+or a \emph{binder application} $\eapp{s}{\epar{\vec ρ}\ t}$.
 %
-% TODO. ref to explanation of variable attributes.
-Let $ν$ and $α$ range over \emph{variable attributes}
-and \emph{constant attributes} respectively.
-%
-Then, each \emph{parameter} $ρ$ consists of a symbol $s$,
-a term $t$ (the type of the paramater), and possibly a variable attribute $ν$.
+Each \emph{parameter} $ρ$ consists of a symbol $s$, a term
+% forward ref to where we discuss typing ??
+$t$ (the type of the parameter), and possibly a
+\emph{parameter attribute} $ν$.
 %
 
-The rules of \autoref{fig:eo-syntax} define a subset
-of Eunoia \emph{commands},
-which are divided into \emph{standard commands}
-and \emph{proof commands}.
+Second, we define the \emph{commands} of Eunoia, which are
+divided into \emph{standard commands} and \emph{proof commands}.
 %
 Hereinafter, a Eunoia \emph{signature} is a list $Δ$
 of standard commands, and a \emph{proof script} is a
@@ -47,22 +43,18 @@ where $\vec δ$ is a list of standard commands called
 the \emph{preamble} and $\vec π$ is a list of
 proof commands called the \emph{body} of the script.
 %
-The preamble of $Υ$ should be understood as the encoding
-of an `input problem', and the body understood as a
-proof of the unsatisfiability of the problem.
-
-In practice, a Eunoia-friendly solver should have
-a trusted signature $Δ$ declaring a bespoke set of
-constants and inference rules.
+In practice, a Eunoia-friendly SMT solver should provide a
+signature $Δ$ that encodes the inference rules that may be
+used in the proof scripts produced by the solver.
 %
-The correctness of a generated proof script $Υ$ may then
-be checked with respect to $Δ$ using the Ethos tool.
+Then, the correctness of a proof script $Υ$ (wrt. $Δ$)
+may be checked using the Ethos checker.
 %
 
 \subsection{Commands and their Declarations}\label{sec:eo-judge}
 %
-We proceed to define an abstract interface for `reading'
-information from signatures and proof scripts.
+We define an abstract interface for reasoninga about
+signatures and proof scripts.
 %
 This interface is useful for
 characterizing the \emph{elaboration}
@@ -75,9 +67,9 @@ found in \autoref{sec:eo-elab} and
 Let $δ$ be a \emph{(parameterized) constant declaration}
 with symbol $s$, parameters $\vec ρ$, and term $t$.
 %
-We may write $\prn{δ ⊢ s(\vec ρ) : t}$ to express
+We may write $\prn{⊢ s(\vec ρ) : t}$ to express
 that the command $δ$ declares $t$ as the \emph{type} of $s$
-with respect to a parameters $\vec ρ$.
+with respect to parameters $\vec ρ$.
 %
 Furthermore, if a constant attribute $α$ is given by $δ$,
 we may write $\prn{δ ⊢ s(\vec ρ) ∷ α}$.
@@ -112,10 +104,10 @@ is \emph{range}:
 % \emph{cases} $\vec r$ with respect to $\vec ρ$.
 %
 % More formally, we may write:
-  $$
-  δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}
-\quad\text{and}\quad
-  δ ⊢ s(\vec ρ) ≔ \mbf{cases}[c_1, \ldots, c_m]
+$$
+	δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}
+	\quad\text{and}\quad
+	δ ⊢ s(\vec ρ) ≔ \mbf{cases}[c_1, \ldots, c_m]
 $$
 % for the type of $s$,
 % and
@@ -131,34 +123,34 @@ Also, suppose $δ$ provides
 $\mtt{:premises}\ \epar{\plur ψ n}$,
 $\mtt{:args}\ \epar{\plur t m}$ with types $\plur τ m$,
 and $\mtt{:requires}\
-  \epar{\epar{x_1\ y_1}\ldots\epar{x_o\ y_o}}$.
+	\epar{\epar{x_1\ y_1}\ldots\epar{x_o\ y_o}}$.
 %
 First, let $δ$ declare the type and definiens
 of an \emph{auxiliary symbol} for $s$ thus:
 $$
-\begin{array}[t]{l@{\ ⊢\ }l}
-δ & s^⭑(\vec ρ) : \earr{\plur τ m\ \bool}
-\\[1mm]
-δ & s^⭑(\vec ρ) ≔ \mbf{cases}
-  [\;
-    \epar{{\eapp{s^⭑}{\plur t m}}\ φ}
-    ∣
-\epar{x_1\ y_1}\ldots\epar{x_k\ y_k}%%Guillaume: should be o ?
-  \;]
-\end{array}
+	\begin{array}[t]{l@{\ ⊢\ }l}
+		δ & s^⭑(\vec ρ) : \earr{\plur τ m\ \bool}
+		\\[1mm]
+		δ & s^⭑(\vec ρ) ≔ \mbf{cases}
+		[\;
+			\epar{{\eapp{s^⭑}{\plur t m}}\ φ}
+			∣
+			\epar{x_1\ y_1}\ldots\epar{x_o\ y_o}
+			\;]
+	\end{array}
 $$
 %
 Then, the type of $s$ is given by $δ$ with an extended list of parameters%
 \footnote{The symbols chosen for $\plur α m$ must be \emph{fresh} with respect to $δ$.
-  That is, each $α_i$ is distinct from any symbol occurring in any of the
-  terms or parameters supplied by $δ$.}
+	That is, each $α_i$ is distinct from any symbol occurring in any of the
+	terms or parameters supplied by $δ$.}
 thus:
-  $$δ ⊢ s(\vec ρ, \epar{α_1\ τ_1} \ldots \epar{α_n\ τ_m}) :
-  \earr{
-    \epar{\mtt{Proof}\ ψ_1} \ldots
-    \epar{\mtt{Proof}\ ψ_n}\
-    \epar{\mtt{Proof}\ φ^⭑}
-  }$$
+$$δ ⊢ s(\vec ρ, \epar{α_1\ τ_1} \ldots \epar{α_n\ τ_m}) :
+	\earr{
+		\epar{\mtt{Proof}\ ψ_1} \ldots
+		\epar{\mtt{Proof}\ ψ_n}\
+		\epar{\mtt{Proof}\ φ^⭑}
+	}$$
 where $φ^⭑ ≔ \eapp{s^⭑}{\plur α n}$
 ensures that a term of type $\eapp{\mtt{Proof}}{φ}$
 may only be obtained iff $\prn{α_i = t_i}$
@@ -175,7 +167,7 @@ Then, any judgement $J$ made by a command $δ'$ in $Θ_μ$
 is also made by $δ$.
 That is:
 $$
-\text{$∀\,δ' ∈ Θ_μ$,}\quadδ' ⊢ J \quad⟹\quad \epar{\mtt{include}\ μ} ⊢ J
+	\text{$∀\,δ' ∈ Θ_μ$,}\quadδ' ⊢ J \quad⟹\quad \epar{\mtt{include}\ μ} ⊢ J
 $$
 
 \subsubsection{Proof Scripts.}
@@ -222,9 +214,9 @@ assigned to $s$ within some signature $Δ$.
 %
 For example, consider a constant declaration $δ$ with:
 $$
-δ ⊢ \eor : \earr{\bool\ \bool\ \bool}
-\quad\text{and}\quad
-δ ⊢ \eor ∷ {\rcn \false}
+	δ ⊢ \eor : \earr{\bool\ \bool\ \bool}
+	\quad\text{and}\quad
+	δ ⊢ \eor ∷ {\rcn \false}
 $$
 % and $δ ⊢ $.
 % $$\dca{\eor}{\earr{\bool\ \bool\ \bool}}$$
@@ -240,7 +232,7 @@ Thus, $n$-ary applications of $\eor$ are
 \emph{elaborated} to a normal form, e.g.;
 %
 $$\eapp{\eor}{\ev x\ \ev y\ \ev z}\ ⇢\
-  \eapp{\eor}{\ev x\ \eapp{\eor}{\ev y\ \eapp{\eor}{\ev z\ \false}}}$$
+	\eapp{\eor}{\ev x\ \eapp{\eor}{\ev y\ \eapp{\eor}{\ev z\ \false}}}$$
 %
 Furthermore, the elaboration of such applications may
 also depend on the attributes of `locally bound' symbols.
@@ -251,13 +243,16 @@ and $\epar{\ev z\ \bool}$.
 %
 Then, observe:
 $$
-\eapp{\eor}{\ev x\ \ev y\ \ev z}
-\ {⇢}
-\ \econs\eor{\ev x}{
-\econcat{\eor}{\ev y}{\eapp{\eor}{\ev z\ \false}}
-}
+	\eapp{\eor}{\ev x\ \ev y\ \ev z}
+	\ {⇢}
+	\ \econs\eor{\ev x}{
+		\econcat{\eor}{\ev y}{\eapp{\eor}{\ev z\ \false}}
+	}
 $$
-%%Guillaume: explain the eo::concat function
+%
+Here, $\eo{list\_concat}$ is a built-in ternary operator:
+$\eapp{\eo{list\_concat}}{f\ \ell\ \ell'}$ concatenates
+two $f$-lists $\ell$ and $\ell'$.
 %
 The $\mtt{:list}$ attribute alters the elaboration strategy
 under the assumption that $\ev y$ will (eventually) be
@@ -268,16 +263,16 @@ to consider the result of substituting
 $\ev y ↦ \econs\eor{\ev w}{\false}$
 thus:
 $$
-\begin{array}[t]{c}
-\econs\eor{\ev x}{
-\econcat{\eor}{\econs\eor{\ev w}{\false}}
-  {\eapp{\eor}{\ev z\ \false}}}
-\\[1mm] {⇣} \\[1mm]
-  \econs\eor{\ev x}{
-  \econs\eor{\ev w}{
-    \econs\eor{\ev z}{\false}}
-  }
-\end{array}
+	\begin{array}[t]{c}
+		\econs\eor{\ev x}{
+			\econcat{\eor}{\econs\eor{\ev w}{\false}}
+			{\eapp{\eor}{\ev z\ \false}}}
+		\\[1mm] {⇣} \\[1mm]
+		\econs\eor{\ev x}{
+			\econs\eor{\ev w}{
+				\econs\eor{\ev z}{\false}}
+		}
+	\end{array}
 $$
 %
 With the aim of supporting the elaboration strategies
@@ -286,59 +281,114 @@ corresponding to the constant attributes given in
 we define an \emph{elaboration} operator below.
 %
 \begin{definition}
-For any symbol $f$ and list of parameters $\vec ρ$,
-let $\glue{\vec ρ,f}$ be the binary operator
-such that for any terms $t_1$, $t_2$, the following holds:
-%
-$$
-\glue{\vec ρ,f}[t_1,t_2] =
-\begin{cases}
-  \econcat{f}{t_1}{t_2} & \text{if $\vec ρ ⊢ t_1 ∷ \mtt{:list}$,}
-  \\
-  \econs{f}{t_1}{t_2} & \text{otherwise.}
-\end{cases}
-$$
-%
-Then for any signature $Δ$, let $\elab{Δ,\vec ρ}$
-be the least (unary) operator such that for any
-symbol $f$ and terms $\vec t = \plur t n$,
-the following holds:
-$$
-\begin{array}[t]{r@{\ =\ }l}
-  \elab{Δ,\vec ρ}[f] & f
-  \\[1mm]
-  \elab{Δ,\vec ρ}[\eapp{f}{\vec t}]
-  &
-  \begin{cases}
-    \foldr(G, t_\nil, \vec t')
-    & \tsm{if $Δ ⊢ f ∷ \rcn{t_\nil}$, }
-    \\
-    \foldl(G', t_\nil, \vec t')
-    & \tsm{if $Δ ⊢ f ∷ \lcn{t_\nil}$,}
-    \\
-    \foldr(G, t'_n, t'_1\ldots t'_{n-1})
-    &
-    \tsm{if $Δ ⊢ f ∷ \rc$,}
-    \\
-    \foldl(G', t'_1, t'_2\ldots t'_{n})
-    &
-    \tsm{if $Δ ⊢ f ∷ \lc$,}
-    \\
-    \eapp{f}{{t_1'}\ldots{t_n'}}
-    &
-    \tsm{otherwise.}
-    % \econs{f}{t_1}{t_2} & \text{otherwise.}
-  \end{cases}
-\end{array}
-$$
-where $G ≔ \glue{\vec ρ, f}[x,y]$,
-and $G'(x,y) ≔ G(y,x)$,
-and $t_i' ≔ \elab{Δ, \vec ρ}[t_i]$.
-% for $1 ≤ i ≤ n$.
+	For any symbol $s$ and list of parameters $\vec ρ$,
+	let $\glue{\vec ρ,f}$ be the binary operator
+	such that for any terms $t_1$, $t_2$, the following holds:
+	%
+	$$
+		\glue{\vec ρ,f}[t_1,t_2] =
+		\begin{cases}
+			\econcat{f}{t_1}{t_2} & \text{if $\vec ρ ⊢ t_1 ∷ \mtt{:list}$,}
+			\\
+			\econs{f}{t_1}{t_2}   & \text{otherwise.}
+		\end{cases}
+	$$
+	%
+	Then for any signature $Δ$, let $\elab{Δ,\vec ρ}$
+	be the least (unary) operator such that:
+	\begin{enumerate}
+		\item For any symbol $s$, $\elab{Δ,\vec ρ}[s] = s$.
+		      %
+		\item Let $s$ be a symbol with $Δ ⊢ s ∷ \bd t_\cons$
+		      (for some term $t_\cons$), and
+		      let $\vec v = \epar{x_1\ t_1}\ldots\epar{x_n\ t_n}$.
+		      Then for any term $t$, we have:
+		      $$ \elab{Δ,\vec ρ}[\eapp{s}{\epar{\vec v}\ t}]
+			      =
+			      \eapp{s}{t_{\text{vars}}\ t_{\text{body}}}
+		      $$
+		      where
+		      $t_{\text{vars}} ≔ \elab{Δ, \vec ρ}
+			      [
+				      \eapp{t_\cons}{
+					      \eovar{\mtt{"}x_1\mtt{"}}{t_1}
+					      \ldots
+					      \eovar{\mtt{"}x_n\mtt{"}}{τ_n}
+				      }
+			      ]
+		      $
+		      encodes $\vec v$ as a list of $\eo{var}$ terms,
+		      and $t_{\text{body}} ≔ \elab{Δ, \vec ρ}[t']$
+		      where $t'$ is the result of replacing each
+		      symbol $x_i$ in $t$ with its $\eo{var}$ encoding.
+		      %
+		\item For any symbol $s$ and list of terms $\vec t$:
+		      $$
+			      \begin{array}[t]{l}
+				      \elab{Δ,\vec ρ}[\eapp{s}{\vec t}]\ {=}\
+				      \\[2mm]
+				      \quad
+				      \begin{cases}
+					      \foldr(G, t_\nil, \vec t')
+					       & \tsm{if $Δ ⊢ s ∷ \rcn{t_\nil}$, }
+					      \\
+					      \foldl(G', t_\nil, \vec t')
+					       & \tsm{if $Δ ⊢ s ∷ \lcn{t_\nil}$,}
+					      \\
+					      \foldr(G, t'_n, t'_1\ldots t'_{n-1})
+					       &
+					      \tsm{if $Δ ⊢ s ∷ \rc$,}
+					      \\
+					      \foldl(G', t'_1, t'_2\ldots t'_{n})
+					       &
+					      \tsm{if $Δ ⊢ s ∷ \lc$,}
+					      \\
+					      \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{chain}(s, \vec t')}]
+					       &
+					      \tsm{if $Δ ⊢ s ∷ \ch {t_\cons}$,}
+					      \\
+					      \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{pairs}(s, \vec t')}]
+					       &
+					      \tsm{if $Δ ⊢ s ∷ \pw {t_\cons}$,}
+					      \\
+					      \eapp{s}{{t_1'}\ldots{t_n'}}
+					       &
+					      \tsm{otherwise.}
+				      \end{cases}
+				      \\[3mm]
+			      \end{array}
+		      $$
+		      where\footnote{%
+			      $\foldl(G, a, l)$ (resp.\ $\foldr(G, a, l)$) is
+			      the standard left fold (resp.\ right fold) using
+			      combining function $G$ and accumulator $a$ on list $l$.
+		      } $G ≔ \glue{\vec ρ, f}[x,y]$,
+		      $G'(x,y) ≔ G(y,x)$,
+		      and $t_i' ≔ \elab{Δ, \vec ρ}[t_i]$, and:
+		      $$
+			      \begin{array}[t]{r@{\ ≔\ }l}
+				      \mbf{chain}(f,\, t_1\ldots t_n)
+				       & \eapp{f}{t_1\ t_2}\,
+				      \eapp{f}{t_2\ t_3}
+				      \,\ldots\,
+				      \eapp{f}{t_{n-1}\ t_n}
+				      \\[1mm]
+				      \mbf{pairs}(f,\, t_1\ldots t_n)
+				       & \eapp{f}{t_1\ t_2}
+				      \,\ldots\,
+				      \eapp{f}{t_1\ t_n}\,
+				      \eapp{f}{t_2\ t_3}
+				      \,\ldots\,
+				      \eapp{f}{t_{n-1}\ t_n}
+			      \end{array}
+		      $$
+	\end{enumerate}
+
+	%
+
 
 \end{definition}
-$\foldl(G, a, l)$ (resp.\ $\foldr(G, a, l)$) is the standard
-left fold (resp.\ right fold) using combining function $G$ and accumulator $a$ on list $l$.
+
 %
 
 

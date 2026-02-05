@@ -3,16 +3,6 @@
 
 open Literal
 
-module S = String
-module M = Map.Make(S)
-
-module L = struct
-  include List
-  let chop xs =
-    let n = List.length xs in
-    (take (n - 1) xs, nth xs (n - 1))
-end
-
 (* Core AST *)
 
 type term =
@@ -111,7 +101,7 @@ end
 let is_builtin s =
   s = Builtin.ty_arrow || s = Builtin.ty_type
   || s = Builtin.ty_app || s = Builtin.ty_as
-  || S.starts_with ~prefix:"eo::" s
+  || String.starts_with ~prefix:"eo::" s
 
 (* Parameter queries *)
 
@@ -119,20 +109,20 @@ let is_name (s, _, _) s' = s = s'
 let is_attr (_, _, pas) pa = List.mem pa pas
 let is_typ  (_, ty, _) ty' = ty = ty'
 
-let prm_find s = L.find_opt (fun p -> is_name p s)
-let prm_mem  s = L.exists   (fun p -> is_name p s)
+let prm_find s = List.find_opt (fun p -> is_name p s)
+let prm_mem  s = List.exists   (fun p -> is_name p s)
 
 let prm_typ s ty =
-  L.exists (fun p -> is_name p s && is_typ p ty)
+  List.exists (fun p -> is_name p s && is_typ p ty)
 
 let prm_has_attr s pa =
-  L.exists (fun p -> is_name p s && is_attr p pa)
+  List.exists (fun p -> is_name p s && is_attr p pa)
 
 (* Term operations *)
 
 let app_ho t t' = Apply (Builtin.ty_app, [t; t'])
 
-let app_ho_list t ts = L.fold_left app_ho t ts
+let app_ho_list t ts = List.fold_left app_ho t ts
 
 let rec subst t s t' =
   match t with
@@ -140,74 +130,24 @@ let rec subst t s t' =
   | Symbol s' ->
     if s = s' then t' else t
   | Apply (s', ts) ->
-    let ts' = L.map (fun u -> subst u s t') ts in
+    let ts' = List.map (fun u -> subst u s t') ts in
     if s = s' then app_ho_list t' ts'
     else Apply (s', ts')
   | Bind (b, xs, body) ->
     let ys =
-      L.map (fun (x, tx) -> (x, subst tx s t')) xs
+      List.map (fun (x, tx) -> (x, subst tx s t')) xs
     in
     Bind (b, ys, subst body s t')
 
-(* Free variables *)
-
 module Set = Set.Make(String)
-
-let rec params_in ps = function
-  | Literal _ -> Set.empty
-  | Symbol s ->
-    if prm_mem s ps then Set.singleton s
-    else Set.empty
-  | Apply (s, ts) ->
-    let xs =
-      L.fold_left
-        (fun acc t -> Set.union acc (params_in ps t))
-        Set.empty ts
-    in
-    if prm_mem s ps then Set.union (Set.singleton s) xs
-    else xs
-  | Bind (_, vs, t) ->
-    let xs =
-      L.fold_left
-        (fun acc (_, t) -> Set.union acc (params_in ps t))
-        Set.empty vs
-    in
-    Set.union xs (params_in ps t)
-
-let rec is_free s = function
-  | Symbol s' -> s = s'
-  | Apply (s', ts) -> s = s' || L.exists (is_free s) ts
-  | Literal _ -> false
-  | Bind (_, vs, t) ->
-    let in_binder_types = List.exists (fun (_, ty) -> is_free s ty) vs in
-    let is_bound = List.exists (fun (x, _) -> x = s) vs in
-    in_binder_types || (not is_bound && is_free s t)
 
 (* Program helpers *)
 
 let rec returns_type = function
   | Symbol s when s = Builtin.ty_type -> true
   | Apply (s, ts) when s = Builtin.ty_arrow && ts <> [] ->
-    returns_type (L.hd (L.rev ts))
+    returns_type (List.hd (List.rev ts))
   | _ -> false
-
-
-(* Literal types *)
-
-let lit_cat_of = function
-  | Numeral _     -> NUM
-  | Decimal _     -> DEC
-  | Rational _    -> RAT
-  | Binary _      -> BIN
-  | Hexadecimal _ -> HEX
-  | String _      -> STR
-
-let lit_type_table : (lit_category, term) Hashtbl.t =
-  Hashtbl.create 8
-
-let set_lit_type cat ty = Hashtbl.replace lit_type_table cat ty
-let get_lit_type cat = Hashtbl.find_opt lit_type_table cat
-let type_of_literal l = get_lit_type (lit_cat_of l)
 
 (* Placeholder name → concrete type, populated by declare-consts *)
 let lit_alias_table : (string, term) Hashtbl.t = Hashtbl.create 4
@@ -220,8 +160,6 @@ let placeholder_of_cat = function
 
 let register_lit_alias cat ty =
   Hashtbl.replace lit_alias_table (placeholder_of_cat cat) ty
-
-let clear_lit_aliases () = Hashtbl.clear lit_alias_table
 
 (* Substitute placeholder type names in an Eunoia term *)
 let rec subst_lit_aliases = function
@@ -266,7 +204,7 @@ type sig_node = {
 
 type sig_graph = sig_node PathMap.t
 
-let path_str : path -> string = S.concat "."
+let path_str : path -> string = String.concat "."
 
 (* Core prelude - symbols available in all modules *)
 let core_prelude : signature ref = ref []
@@ -276,21 +214,21 @@ let set_core_prelude sig_ = core_prelude := sig_
 (* Get full signature at a path by collecting transitive includes *)
 let full_sig_at graph path =
   let visited = Hashtbl.create 16 in
-  let rec collect p =
-    if Hashtbl.mem visited p then []
+  let rec collect_rev p acc =
+    if Hashtbl.mem visited p then acc
     else begin
       Hashtbl.add visited p ();
       match PathMap.find_opt p graph with
       | None ->
         Printf.eprintf "warning: missing dependency %s (included from %s)\n%!"
           (path_str p) (path_str path);
-        []
+        acc
       | Some node ->
-        let deps = L.concat_map collect node.node_includes in
-        deps @ node.node_sig
+        let acc = List.fold_left (fun acc dep -> collect_rev dep acc) acc node.node_includes in
+        List.fold_left (fun acc sym -> sym :: acc) acc node.node_sig
     end
   in
-  !core_prelude @ collect path
+  !core_prelude @ List.rev (collect_rev path [])
 
 (* Topological sort of modules in the graph *)
 let topo_sort_graph (graph : sig_graph) : path list =
@@ -304,7 +242,7 @@ let topo_sort_graph (graph : sig_graph) : path list =
     else begin
       Hashtbl.add visiting path ();
       (match PathMap.find_opt path graph with
-       | Some node -> L.iter visit node.node_includes
+       | Some node -> List.iter visit node.node_includes
        | None -> ());
       Hashtbl.remove visiting path;
       Hashtbl.add visited path ();
@@ -314,7 +252,7 @@ let topo_sort_graph (graph : sig_graph) : path list =
     end
   in
   PathMap.iter (fun path _ -> visit path) graph;
-  L.rev !result
+  List.rev !result
 
 (* ============================================================
    Job files for proof processing
@@ -340,12 +278,12 @@ let rec symbols_in_term acc = function
   | Literal _ -> acc
   | Apply (s, ts) ->
     let acc = Set.add s acc in
-    L.fold_left symbols_in_term acc ts
+    List.fold_left symbols_in_term acc ts
   | Bind (b, vs, body) ->
     let acc = Set.add b acc in
-    let acc = L.fold_left (fun a (_, ty) -> symbols_in_term a ty) acc vs in
+    let acc = List.fold_left (fun a (_, ty) -> symbols_in_term a ty) acc vs in
     symbols_in_term acc body
 
 (* Extract all symbol references from a list of terms *)
 let symbols_in_terms ts =
-  L.fold_left symbols_in_term Set.empty ts
+  List.fold_left symbols_in_term Set.empty ts

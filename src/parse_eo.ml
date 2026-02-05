@@ -4,7 +4,6 @@
 open Lexing
 open Syntax_eo
 
-let had_parse_error : bool ref = ref false
 let parse_error_count : int ref = ref 0
 
 (* Path utilities *)
@@ -85,7 +84,6 @@ let parse_command lx =
       pos.pos_lnum
       (pos.pos_cnum - pos.pos_bol + 1)
       token_display;
-    had_parse_error := true;
     incr parse_error_count;
     None
 
@@ -192,8 +190,7 @@ let check_dag graph =
 
 (* Parse a single .eo proof file into a flat signature.
    Proof files have no includes — just declarations, defines, assumes, steps. *)
-let parse_proof_file (filepath : string) : string * signature * int =
-  let stem = Filename.chop_extension (Filename.basename filepath) in
+let parse_proof_file ~name (filepath : string) : string * signature * int =
   let ch = open_in filepath in
   let lx = Lexing.from_channel ch in
   lx.lex_curr_p <- { lx.lex_curr_p with pos_fname = filepath };
@@ -212,24 +209,36 @@ let parse_proof_file (filepath : string) : string * signature * int =
   | Exit -> close_in ch
   | exn  -> close_in ch; raise exn);
   let n_errors = !parse_error_count - errors_before in
-  (stem, List.rev !sig_, n_errors)
+  (name, List.rev !sig_, n_errors)
 
-(* Parse all .eo files in a directory into a list of (name, signature, parse_errors) triples *)
+(* Recursively collect .eo files under a directory *)
+let rec walk_eo_files dir =
+  Sys.readdir dir
+  |> Array.to_list
+  |> List.concat_map (fun entry ->
+    let path = Filename.concat dir entry in
+    if Sys.is_directory path then walk_eo_files path
+    else if Filename.check_suffix entry ".eo" then [path]
+    else [])
+
+(* Parse all .eo files in a directory (recursively) into a list of
+   (name, signature, parse_errors) triples. Names are relative to the
+   base directory with the .eo extension stripped, e.g. "QF_UF/small/foo". *)
 let parse_proof_dir ?(progress : (int -> int -> string -> unit) option)
     (dir : string) : (string * signature * int) list =
+  let base_len = String.length dir + 1 in
   let files =
-    Sys.readdir dir
-    |> Array.to_list
-    |> List.filter (fun f -> Filename.check_suffix f ".eo")
+    walk_eo_files dir
     |> List.sort String.compare
-    |> List.map (Filename.concat dir)
   in
   let total = List.length files in
   List.mapi (fun i f ->
+    let rel = String.sub f base_len (String.length f - base_len) in
+    let name = Filename.chop_extension rel in
     (match progress with
      | Some cb -> cb (i + 1) total (Filename.basename f)
      | None -> ());
-    parse_proof_file f
+    parse_proof_file ~name f
   ) files
 
 (* ============================================================
