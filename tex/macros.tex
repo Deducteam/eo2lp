@@ -54,6 +54,21 @@
 \newcommand{\epar}[1]{\wrapp{MaterialGrey600}{\texttt{(}}{\texttt{)}}{#1}}
 \newcommand{\eapp}[2]{\epar{#1\ #2}}
 \newcommand{\earr}[1]{\epar{\mtt{->}\ #1}}
+\newcommand{\eprf}[1]{\epar{\mtt{Proof}\ #1}}
+\newcommand{\ecase}[2]{\epar{#1\ #2}}
+\newcommand{\eo}[1]{\mtt{eo::#1}}
+\newcommand{\etype}{\mtt{Type}}
+\newcommand{\eoreqs}[3]{\eapp{\eo{requires}}{#1\ #2\ #3}}
+\newcommand{\equote}[1]{\eapp{\eo{quote}}{#1}}
+
+\newcommand{\attr}[1]{\mtt{:#1}}
+\newcommand{\premises}[1]{\attr{premises}\,\epar{#1}}
+\newcommand{\premiselist}[2]{\attr{premise-list}\ #1\ #2}
+\newcommand{\requires}[1]{\attr{requires}\ \epar{#1}}
+\newcommand{\conclusion}[1]{
+	\attr{conclusion}\ #1
+}
+
 
 \newcommand{\sym}[1]{\msf{s}_{\msf{#1}}}
 % \newcommand{\eoapp}[2]{\prn{#1\ #2}}
@@ -64,7 +79,6 @@
 \newcommand{\prf}{\mbf{prf}}
 \newcommand{\step}{\mbf{step}}
 
-\newcommand{\eo}[1]{\mtt{eo::#1}}
 \newcommand{\eor}{\mtt{or}}
 \newcommand{\econcat}[3]{\eapp{\eo{list\_concat}}{#1\ #2\ #3}}
 \newcommand{\econs}[3]{\eapp{#1}{#2\ #3}}
@@ -165,7 +179,8 @@
 	\end{array}
 }
 
-
+%
+%
 % --- macros for `lp.tex` ------------------------------
 \newcommand{\esc}[1]{\wrapp{MaterialGrey600}{⦃}{⦄}{#1}}
 \newcommand{\var}[1]{\msf{v}_{#1}}

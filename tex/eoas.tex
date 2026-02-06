@@ -53,14 +53,13 @@ may be checked using the Ethos checker.
 
 \subsection{Commands and their Declarations}\label{sec:eo-judge}
 %
-We define an abstract interface for reasoninga about
-signatures and proof scripts.
+We define an abstract interface for reasoning about
+Eunoia signatures and proof scripts.
 %
-This interface is useful for
-characterizing the \emph{elaboration}
-and \emph{translation} operators
-found in \autoref{sec:eo-elab} and
-\autoref{sec:results} respectively.
+This interface is useful for characterizing the
+\emph{elaboration} and \emph{translation} operators
+found in \autoref{sec:eo-elab} and \autoref{sec:results}
+respectively.
 
 \subsubsection{Constant Declaration.}
 %
@@ -113,188 +112,229 @@ $$
 % and
 %   $$
 % for the cases.
-%
+% %
+% To distinguish `program' symbols from `constant' symbols,
+% we write $\prn{δ ⊢ s(\vec ρ) ∷ \mtt{:prog}}$.
+
+
 \subsubsection{Inference Rule Declaration.}
 %
 Let $δ$ be a \emph{rule declaration} with symbol $s$,
-parameters $\vec ρ$, and \emph{conclusion} $φ$.
+parameters $\vec ρ$, and $\conclusion φ$.
+\begin{enumerate}
+	\item If $δ$ provides
+	      $\requires{\ecase{l_1}{r_1}\ldots\ecase{l_k}{r_k}}$,
+	      then let:
+	      $$φ^★ ≔ \eoreqs{l_1}{r_1}{
+			      \epar{
+				      \,\ldots\,\eoreqs{l_k}{r_k}{φ}}
+		      }
+	      $$
+	      Otherwise, $φ^★ ≔ φ$.
+
+	      % TODO. "see ... for steps using rules with :premise-list".
+	\item If $δ$ provides $\mtt{:premises}\ \epar{\plur ψ m}$,
+	      then let:
+	      $$τ^★ ≔ \earr{\eprf{ψ_1}\,\ldots\,\eprf{ψ_m}\ \eprf{φ^★}}$$
+	      %
+	      Otherwise, if $δ$ provides $\premiselist ψ f$ for
+	      some formula $ψ$ and symbol $f$, then let:
+	      $$τ^★ ≔ \earr{\eprf{ψ}\ \eprf{φ^★}}$$
+	      Otherwise, let $τ^★ ≔ \eprf{φ^★}$.
+
+	\item Suppose $δ$ provides $\mtt{:args}\ \epar{\plur t n}$
+	      where each $t_i$ has type $τ_i$ with respect to the
+	      current context $\prn{Δ, \vec ρ}$.
+	      %
+	      We introduce an \emph{auxilliary symbol}
+	      $s^★$ with the following properties:
+	      $$
+		      \begin{array}[t]{l@{\ ⊢\ }l}
+			      δ & s^★(\vec ρ) : \earr{\plur τ n\ \etype}
+			      \\[1mm]
+			      δ & s^★(\vec ρ) ≔ \mbf{cases}
+			      [
+				      \epar{{\eapp{s^★}{\plur t n}}\ τ^★}
+			      ]
+		      \end{array}
+	      $$
+	      Finally, the type of $s$ is given with an extended
+	      list of parameters%
+	      \footnote{
+		      The symbols chosen for $\plur α n$ must be
+		      \emph{fresh} with respect to $δ$.
+		      That is, each $α_i$ is distinct from any symbol
+		      occurring in any of the terms or parameters
+		      supplied by $δ$.}
+	      $\vec v$ thus:
+	      $$δ ⊢
+		      s(\vec v)
+		      : \earr{\equote{α_1}\,\ldots\,\equote{α_n}\,\eapp{s^★}{\plur α n}}
+	      $$
+	      where $\vec v ≔
+		      \vec ρ ⨾ \epar{α_1\ τ_1}\,\ldots\,\epar{α_n\ τ_n}$.
+	      % TODO. what is actually the correct statement here?
+	      The use of the auxilliary symbol ensures that the
+	      `logical part' (i.e., the premises and conclusion)
+	      of the rule may be obtained iff the given
+	      arguments match the `patterns' specified by each $t_i$.
+\end{enumerate}
+
 %
-Also, suppose $δ$ provides
-$\mtt{:premises}\ \epar{\plur ψ n}$,
-$\mtt{:args}\ \epar{\plur t m}$ with types $\plur τ m$,
-and $\mtt{:requires}\
-	\epar{\epar{x_1\ y_1}\ldots\epar{x_o\ y_o}}$.
-%
-First, let $δ$ declare the type and definiens
-of an \emph{auxiliary symbol} for $s$ thus:
-$$
-	\begin{array}[t]{l@{\ ⊢\ }l}
-		δ & s^⭑(\vec ρ) : \earr{\plur τ m\ \bool}
-		\\[1mm]
-		δ & s^⭑(\vec ρ) ≔ \mbf{cases}
-		[\;
-			\epar{{\eapp{s^⭑}{\plur t m}}\ φ}
-			∣
-			\epar{x_1\ y_1}\ldots\epar{x_o\ y_o}
-			\;]
-	\end{array}
-$$
-%
-Then, the type of $s$ is given by $δ$ with an extended list of parameters%
-\footnote{The symbols chosen for $\plur α m$ must be \emph{fresh} with respect to $δ$.
-	That is, each $α_i$ is distinct from any symbol occurring in any of the
-	terms or parameters supplied by $δ$.}
-thus:
-$$δ ⊢ s(\vec ρ, \epar{α_1\ τ_1} \ldots \epar{α_n\ τ_m}) :
-	\earr{
-		\epar{\mtt{Proof}\ ψ_1} \ldots
-		\epar{\mtt{Proof}\ ψ_n}\
-		\epar{\mtt{Proof}\ φ^⭑}
-	}$$
-where $φ^⭑ ≔ \eapp{s^⭑}{\plur α n}$
-ensures that a term of type $\eapp{\mtt{Proof}}{φ}$
-may only be obtained iff $\prn{α_i = t_i}$
-for $1 ≤ i ≤ m$ and $\prn{x_j = y_j}$ for $1 ≤ j ≤ o$.
+
 % and $$.
 
-\subsubsection{Signature Inclusion.}
-%
-Hereinafter, let $Θ$ be a \emph{(global) environment}
-mapping from filepaths to Eunoia signatures.
-%
-Let $δ$ be an inclusion with valid filepath $μ$.
-Then, any judgement $J$ made by a command $δ'$ in $Θ_μ$
-is also made by $δ$.
-That is:
-$$
-	\text{$∀\,δ' ∈ Θ_μ$,}\quadδ' ⊢ J \quad⟹\quad \epar{\mtt{include}\ μ} ⊢ J
-$$
+% \subsubsection{Signature Inclusion.}
+% %
+% Hereinafter, let $Θ$ be a \emph{(global) environment}
+% mapping from filepaths to Eunoia signatures.
+% %
+% Let $δ$ be an inclusion with valid filepath $μ$.
+% Then, any judgement $J$ made by a command $δ'$ in $Θ_μ$
+% is also made by $δ$.
+% That is:
+% $$
+% 	\text{$∀\,δ' ∈ Θ_μ$,}\quadδ' ⊢ J \quad⟹\quad \epar{\mtt{include}\ μ} ⊢ J
+% $$
 
 \subsubsection{Proof Scripts.}
 
-Two basic forms of \emph{proof commands} are given,
-which are called \emph{assumption} and \emph{step}
-respectively.
+Each proof command $π$ is either an \emph{assumption}
+(i.e., $\epar{\mtt{assume}\ s\ φ}$ or
+$\epar{\mtt{assume-push}\ s\ φ}$)
+or a \emph{step}
+(i.e.,
+$\epar{\mtt{step}\ s\ φ\ \ldots}$ or
+$\epar{\mtt{step-pop}\ s\ φ\ \ldots}$).
 %
-Given $π = \epar{\mtt{assume}\ s\ φ}$ or
-$π = \epar{\mtt{step}\ s\ φ\ \ldots}$, we call
-$s$ the \emph{name} of $π$ and $φ$ the \emph{conclusion}.
-%
-In either case, we may write:
+We call
+$s$ the \emph{name} of $π$ and $φ$ the \emph{conclusion},
+written:
 $$π ⊢ s : \eapp{\mtt{Proof}}{φ}$$
 %
-Furthermore, let $π$ be a step with
-$\mtt{:rule}\ s'$,
-$\mtt{:premises}\ \epar{\vec p}$, and
-$\mtt{:args}\ \epar{\vec t}$.
+% TODO. what about:
+% no args :args` or `:premises`?
+% only one of `:args`, `:premises`?
+Furthermore, if $π$ is a step with
+$\mtt{:rule}\ r$,
+$\mtt{:args}\ \epar{\plur t m}$,
+and
+$\mtt{:premises}\ \epar{\plur p n}$
 %
-Then, $π$ judges the definiens of $s$
-as the application of $s'$ to the premises
-$\plur p n$ and arguments $\plur t m$, i.e.;
-$$π ⊢ s ≔ \eapp{s'}{\plur t m\ \plur p n}$$
-%
+then the definiens of $s$ is given as follows:
+$$
+	π ⊢ s ≔ \eapp{r}{\plur t m\ \plur p n}
+$$
 
+% TODO.
+% if π is: `(assume-push)`, `(step-pop)`
+% if r has `:premise-list`
 
+% TODO. examples from CPC.
 
-% iff $π ∈ Π$.
+% TODO. can we define a type system here?
+% parameters probably pose an issue here.
+% but there's info somewhere in the user manual
+% about parameters/substitution/etc.
 
 %
 % We define We say that a proof scripts is \emph{valid} with respect
 % to $Δ$ iff a list of
 % commands of the form $\vec δ, \vec π$ proof commands.
 
-
-
 % ----------------------------------------------------------
 \subsection{Elaboration of Terms}\label{sec:eo-elab}
 %
-In Eunoia, the `de-sugared' meaning of an application
-$\eapp{s}{\vec t}$ depends on the constant attribute
-assigned to $s$ within some signature $Δ$.
+% TODO.
+% - need to define 'normal form' of Eunoia terms: the head
+%   of every application must either be a builtin or a program.
+Terms are \emph{elaborated} to eliminate all $n$-ary
+applications and distinguish between constant-level and
+program-level function applications.
 %
-For example, consider a constant declaration $δ$ with:
-$$
-	δ ⊢ \eor : \earr{\bool\ \bool\ \bool}
-	\quad\text{and}\quad
-	δ ⊢ \eor ∷ {\rcn \false}
-$$
-% and $δ ⊢ $.
-% $$\dca{\eor}{\earr{\bool\ \bool\ \bool}}$$
+We say that a term $t$ is in \emph{normal form} wrt. a
+signature $Δ$ when the head symbol of every application in
+$t$ is either a built-in or a $Δ$-program.
+
+Consequently, an application $\eapp{f}{t}$ of an
+unattributed constant symbol $f$ has the normal form
+$\eapp{\mtt{\_}}{f\ t}$, where $\mtt{\_}$ is the Eunoia
+built-in for higher-order application.
 %
-From the type of $\eor$, we may expect its only valid
-uses to be of the form $\eapp{\eor}{t_1\ t_2}$.
+In general, the normal form of $\eapp{f}{\vec t}$
+is determined by the attribute assigned to $f$ by $Δ$.
 %
-However, the assignment of the constant attribute means
-that the $\mtt{or}$ symbol is treated as
-\emph{right-associative} with \emph{nil-terminator} $\false$.
-%
-Thus, $n$-ary applications of $\eor$ are
-\emph{elaborated} to a normal form, e.g.;
-%
-$$\eapp{\eor}{\ev x\ \ev y\ \ev z}\ ⇢\
-	\eapp{\eor}{\ev x\ \eapp{\eor}{\ev y\ \eapp{\eor}{\ev z\ \false}}}$$
-%
-Furthermore, the elaboration of such applications may
-also depend on the attributes of `locally bound' symbols.
-For example, consider $\vec ρ$ containing
-parameters $\epar{\ev x\ \bool}$,
-$\epar{\ev y\ \bool\ \mtt{:list}}$,
-and $\epar{\ev z\ \bool}$.
-%
-Then, observe:
-$$
-	\eapp{\eor}{\ev x\ \ev y\ \ev z}
-	\ {⇢}
-	\ \econs\eor{\ev x}{
-		\econcat{\eor}{\ev y}{\eapp{\eor}{\ev z\ \false}}
-	}
-$$
-%
-Here, $\eo{list\_concat}$ is a built-in ternary operator:
-$\eapp{\eo{list\_concat}}{f\ \ell\ \ell'}$ concatenates
-two $f$-lists $\ell$ and $\ell'$.
-%
-The $\mtt{:list}$ attribute alters the elaboration strategy
-under the assumption that $\ev y$ will (eventually) be
-substituted for some $\eor$-list.
-%
-It may be helpful for the reader
-to consider the result of substituting
-$\ev y ↦ \econs\eor{\ev w}{\false}$
-thus:
-$$
-	\begin{array}[t]{c}
-		\econs\eor{\ev x}{
-			\econcat{\eor}{\econs\eor{\ev w}{\false}}
-			{\eapp{\eor}{\ev z\ \false}}}
-		\\[1mm] {⇣} \\[1mm]
-		\econs\eor{\ev x}{
-			\econs\eor{\ev w}{
-				\econs\eor{\ev z}{\false}}
-		}
-	\end{array}
-$$
-%
-With the aim of supporting the elaboration strategies
-corresponding to the constant attributes given in
-\autoref{fig:eo-syntax},
-we define an \emph{elaboration} operator below.
+% %
+% For example, consider a constant declaration $δ$ with:
+% $$
+% 	δ ⊢ \eor : \earr{\bool\ \bool\ \bool}
+% 	\quad\text{and}\quad
+% 	δ ⊢ \eor ∷ {\rcn \false}
+% $$
+% % and $δ ⊢ $.
+% % $$\dca{\eor}{\earr{\bool\ \bool\ \bool}}$$
+% %
+% From the type of $\eor$, we may expect its only valid
+% uses to be of the form $\eapp{\eor}{t_1\ t_2}$.
+% %
+% However, the assignment of the constant attribute means
+% that the $\mtt{or}$ symbol is treated as
+% \emph{right-associative} with \emph{nil-terminator} $\false$.
+% %
+% Thus, $n$-ary applications of $\eor$ are
+% \emph{elaborated} to a normal form, e.g.;
+% %
+% $$\eapp{\eor}{\ev x\ \ev y\ \ev z}\ ⇢\
+% 	\eapp{\eor}{\ev x\ \eapp{\eor}{\ev y\ \eapp{\eor}{\ev z\ \false}}}$$
+% %
+% Furthermore, the elaboration of such applications may
+% also depend on the attributes of `locally bound' symbols.
+% For example, consider $\vec ρ$ containing
+% parameters $\epar{\ev x\ \bool}$,
+% $\epar{\ev y\ \bool\ \mtt{:list}}$,
+% and $\epar{\ev z\ \bool}$.
+% %
+% Then, observe:
+% $$
+% 	\eapp{\eor}{\ev x\ \ev y\ \ev z}
+% 	\ {⇢}
+% 	\ \econs\eor{\ev x}{
+% 		\econcat{\eor}{\ev y}{\eapp{\eor}{\ev z\ \false}}
+% 	}
+% $$
+% %
+% Here, $\eo{list\_concat}$ is a built-in ternary operator:
+% $\eapp{\eo{list\_concat}}{f\ \ell\ \ell'}$ concatenates
+% two $f$-lists $\ell$ and $\ell'$.
+% %
+% The $\mtt{:list}$ attribute alters the elaboration strategy
+% under the assumption that $\ev y$ will (eventually) be
+% substituted for some $\eor$-list.
+% %
+% It may be helpful for the reader
+% to consider the result of substituting
+% $\ev y ↦ \econs\eor{\ev w}{\false}$
+% thus:
+% $$
+% 	\begin{array}[t]{c}
+% 		\econs\eor{\ev x}{
+% 			\econcat{\eor}{\econs\eor{\ev w}{\false}}
+% 			{\eapp{\eor}{\ev z\ \false}}}
+% 		\\[1mm] {⇣} \\[1mm]
+% 		\econs\eor{\ev x}{
+% 			\econs\eor{\ev w}{
+% 				\econs\eor{\ev z}{\false}}
+% 		}
+% 	\end{array}
+% $$
+% %
+We define the $\mbf{elab}$ operator below with the aim
+of supporting the elaboration strategies
+corresponding to the constant attributes of
+\autoref{fig:eo-syntax}.
 %
 \begin{definition}
-	For any symbol $s$ and list of parameters $\vec ρ$,
-	let $\glue{\vec ρ,f}$ be the binary operator
-	such that for any terms $t_1$, $t_2$, the following holds:
-	%
-	$$
-		\glue{\vec ρ,f}[t_1,t_2] =
-		\begin{cases}
-			\econcat{f}{t_1}{t_2} & \text{if $\vec ρ ⊢ t_1 ∷ \mtt{:list}$,}
-			\\
-			\econs{f}{t_1}{t_2}   & \text{otherwise.}
-		\end{cases}
-	$$
-	%
-	Then for any signature $Δ$, let $\elab{Δ,\vec ρ}$
+	For any signature $Δ$, let $\elab{Δ,\vec ρ}$
 	be the least (unary) operator such that:
 	\begin{enumerate}
 		\item For any symbol $s$, $\elab{Δ,\vec ρ}[s] = s$.
@@ -365,8 +405,15 @@ we define an \emph{elaboration} operator below.
 		      } $G ≔ \glue{\vec ρ, f}[x,y]$,
 		      $G'(x,y) ≔ G(y,x)$,
 		      and $t_i' ≔ \elab{Δ, \vec ρ}[t_i]$, and:
+
 		      $$
 			      \begin{array}[t]{r@{\ ≔\ }l}
+				      % \glue{\vec ρ,f}[t_1,t_2] &
+				      % \begin{cases}
+				      %  \econcat{f}{t_1}{t_2} & \text{if $\vec ρ ⊢ t_1 ∷ \mtt{:list}$,}
+				      %  \\
+				      %  \econs{f}{t_1}{t_2}   & \text{otherwise.}
+				      % \end{cases}
 				      \mbf{chain}(f,\, t_1\ldots t_n)
 				       & \eapp{f}{t_1\ t_2}\,
 				      \eapp{f}{t_2\ t_3}
@@ -390,6 +437,14 @@ we define an \emph{elaboration} operator below.
 \end{definition}
 
 %
+
+
+
+\subsection{Built-in Operators}\label{sec:eo-builtin}
+
+% TODO. eo::.. that operate on f-lists.
+% TODO. probably discuss literals and arithmetic here??
+% TODO. eo::List, eo::List::cons, eo::List::nil.
 
 
 
