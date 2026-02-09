@@ -3,8 +3,8 @@ open Parser
 }
 
 let simple_symbol =
-  ['a'-'z' 'A'-'Z' '+' '-' '/' '*' '^' '=' '%' '?' '!' '.' '$' '_' '&' '<' '>' '@' '#']
-  ['a'-'z' 'A'-'Z' '0'-'9' '+' '-' '/' '*' '^' '=' '%' '?' '!' '.' '$' '_' '&' '<' '>' '@' ':']*
+  ['a'-'z' 'A'-'Z' '+' '-' '/' '*' '^' '=' '%' '?' '!' '.' '$' '_' '&' '<' '>' '@' '#' '~']
+  ['a'-'z' 'A'-'Z' '0'-'9' '+' '-' '/' '*' '^' '=' '%' '?' '!' '.' '$' '_' '&' '<' '>' '@' ':' '~']*
 let symbol = simple_symbol | '|' [^ '|' '\\']* '|'
 
 let digit = ['0'-'9']
@@ -99,11 +99,16 @@ rule token = parse
   | "<binary>"       { BIN }
   | "<hexadecimal>"  { HEX }
   (* syntactic literals *)
-  | numeral as x     { NUMERAL (int_of_string x) }
+  | numeral as x     { match int_of_string_opt x with
+                       | Some n -> NUMERAL n
+                       | None   -> failwith ("numeral too large: " ^ x) }
   | decimal as x     { DECIMAL (float_of_string x) }
   | rational as x    { RATIONAL
         (match String.split_on_char '/' x with
-         | [y; z] -> (int_of_string y, int_of_string z)
+         | [y; z] ->
+           (match int_of_string_opt y, int_of_string_opt z with
+            | Some a, Some b -> (a, b)
+            | _ -> failwith ("rational too large: " ^ x))
          | _ -> failwith ("invalid rational literal: " ^ x)) }
   | binary as x      { BINARY x }
   | hexadecimal as x { HEXADECIMAL x }

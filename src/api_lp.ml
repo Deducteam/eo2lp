@@ -233,10 +233,13 @@ let symbol_types : (string, term) Hashtbl.t =
   Hashtbl.create 32
 let symbol_defs : (string, term) Hashtbl.t =
   Hashtbl.create 32
+let symbol_asserts : (string, term) Hashtbl.t =
+  Hashtbl.create 32
 
 let reset_symbol_storage () =
   Hashtbl.clear symbol_types;
-  Hashtbl.clear symbol_defs
+  Hashtbl.clear symbol_defs;
+  Hashtbl.clear symbol_asserts
 
 (* Remove a sign from Sign.loaded to free memory after encoding a proof *)
 let remove_sign path =
@@ -339,7 +342,12 @@ let add_proof_definition name ty def =
   Timed.(sym.Term.sym_def := Some def);
   let ty_final = match ty with Some t -> t | None -> mk_Kind in
   Timed.(sym.Term.sym_type := ty_final);
-  Hashtbl.replace symbol_types name ty_final;
+  (* Store Kind for printing so the symbol line has no type annotation.
+     The real type is checked via a separate assert line. *)
+  Hashtbl.replace symbol_types name mk_Kind;
+  (match ty with
+   | Some t -> Hashtbl.replace symbol_asserts name t
+   | None -> ());
   let def_for_print =
     if has_unsolved_metas def then metas_to_plac def else def in
   Hashtbl.replace symbol_defs name def_for_print;
@@ -446,6 +454,7 @@ let print_term ppf t =
   else
     Print.term ppf t
 
+
 let strip_lp_escapes_re = Str.regexp "{|\\([^|]*\\)|}"
 let strip_lp_escapes s =
   Str.global_replace strip_lp_escapes_re "\\1" s
@@ -509,7 +518,19 @@ let lp_reserved = ["Set"; "TYPE"]
 (* Names that can be escaped with {|...|} to avoid clashes *)
 let lp_keywords = [
   "as"; "in"; "let"; "open"; "require"; "rule";
-  "symbol"; "with"; "type"; "repeat"
+  "symbol"; "with"; "type"; "repeat";
+  "off"; "on"; "assert"; "begin"; "end";
+  "compute"; "print"; "debug"; "abort"; "admitted";
+  "assume"; "apply"; "have"; "generalize";
+  "constant"; "injective"; "commutative"; "associative";
+  "left"; "right"; "protected"; "sequential";
+  "infix"; "prefix"; "postfix"; "quantifier";
+  "builtin"; "notation"; "opaque"; "private";
+  "inductive"; "coerce_rule"; "unif_rule";
+  "refine"; "focus"; "simplify"; "solve"; "why3";
+  "fail"; "reflexivity"; "symmetry"; "rewrite"; "try";
+  "proofterm"; "flag"; "prover"; "prover_timeout";
+  "verbose"
 ]
 
 (* Boolean lookup table for O(1) invalid-char detection *)
@@ -623,11 +644,30 @@ let print_symbol ppf sym =
   in
   let sym_def  = Hashtbl.find_opt symbol_defs name in
   let sym_impl = sym.Term.sym_impl in
+  let is_proof_def = Hashtbl.mem symbol_asserts name in
   set_print_implicits true;
   (match sym_ty with
    | Term.Kind ->
      (* Definition with inferred type - extract params from lambda *)
      (match sym_def with
+      | Some def when is_proof_def ->
+        (* Pretty-print proof step: head on first line, args indented.
+           Skip placeholder args (implicit parameters). *)
+        set_print_implicits false;
+        let rec collect_args = function
+          | Term.Appl (f, a) ->
+            let head, args = collect_args f in
+            (head, args @ [a])
+          | t -> (t, [])
+        in
+        let is_plac = function Term.Plac _ -> true | _ -> false in
+        let head, args = collect_args def in
+        let args = List.filter (fun a -> not (is_plac a)) args in
+        Format.fprintf ppf " ≔@\n  @[<v>%a" print_term head;
+        List.iter (fun a ->
+          Format.fprintf ppf "@\n(%a)" print_term a
+        ) args;
+        Format.fprintf ppf "@]"
       | Some def ->
         let params, body = extract_lambda_params def sym_impl in
         if params <> [] then begin
@@ -661,13 +701,20 @@ let print_symbol ppf sym =
      (* Print definition if present *)
      (match sym_def with
       | Some def ->
-        if is_proof_type sym_ty then set_print_implicits true;
         Format.fprintf ppf " ≔ %a" print_term (unwrap_lambdas n def)
       | None -> ()));
   set_print_implicits false;
   set_print_domains false;
   set_do_not_qualify false;
-  Format.fprintf ppf ";@."
+  Format.fprintf ppf ";@.";
+  (* If this symbol has an assertion type, emit assert ⊢ name : ty; *)
+  (match Hashtbl.find_opt symbol_asserts name with
+   | Some assert_ty ->
+     set_do_not_qualify true;
+     set_print_implicits false;
+     Format.fprintf ppf "assert ⊢ %s : %a;@." name print_term assert_ty;
+     set_do_not_qualify false
+   | None -> ())
 
 (* Print a single rule clause (LHS ↪ RHS) without keyword *)
 let print_rule_clause ppf (sym, rule) =
@@ -675,12 +722,14 @@ let print_rule_clause ppf (sym, rule) =
   set_do_not_qualify true;
   (* Check if this is a coercion rule (head symbol is "coerce") *)
   let is_coerce = sym.Term.sym_name = "coerce" in
+  let is_eo_nil = sym.Term.sym_name = "{|eo::nil|}" in
   if is_coerce then
     Format.fprintf ppf "coerce"
   else
     (* Use @ prefix to force implicits on head symbol *)
     Format.fprintf ppf "@%s" sym.Term.sym_name;
-  (* Wrap each LHS arg in parentheses *)
+  (* Print LHS args; implicits off for eo::nil so (+) not (@+ _) *)
+  if is_eo_nil then set_print_implicits false;
   List.iter
     (fun arg -> Format.fprintf ppf " (%a)" print_term arg)
     rule.Term.lhs;
@@ -847,32 +896,60 @@ type check_result =
   | Check_ok
   | Check_error of string
 
-(* In-process checking via Compile.compile — avoids subprocess overhead.
-   Requires CPC modules to already be loaded in Sign.loaded (via compile).
-   Much faster than check_file for batch proof checking. *)
-let check_file_inproc output_dir lp_path =
-  let cwd = Sys.getcwd () in
-  Sys.chdir output_dir;
-  Fun.protect ~finally:(fun () -> Sys.chdir cwd) @@ fun () ->
-  try
-    ignore (compile ~force:true lp_path);
-    Check_ok
-  with e ->
-    Check_error (Printexc.to_string e)
-
 let check_file ?(timeout=30) output_dir rel_path =
-  let timeout_cmd =
-    if timeout > 0 then Printf.sprintf "timeout --signal=KILL %d " timeout
-    else ""
-  in
   let cmd =
     Printf.sprintf
-      "cd %s && NO_COLOR=1 %slambdapi check -c -w %s 2>&1"
-      (Filename.quote output_dir) timeout_cmd (Filename.quote rel_path)
+      "cd %s && NO_COLOR=1 lambdapi check -c -w %s 2>&1"
+      (Filename.quote output_dir) (Filename.quote rel_path)
   in
-  let ic = Unix.open_process_in cmd in
-  let output_raw = In_channel.input_all ic in
-  let status = Unix.close_process_in ic in
+  (* Fork-based timeout: run the command in a child process so we can
+     reliably kill the entire process tree via process-group kill. *)
+  flush_all ();
+  let pipe_r, pipe_w = Unix.pipe () in
+  let pid = Unix.fork () in
+  if pid = 0 then begin
+    (* Child: become a new process group leader so the parent can
+       kill us and all our descendants with a single signal. *)
+    ignore (Unix.setsid ());
+    Unix.close pipe_r;
+    let ic = Unix.open_process_in cmd in
+    let output_raw = In_channel.input_all ic in
+    let status = Unix.close_process_in ic in
+    let oc = Unix.out_channel_of_descr pipe_w in
+    Marshal.to_channel oc (output_raw, status) [];
+    close_out oc;
+    exit 0
+  end else begin
+    (* Parent *)
+    Unix.close pipe_w;
+    let timed_out = ref false in
+    let old_handler = Sys.signal Sys.sigalrm
+      (Sys.Signal_handle (fun _ -> timed_out := true)) in
+    let old_alarm = if timeout > 0 then Unix.alarm timeout else 0 in
+    let rec wait () =
+      try Unix.waitpid [] pid
+      with Unix.Unix_error (Unix.EINTR, _, _) ->
+        if !timed_out then begin
+          (* Kill the entire process group *)
+          (try Unix.kill (-pid) Sys.sigkill with Unix.Unix_error _ -> ());
+          (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+          Unix.waitpid [] pid
+        end else
+          wait ()
+    in
+    let _, _ = wait () in
+    ignore (Unix.alarm 0);
+    Sys.set_signal Sys.sigalrm old_handler;
+    if old_alarm > 0 then ignore (Unix.alarm old_alarm);
+    if !timed_out then begin
+      Unix.close pipe_r;
+      Check_error "timeout"
+    end else
+    let ic = Unix.in_channel_of_descr pipe_r in
+    let output_raw, status =
+      try (Marshal.from_channel ic : string * Unix.process_status)
+      with _ -> ("", Unix.WEXITED 1) in
+    close_in ic;
   (* Get absolute path of output_dir for stripping *)
   let abs_output_dir =
     if Filename.is_relative output_dir then
@@ -905,5 +982,5 @@ let check_file ?(timeout=30) output_dir rel_path =
   in
   match status with
   | Unix.WEXITED 0   -> Check_ok
-  | Unix.WEXITED 124 -> Check_error "timeout"
   | _                -> Check_error output
+  end

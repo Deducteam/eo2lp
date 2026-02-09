@@ -9,11 +9,10 @@
 	for SMT Solvers to the λΠ-calculus%
 	\thanks{Research reported in this document was supported
 	by an Amazon Research Award,~2022.}}
-\author{Ciarán Dunne\inst{1}, Guillaume Burel\inst{2,3}}
+\author{Ciarán Dunne\inst{1,3}, Guillaume Burel\inst{2,3}}
 \institute{\scriptsize INRIA, ENS Paris-Saclay;
   \and ensIIE;
-  \and SAMOVAR, Télécom SudParis, Institut Polytechnique de Paris, 91120
-Palaiseau, France}
+  \and SAMOVAR, Télécom SudParis, Institut Polytechnique de Paris, 91120 Palaiseau, France}
 
 \begin{document}
 \maketitle
@@ -22,22 +21,22 @@ Palaiseau, France}
 
 \begin{abstract}
 	\noindent
-	Eunoia is a logical framework designed for specifying
-	the proofs and proof systems of SMT solvers.
+	Eunoia is an emerging logical framework designed for
+	specifying the proofs and proof systems of SMT solvers,
+	namely \texttt{cvc5}.
 	%
 	We present a translation from Eunoia to the
-	\emph{$λΠ$-calculus modulo rewriting} as
-	implemented by the $\lambdapi$ proof assistant.
+	\emph{$λΠ$-calculus modulo rewriting} as implemented
+	by the $\lambdapi$ proof assistant.
 	%
-	The translation is realized by our tool
-	\texttt{eo2lp}, which we use for
+	The translation is implemented by our tool \texttt{eo2lp},
+	which we use for generating $\lambdapi$ encodings of
 	%
-	(a) translating a large fragment of \texttt{cvc5}'s
-	\textit{co-operating proof calculus} (CPC) to $\lambdapi$,
-	and
+	(a)~a large fragment of \texttt{cvc5}'s
+	\textit{Cooperating Proof Calculus} (CPC), and
 	%
-	(b) translating a curated selection of proofs produced
-	\texttt{cvc5} within this fragement.
+	(b)~proofs produced by \texttt{cvc5} on \texttt{unsat}
+	problems from various fragments of SMT-LIB.
 \end{abstract}
 
 \section{Background}

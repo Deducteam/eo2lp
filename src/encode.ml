@@ -10,9 +10,21 @@ open Resolve
 let overload_counts : (string, int) Hashtbl.t =
   Hashtbl.create 32
 
+(* Name alias table: maps original escaped name to latest LP name
+   when a symbol is redefined (e.g., across assume-push/step-pop scopes) *)
+let name_aliases : (string, string) Hashtbl.t =
+  Hashtbl.create 32
+
 let reset_overloads () =
   Hashtbl.clear overload_counts;
+  Hashtbl.clear name_aliases;
   reset_symbol_storage ()
+
+(* Resolve a name through the alias table *)
+let resolve_name name =
+  match Hashtbl.find_opt name_aliases name with
+  | Some alias -> alias
+  | None -> name
 
 (* Get a unique name for potentially overloaded symbols *)
 let unique_name name =
@@ -23,7 +35,20 @@ let unique_name name =
     escaped
   | Some n ->
     Hashtbl.replace overload_counts escaped (n + 1);
-    Printf.sprintf "%s_%d" escaped n
+    (* Insert suffix inside {|...|} delimiters if present *)
+    let new_name =
+      if String.length escaped > 4
+         && String.sub escaped 0 2 = "{|"
+         && String.sub escaped (String.length escaped - 2) 2 = "|}"
+      then
+        let inner = String.sub escaped 2 (String.length escaped - 4) in
+        Printf.sprintf "{|%s_%d|}" inner n
+      else
+        Printf.sprintf "%s_%d" escaped n
+    in
+    (* Record alias so references to the original resolve to the latest *)
+    Hashtbl.replace name_aliases escaped new_name;
+    new_name
 
 (* Assumption stack for assume-push / step-pop scope handling *)
 let assumption_stack : EO.term list ref = ref []
@@ -48,10 +73,56 @@ let set_signature_overlay = Elab.set_signature_overlay
    Literal encoding
    ============================================================ *)
 
+let enc_string_literal s =
+  let quoted = "\"" ^ s ^ "\"" in
+  let sym =
+    try Core.Sign.Ghost.find quoted
+    with Not_found ->
+      let string_ty = mk_Symb (find "String") in
+      Core.Sign.add_symbol Core.Sign.Ghost.sign
+        Core.Term.Public Core.Term.Const Core.Term.Eager true
+        (Pos.none quoted) None string_ty []
+  in
+  mk_Symb sym
+
 let enc_literal = function
   | Literal.Numeral n ->
     add_args (mk_Symb (find "of_Z")) [Enc_numerals.enc_int n]
+  | Literal.Rational (n, d) ->
+    add_args (mk_Symb (find "of_Q")) [Enc_numerals.enc_rational n d]
+  | Literal.String s -> enc_string_literal s
   | lit -> failf "enc_literal: unsupported literal %s" (Literal.literal_str lit)
+
+(* ============================================================
+   Binder helpers — for proof-level forall/exists encoding
+   ============================================================ *)
+
+(* Check if a symbol has the :binder attribute in the EO signature *)
+let is_binder_sym s =
+  Elab.find_all_eo_symbols s |> List.exists (fun (_s', k) ->
+    match k with
+    | EO.Decl (_, _, Some (EO.Binder _)) -> true
+    | _ -> false)
+
+(* Extract (name, type) pairs from an elaborated variable list.
+   The list is: eo::List::cons (eo::var name ty) (eo::List::cons ... eo::List::nil)
+   Variables may also appear without the list wrapper (single var). *)
+let rec extract_eo_var_list = function
+  | EO.Apply (op, [EO.Apply (var_op, [EO.Literal (Literal.String name); ty]); rest])
+    when op = EO.Builtin.eo_list_cons && var_op = EO.Builtin.eo_var ->
+    (name, ty) :: extract_eo_var_list rest
+  | EO.Apply (op, [EO.Apply (var_op, [EO.Symbol name; ty]); rest])
+    when op = EO.Builtin.eo_list_cons && var_op = EO.Builtin.eo_var ->
+    (name, ty) :: extract_eo_var_list rest
+  | EO.Symbol s when s = EO.Builtin.eo_list_nil -> []
+  (* Single var without list wrapper *)
+  | EO.Apply (var_op, [EO.Literal (Literal.String name); ty])
+    when var_op = EO.Builtin.eo_var ->
+    [(name, ty)]
+  | EO.Apply (var_op, [EO.Symbol name; ty])
+    when var_op = EO.Builtin.eo_var ->
+    [(name, ty)]
+  | _ -> []  (* Can't extract — fall back to no binding *)
 
 (* ============================================================
    Term encoding — consumes elaborated EO terms
@@ -65,7 +136,7 @@ let rec enc_elaborated ctx : EO.term -> term = function
   | EO.Symbol s ->
     (match ctxt_find ctx (esc s) with
      | Some v -> mk_Vari v
-     | None -> enc_sym (get_sym (esc s)))
+     | None -> enc_sym (get_sym (resolve_name (esc s))))
   | EO.Literal lit -> enc_literal lit
   | EO.Apply (s, [ty; tm]) when s = EO.Builtin.eo_as || s = EO.Builtin.ty_as ->
     eo_as (enc_elaborated ctx ty) (enc_elaborated ctx tm)
@@ -73,15 +144,68 @@ let rec enc_elaborated ctx : EO.term -> term = function
     hol_app (enc_elaborated ctx f) (enc_elaborated ctx x)
   | EO.Apply (s, args) when s = EO.Builtin.ty_arrow ->
     enc_arrow_eo ctx args
-  | EO.Apply (op, [EO.Symbol s]) when op = EO.Builtin.eo_typeof ->
-    let s_esc = esc s in
-    (match List.find_opt (fun (v, _, _) -> base_name v = s_esc) ctx with
-     | Some (_, ty, _) -> un_tau ty
+  (* eo::nil f ty — eagerly evaluate by looking up f's nil terminator
+     and substituting type parameters with ty. This avoids emitting
+     {|eo::nil|} calls whose implicit args LP cannot infer. *)
+  | EO.Apply (op, [EO.Symbol f; ty_arg]) when op = EO.Builtin.eo_nil ->
+    let nil_term_opt = match Elab.lookup_eo_symbol f with
+      | Some (EO.Decl (ps, _, Some attr)) ->
+        let nil_t = match attr with
+          | EO.RightAssocNil t | EO.LeftAssocNil t
+          | EO.RightAssocNilNSN t | EO.LeftAssocNilNSN t -> Some t
+          | _ -> None
+        in
+        (match nil_t with
+         | Some t ->
+           (* Substitute type params (those with type Type) with ty_arg *)
+           let type_params = List.filter_map (fun (n, ty, _) ->
+             if ty = EO.Symbol EO.Builtin.ty_type then Some n else None) ps in
+           let rec subst = function
+             | EO.Symbol s when List.mem s type_params -> ty_arg
+             | EO.Apply (s, args) -> EO.Apply (s, List.map subst args)
+             | EO.Bind (s, vs, body) -> EO.Bind (s, vs, subst body)
+             | t -> t
+           in
+           Some (subst t)
+         | None -> None)
+      | _ -> None
+    in
+    (match nil_term_opt with
+     | Some t -> enc_elaborated ctx t
      | None ->
-       add_args (enc_sym (get_sym (esc EO.Builtin.eo_typeof)))
-         [enc_elaborated ctx (EO.Symbol s)])
+       let head = enc_sym (get_sym (resolve_name (esc op))) in
+       add_args head (List.map (enc_elaborated ctx) [EO.Symbol f; ty_arg]))
+  (* eo::var reference — look up the variable in context if bound *)
+  | EO.Apply (op, [_ty; EO.Literal (Literal.String name)])
+    when op = EO.Builtin.eo_var ->
+    let s_esc = esc name in
+    (match ctxt_find ctx s_esc with
+     | Some v -> mk_Vari v
+     | None ->
+       (* Not in context — encode as eo::var application (e.g., in var lists) *)
+       let head = enc_sym (get_sym (esc EO.Builtin.eo_var)) in
+       add_args head [enc_elaborated ctx _ty;
+                      enc_elaborated ctx (EO.Literal (Literal.String name))])
+  | EO.Apply (op, [_ty; EO.Symbol name])
+    when op = EO.Builtin.eo_var ->
+    let s_esc = esc name in
+    (match ctxt_find ctx s_esc with
+     | Some v -> mk_Vari v
+     | None ->
+       let head = enc_sym (get_sym (esc EO.Builtin.eo_var)) in
+       add_args head [enc_elaborated ctx _ty;
+                      enc_elaborated ctx (EO.Symbol name)])
+  (* Binder application (exists, forall): extract vars, bind in lambda *)
+  | EO.Apply (s, [list_arg; body]) when is_binder_sym s ->
+    let vars = extract_eo_var_list list_arg in
+    let head = enc_sym (get_sym (resolve_name (esc s))) in
+    (* Encode the list arg (passed to the binder symbol) *)
+    let list_enc = enc_elaborated ctx list_arg in
+    (* Build a lambda over the body, binding each variable *)
+    let body_enc = enc_binder_body ctx vars body in
+    add_args head [list_enc; body_enc]
   | EO.Apply (s, ts) ->
-    let head = enc_sym (get_sym (esc s)) in
+    let head = enc_sym (get_sym (resolve_name (esc s))) in
     add_args head (List.map (enc_elaborated ctx) ts)
   | EO.Bind (op, xs, body) when op = EO.Builtin.eo_define ->
     enc_let_eo ctx xs body
@@ -131,6 +255,20 @@ and enc_let_eo ctx xs body =
     let ctx' = ctxt_add ctx v ty in
     let body_enc = enc_let_eo ctx' rest body in
     Core.Term.mk_LLet (ty, rhs_enc, bind_var v body_enc)
+
+(* Encode the body of a binder (forall/exists) as a lambda, binding
+   each variable from the extracted list into the context. *)
+and enc_binder_body ctx vars body =
+  match vars with
+  | [] -> enc_elaborated ctx body
+  | (name, ty_eo) :: rest ->
+    let s_esc = esc name in
+    let eo_ty = enc_elaborated ctx ty_eo in
+    let type_of_v = tau_of eo_ty in
+    let v = new_var s_esc in
+    let ctx' = ctxt_add ctx v type_of_v in
+    let inner = enc_binder_body ctx' rest body in
+    mk_Abst (type_of_v, bind_var v inner)
 
 and enc_term ps ctx t =
   enc_elaborated ctx (Elab.elab ps t)
@@ -235,14 +373,55 @@ let enc_decl str ps ty attr =
         | _ -> ty
       in
       let eo_nil_sym = get_sym (esc "eo::nil") in
-      let op_enc = mk_Symb sym in
-      let ret_type_enc = enc_term [] empty_ctxt ret_type_eo in
-      let nil_enc = enc_term [] empty_ctxt nil_eo_term in
-      (* eo::nil has signature: [T1] [T2] (f : τ (T1 ⤳ T2 ⤳ T2)) (T : Set)
-         Use placeholders for the implicit T1, T2 args *)
-      let rule = mk_rule_record []
-        [mk_Plac false; mk_Plac false; op_enc; ret_type_enc] nil_enc in
-      [(eo_nil_sym, rule)]
+      (* Check if the nil term references type parameters (e.g. ($zero T)).
+         If so, encode with params in context and use pattern variables. *)
+      let nil_refs_param = List.exists (fun (n, _, _) ->
+        EO.term_contains_symbol n nil_eo_term) ps in
+      if nil_refs_param then begin
+        (* Polymorphic nil: encode with type params in context.
+           E.g. + [T] with nil ($zero T) generates:
+             rule eo::nil _ _ (+) ($T) ↪ $zero $T
+           The operator carries placeholder implicit args for correctness;
+           print_implicits is off for LHS args so they don't show. *)
+        let nil_enc = enc_term ps ctx nil_eo_term in
+        let ret_type_enc = enc_term ps ctx ret_type_eo in
+        let op_enc =
+          let n_impl = List.length (List.filter Fun.id impl) in
+          if n_impl > 0 then
+            let args = List.init n_impl (fun _ -> mk_Plac false) in
+            add_args (mk_Symb sym) args
+          else mk_Symb sym
+        in
+        let nil_rhs = bind_pvars ctx nil_enc in
+        let ret_lhs = bind_pvars ctx ret_type_enc in
+        let rule = mk_rule_record ctx
+          [mk_Plac false; mk_Plac false; op_enc; ret_lhs] nil_rhs in
+        [(eo_nil_sym, rule)]
+      end else begin
+        (* Concrete nil: infer return type from nil literal.
+           E.g. and with nil true generates:
+             rule eo::nil _ _ and Bool ↪ true *)
+        let nil_enc = enc_term [] empty_ctxt nil_eo_term in
+        let ret_type_enc =
+          let is_param = List.exists (fun (n, _, _) -> n = (match ret_type_eo with EO.Symbol s -> s | _ -> "")) ps in
+          if is_param then
+            match infer_type empty_ctxt nil_enc with
+            | Some ty -> un_tau ty
+            | None -> enc_term [] empty_ctxt ret_type_eo
+          else
+            enc_term [] empty_ctxt ret_type_eo
+        in
+        let op_enc =
+          let n_impl = List.length (List.filter Fun.id impl) in
+          if n_impl > 0 then
+            let args = List.init n_impl (fun _ -> ret_type_enc) in
+            add_args (mk_Symb sym) args
+          else mk_Symb sym
+        in
+        let rule = mk_rule_record []
+          [mk_Plac false; mk_Plac false; op_enc; ret_type_enc] nil_enc in
+        [(eo_nil_sym, rule)]
+      end
   in
   { syms = [sym]; rules = nil_rules; }
 
@@ -256,8 +435,17 @@ let rec has_eo_requires = function
 let enc_defn str ps tm ty_opt =
   match ps with
   | [] ->
-    (* All nullary defines are expanded inline by the elaborator. *)
-    empty_result
+    (match tm with
+     | EO.Symbol _ ->
+       (* Symbol alias — inlined by the elaborator, skip *)
+       empty_result
+     | _ ->
+       (* Nullary define with compound body: emit as an LP definition *)
+       let ctx = empty_ctxt in
+       let body = enc_term [] ctx tm in
+       let ty = Option.map (fun ty -> tau_of (enc_term [] ctx ty)) ty_opt in
+       let sym = add_definition (unique_name str) ty body in
+       { syms = [sym]; rules = []; })
   | _ ->
     let ctx, impl = enc_params ps in
     let body_raw = enc_term ps ctx tm in
@@ -490,7 +678,17 @@ let enc_rule str ps (rdec : EO.rule_dec) =
      becomes Proof E where E is the folded formula. *)
   let args, prems, is_premise_list, n_explicit_args = match rdec.prem with
     | None -> (rdec.args, [], false, List.length rdec.args)
-    | Some (EO.Simple ts) -> (rdec.args, ts, false, List.length rdec.args)
+    | Some (EO.Simple ts) ->
+      (* Only add premise formulas to _aux args when the rule already has
+         non-trivial :args (patterns).  Rules with simple/no :args use the
+         simple path where premises become Proof arrows directly. *)
+      let has_nontrivial_args = not (List.for_all (function
+        | EO.Symbol s -> EO.prm_mem s ps
+        | _ -> false) rdec.args) && rdec.args <> [] in
+      if has_nontrivial_args then
+        (ts @ rdec.args, ts, false, List.length rdec.args)
+      else
+        (rdec.args, ts, false, List.length rdec.args)
     | Some (EO.PremiseList (pattern, _op)) ->
       (* Add the pattern as the first arg — enc_step passes formula_args
          (the folded premise formula) before :args, so the LP type must
@@ -746,7 +944,7 @@ let enc_rule str ps (rdec : EO.rule_dec) =
    (assume s F) becomes: symbol s : Proof F; *)
 let enc_assume str formula =
   let ctx = empty_ctxt in
-  let formula_enc = enc_term [] ctx formula |> resolve_term ~ctx in
+  let formula_enc = enc_term [] ctx formula in
   let ty = mk_proof formula_enc in
   let sym = add_proof_constant (unique_name str) ty in
   { syms = [sym]; rules = []; }
@@ -809,29 +1007,42 @@ let enc_step str rule_name premises args conc_opt =
       let folded = List.fold_right (fun p acc ->
         add_args (enc_sym proof_cons_sym) [p; acc]
       ) prems_enc (enc_sym proof_nil_sym) in
-      ([folded], Some folded_formula)
-    | _ -> (prems_enc, None)
+      ([folded], [folded_formula])
+    | Some { prem = Some (EO.Simple _); args; _ }
+      when not (List.for_all (function EO.Symbol _ -> true | _ -> false) args) ->
+      (* Simple premises on a rule with non-trivial :args (uses _aux path):
+         extract each premise's formula from its type and pass them as
+         explicit args so they participate in _aux pattern matching. *)
+      let premise_formulas = List.map (fun p ->
+        let ty = match p with
+          | Core.Term.Symb s -> Timed.(!(s.Core.Term.sym_type))
+          | _ -> failf "simple premise: premise is not a symbol"
+        in
+        match ty with
+        | Core.Term.Appl (Core.Term.Symb s, f)
+          when s.Core.Term.sym_name = "Proof" -> f
+        | _ -> failf "simple premise type is not Proof(...)"
+      ) prems_enc in
+      (prems_enc, premise_formulas)
+    | _ -> (prems_enc, [])
   in
   (* Encode args *)
-  let args_enc = List.map (fun a -> enc_term [] ctx a |> resolve_term ~ctx) args in
+  let args_enc = List.map (fun a -> enc_term [] ctx a) args in
   (* Build the full application.
      For :premise-list rules, the LP signature has the folded formula E
-     as an explicit parameter (before :args and the proof). Insert it. *)
+     as an explicit parameter (before :args and the proof). Insert it.
+     For simple-premise rules, premise formulas precede :args. *)
   let body =
-    let formula_args = match formula_enc with
-      | Some f -> [f]
-      | None -> []
-    in
+    let formula_args = formula_enc in
     let all_args = formula_args @ args_enc @ prems_enc in
     List.fold_left (fun acc arg -> mk_Appl (acc, arg)) head all_args
   in
   let expected_ty = match conc_opt with
     | Some conc ->
-      let conc_enc = enc_term [] ctx conc |> resolve_term ~ctx in
+      let conc_enc = enc_term [] ctx conc in
       Some (mk_proof conc_enc)
     | None -> None
   in
-  let body = resolve_term ~ctx ?expected_ty body in
   let sym = add_proof_definition (unique_name str) expected_ty body in
   { syms = [sym]; rules = []; }
 

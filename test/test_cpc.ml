@@ -337,7 +337,7 @@ let test_proofs () =
     (* Run eo2lp with --proofs on the test fixtures *)
     let cmd =
       Printf.sprintf
-        "cd %s && dune exec eo2lp -- -o %s --proofs %s --proofs-only --no-color 2>&1"
+        "cd %s && dune exec eo2lp -- -o %s --proofs %s --no-color 2>&1"
         (Filename.quote (Sys.getcwd ()))
         (Filename.quote build_dir)
         (Filename.quote test_proofs_dir)

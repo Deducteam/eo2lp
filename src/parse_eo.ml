@@ -225,12 +225,18 @@ let rec walk_eo_files dir =
    (name, signature, parse_errors) triples. Names are relative to the
    base directory with the .eo extension stripped, e.g. "QF_UF/small/foo". *)
 let parse_proof_dir ?(progress : (int -> int -> string -> unit) option)
-    (dir : string) : (string * signature * int) list =
-  let base_len = String.length dir + 1 in
-  let files =
-    walk_eo_files dir
-    |> List.sort String.compare
+    (path : string) : (string * signature * int) list =
+  let dir, files =
+    if Sys.is_directory path then
+      (* Strip trailing slash so base_len calculation is correct *)
+      let d = if String.length path > 1 && path.[String.length path - 1] = '/'
+              then String.sub path 0 (String.length path - 1)
+              else path in
+      d, walk_eo_files d |> List.sort String.compare
+    else
+      Filename.dirname path, [path]
   in
+  let base_len = String.length dir + 1 in
   let total = List.length files in
   List.mapi (fun i f ->
     let rel = String.sub f base_len (String.length f - base_len) in
@@ -238,7 +244,10 @@ let parse_proof_dir ?(progress : (int -> int -> string -> unit) option)
     (match progress with
      | Some cb -> cb (i + 1) total (Filename.basename f)
      | None -> ());
-    parse_proof_file ~name f
+    try parse_proof_file ~name f
+    with exn ->
+      Printf.eprintf "Parse error in %s: %s\n%!" f (Printexc.to_string exn);
+      (name, [], 1)
   ) files
 
 (* ============================================================

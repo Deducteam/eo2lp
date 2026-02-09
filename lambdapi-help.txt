@@ -1,0 +1,143 @@
+ciaran@turing:~/prog/eo2lp$ lambdapi check --help | cat
+LAMBDAPI-CHECK(1)               Lambdapi Manual              LAMBDAPI-CHECK(1)
+
+NAME
+       lambdapi-check - Type-checks the given files.
+
+SYNOPSIS
+       lambdapi check [OPTION]… [FILE]…
+
+ARGUMENTS
+       FILE
+           Source  file  with the [.lp] extension (or with the [.dk] extension
+           when using the Dedukti syntax).
+
+OPTIONS
+       -c, --gen-obj
+           Produce object files with the [.lpo] extension. These object  files
+           can  then be read during subsequent calls to avoid re-type-checking
+           fo the corresponding source file. Note that an object file is  only
+           used  when it is up to date (i.e., more recent than the source). If
+           that is not the case then the outdated file is overwritten.
+
+       --confluence=CMD
+           Use the command CMD for checking confluence. The command CMD should
+           accept HRS-formatted text on its standard input (For more info  see
+           http://project-coco.uibk.ac.at/problems/hrs.php) and the first line
+           of its standard output should be either "YES", "NO" or "MAYBE".
+
+       --debug=FLAGS
+           Enables  the debugging flags specified in FLAGS. Every character of
+           FLAGS correspond to  a  flag.  The  available  values  are:  a  for
+           metavariables,  c  for  conversion,  d  for compilation of decision
+           trees, e for snf, g for induction principles generation, i for type
+           inference/checking, k for local confluence, l for library files,  m
+           for term building, o for term scoping, p for pretty-printing, r for
+           the  rewrite  tactic, s for subject-reduction, t for tactics, u for
+           unification, v for inverse, w for whnf, x for export,  y  for  why3
+           provers, z for external tools.
+
+       --lib-root=DIR
+           Set the library root to be the directory DIR. The library root is a
+           common  path  under  which  every module is placed. It has the same
+           purpose as the root directory "/" of Unix systems. In  fact  it  is
+           possible  to  "mount"  directories  under the library root with the
+           "--map-dir" option. Lambdapi uses DIR as  library  root  if  it  is
+           provided,               otherwise              it              uses
+           $LAMBDAPI_LIB_ROOT/lib/lambdapi/lib_root   if    the    environment
+           variable        LAMBDAPI_LIB_ROOT        is        set,        then
+           $OPAM_SWITCH_PREFIX/lib/lambdapi/lib_root if OPAM_SWITCH_PREFIX  is
+           set or it uses /usr/local/lib/lambdapi/lib_root.
+
+       --map-dir=MOD:DIR
+           Map  all the modules having MOD as a prefix of their module path to
+           files under the directory DIR. The corresponding modules under  the
+           library  root are then rendered inaccessible. This option is useful
+           during the development of a library, before it can be installed  in
+           the expected folder under the library root.
+
+       --no-colors
+           Disable  the use of colors when printing to the terminal. Note that
+           the default behaviour is to rely on ANSI escape sequences in  order
+           to make the debugging logs more readable.
+
+       --no-sr-check
+           Disable the verification that rewrite rules preserve typing.
+
+       --record-time
+           Print  statistics  on  the  time spent in different tasks (parsing,
+           typing, etc.). Note that it slows down the program.
+
+       --termination=CMD
+           Use the command CMD  for  checking  termination.  The  command  CMD
+           should  accept  XTC-formatted  text on its standard input (for more
+           info see https://tinyurl.com/XTC-format), and the first line of its
+           standard output should be either "YES", "NO" or "MAYBE".
+
+       --timeout=NUM
+           Timeout after NUM seconds. The program is interrupted with an error
+           as soon as the specified number of seconds is elapsed.
+
+       --too-long=FLOAT (absent=inf)
+           Print a warning every time that a command requires more than  FLOAT
+           seconds to execute. The command is not interrupted.
+
+       -v NUM, --verbose=NUM
+           Set  the verbosity level to NUM. A value smaller or equal to 0 will
+           disable all printing (on standard output). Greater numbers lead  to
+           more  and more informations being written to standard output.In the
+           case of the websearch  command,  a  value  larger  or  equal  to  2
+           willprint  the requests received by the server. A value larger than
+           3 will also print the responses sent by the server.
+
+       -w, --no-warnings
+           Disable the printing of all warnings.
+
+COMMON OPTIONS
+       --help[=FMT] (default=auto)
+           Show this help in format FMT. The value FMT must be  one  of  auto,
+           pager,  groff  or  plain.  With  auto, the format is pager or plain
+           whenever the TERM env var is dumb or undefined.
+
+       --version
+           Show version information.
+
+EXIT STATUS
+       lambdapi check exits with:
+
+       0   on success.
+
+       123 on indiscriminate errors reported on standard error.
+
+       124 on command line parsing errors.
+
+       125 on unexpected internal errors (bugs).
+
+FILES
+       A package configuration files lambdapi.pkg can be placed at the root of
+       a source tree, so that Lambdapi can determine under  what  module  path
+       the  underlying  modules  should be registered (relative to the library
+       root). If several candidate package configuration files  are  found  in
+       the  parent  folders  of  a  source file, the one in the closest parent
+       directory is used.
+
+       The syntax of package configuration files is line-based. Each line  can
+       either  be  a  comment  (i.e.,  it  starts  with  a '#') or a key-value
+       association of the form "key = value". Two such entries should be given
+       for a configuration file to be valid: a package_name entry whose  value
+       is an identifier and a root_path entry whose value is a module path.
+
+       An example of package configuration file is given bellow.
+
+            # Lines whose first non-whitespace charater is # are comments
+            # The end of a non-comment line cannot be commented.
+            # The following two fields must be defined:
+            package_name = my_package_name
+            root_path = a.b.c
+            # Unknown fields like the following are ignored.
+            unknown = this is useless
+
+SEE ALSO
+       lambdapi(1)
+
+Lambdapi 3.0.0                                               LAMBDAPI-CHECK(1)

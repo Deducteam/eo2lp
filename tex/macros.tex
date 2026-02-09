@@ -96,6 +96,22 @@
 \newcommand{\al}[1]{\mtt{:arg-list}\ {#1}}
 \newcommand{\eovar}[2]{\eapp{\eo{var}}{#1\ #2}}
 
+% --- builtin operators (sec:eo-builtin) ---
+\newcommand{\eoBuiltinFig}{
+	\begin{array}[t]{r@{\ }l@{\quad}l}
+		β & \begin{array}[t]{c@{\ }l}
+			    {⦂} & \eo{ite}\ ∣\ \eo{eq}\ ∣\ \eo{requires}\ ∣\ \eo{typeof} \\
+			    {∣} & \eo{var}\ ∣\ \eo{is\_ok}\ ∣\ \eo{is\_eq}               \\
+			    {∣} & \eo{and}\ ∣\ \eo{or}\ ∣\ \eo{not}\ ∣\ \eo{xor}         \\
+			    {∣} & \eo{add}\ ∣\ \eo{mul}\ ∣\ \eo{neg}\ ∣\ \eo{is\_neg}    \\
+			    {∣} & \eo{nil}\ ∣\ \eo{cons}\ ∣\ \eo{list\_concat}           \\
+			    {∣} & \eo{list\_len}\ ∣\ \eo{list\_nth}\ ∣\ \eo{list\_find}  \\
+			    {∣} & \ldots
+		    \end{array}
+		  & \mcomment{(built-in operators)}
+	\end{array}
+}
+
 
 \newcommand{\cons}{{\text{cons}}}
 \newcommand{\nil}{{\text{nil}}}

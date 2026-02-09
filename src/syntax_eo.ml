@@ -92,6 +92,7 @@ module Builtin = struct
   let eo_list_nil    = "eo::List::nil"
   let eo_list_concat = "eo::List::concat"
   let eo_list_concat_old = "eo::list_concat"
+  let eo_nil            = "eo::nil"
   let eo_nil_assumption = "eo::nil_assumption"
   let eo_premise_list   = "eo::premise_list"
   let eo_int  = "eo::Int"
@@ -287,3 +288,6 @@ let rec symbols_in_term acc = function
 (* Extract all symbol references from a list of terms *)
 let symbols_in_terms ts =
   List.fold_left symbols_in_term Set.empty ts
+
+let term_contains_symbol name t =
+  Set.mem name (symbols_in_term Set.empty t)

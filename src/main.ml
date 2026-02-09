@@ -21,26 +21,28 @@ type config = {
   input_dir      : string;
   output_dir     : string;
   proofs_dir     : string option;
-  proofs_only    : bool;
   check          : bool;
   timeout        : int;
   log_level      : LP.log_level;
   no_color       : bool;
   include_expert : bool;
   step           : bool;
+  bench          : bool;
+  results_file   : string option;
 }
 
 let default_config = {
   input_dir      = "./cpc";
   output_dir     = "./_build/cpc";
   proofs_dir     = None;
-  proofs_only    = false;
   check          = false;
   timeout        = 0;
   log_level      = LP.Silent;
   no_color       = false;
   include_expert = false;
   step           = false;
+  bench          = false;
+  results_file   = None;
 }
 
 let config = ref default_config
@@ -57,7 +59,7 @@ let speclist = [
      config := { !config with log_level = level }),
    "<level> Log level: error, warn, info, debug");
   ("--proofs", Arg.String (fun s -> config := { !config with proofs_dir = Some s }),
-   "<dir> Directory of .eo proof files to encode");
+   "<path> File or directory of .eo proof files to encode");
   ("--check", Arg.Unit (fun () -> config := { !config with check = true }),
    " Run lambdapi check on generated .lp files");
   ("--timeout", Arg.Int (fun n -> config := { !config with timeout = n }),
@@ -66,10 +68,12 @@ let speclist = [
    " Disable colored output");
   ("--expert", Arg.Unit (fun () -> config := { !config with include_expert = true }),
    " Include files from expert/ directory");
-  ("--proofs-only", Arg.Unit (fun () -> config := { !config with proofs_only = true }),
-   " Skip CPC encode/check, only process proofs (requires pre-built CPC in output dir)");
   ("--step", Arg.Unit (fun () -> config := { !config with step = true }),
    " Print each proof step's EO source and generated LP in real time");
+  ("--bench", Arg.Unit (fun () -> config := { !config with bench = true }),
+   " Emit machine-readable per-proof lines to stderr for benchmarking");
+  ("--results", Arg.String (fun s -> config := { !config with results_file = Some s }),
+   "<file> Write per-proof results CSV to file");
 ]
 
 (* Use centralized colors from Api_lp *)
@@ -90,15 +94,53 @@ let exn_msg = function
 
 exception Timeout
 
+(* Fork-based timeout: runs f() in a child process, kills it after secs.
+   The child writes its result (error list) to a pipe; the parent reads it.
+   If the child exceeds the timeout, the parent kills it and raises Timeout. *)
 let with_timeout secs f =
-  let old_handler = Sys.signal Sys.sigalrm
-    (Sys.Signal_handle (fun _ -> raise Timeout)) in
-  let old_alarm = Unix.alarm secs in
-  Fun.protect ~finally:(fun () ->
+  flush_all ();
+  let pipe_r, pipe_w = Unix.pipe () in
+  let pid = Unix.fork () in
+  if pid = 0 then begin
+    (* Child *)
+    Unix.close pipe_r;
+    let result = try f () with e -> [("(exception)", Printexc.to_string e)] in
+    let oc = Unix.out_channel_of_descr pipe_w in
+    Marshal.to_channel oc (result : (string * string) list) [];
+    close_out oc;
+    exit 0
+  end else begin
+    (* Parent *)
+    Unix.close pipe_w;
+    let timed_out = ref false in
+    let old_handler = Sys.signal Sys.sigalrm
+      (Sys.Signal_handle (fun _ -> timed_out := true)) in
+    let old_alarm = Unix.alarm secs in
+    let rec wait () =
+      try Unix.waitpid [] pid
+      with Unix.Unix_error (Unix.EINTR, _, _) ->
+        if !timed_out then begin
+          (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+          Unix.waitpid [] pid
+        end else
+          wait ()
+    in
+    let _, _status = wait () in
     ignore (Unix.alarm 0);
     Sys.set_signal Sys.sigalrm old_handler;
-    if old_alarm > 0 then ignore (Unix.alarm old_alarm))
-    f
+    if old_alarm > 0 then ignore (Unix.alarm old_alarm);
+    if !timed_out then begin
+      Unix.close pipe_r;
+      raise Timeout
+    end;
+    let ic = Unix.in_channel_of_descr pipe_r in
+    let result =
+      try (Marshal.from_channel ic : (string * string) list)
+      with _ -> [("(child)", "failed to read result from child process")]
+    in
+    close_in ic;
+    result
+  end
 
 let fmt_time dt =
   if dt >= 10.0 then Printf.sprintf "%.1fs" dt
@@ -122,8 +164,8 @@ let clean_output_dir output_dir =
     ignore (Sys.command cmd)
   end
 
-let init_lambdapi ?(clean=true) ~output_dir ~pkg_name () =
-  if clean then clean_output_dir output_dir;
+let init_lambdapi ~output_dir ~pkg_name () =
+  clean_output_dir output_dir;
   LP.mkdir_p output_dir;
   LP.generate_pkg_file output_dir pkg_name;
   LP.generate_prelude output_dir;
@@ -136,18 +178,6 @@ let init_lambdapi ?(clean=true) ~output_dir ~pkg_name () =
   Sys.chdir cwd;
   sign
 
-(* Load all pre-built CPC .lp files into lambdapi's memory so that
-   proof encoding can reference CPC symbols without re-encoding. *)
-let load_cpc_modules ~output_dir ~pkg_name (order : path list) =
-  let cwd = Sys.getcwd () in
-  Sys.chdir output_dir;
-  (* Compile the Prelude first so CPC modules can resolve it *)
-  ignore (LP.compile ~force:true [pkg_name; "Prelude"]);
-  List.iter (fun mod_path ->
-    let lp_path = pkg_name :: mod_path in
-    ignore (LP.compile ~force:true lp_path)
-  ) order;
-  Sys.chdir cwd
 
 (* ---------------------------------------------------------------------------
    Result types
@@ -297,6 +327,53 @@ let encode_proof ~pkg_name ~output_dir ~(top_module : path) ?(step=false)
    Failure report: extract location, source line, and error body
    --------------------------------------------------------------------------- *)
 
+(* Summarize verbose LP error messages into something human-readable.
+   - "proof not finished" → extract [line:col], count of unfinished goals
+   - long messages → truncate to max_len characters *)
+let summarize_error ?(max_len=200) msg =
+  let has s = try ignore (Str.search_forward (Str.regexp_string s) msg 0); true
+              with Not_found -> false in
+  if has "not finished" then begin
+    (* Extract [line:col] location *)
+    let loc =
+      try
+        let _ = Str.search_forward (Str.regexp "\\[\\([0-9]+\\):\\([0-9]+\\)\\]") msg 0 in
+        Printf.sprintf "[%s:%s]" (Str.matched_group 1 msg) (Str.matched_group 2 msg)
+      with Not_found -> "" in
+    (* Count goals by counting " ≡ " occurrences *)
+    let n_goals = ref 0 in
+    let i = ref 0 in
+    let eqv = "≡" in
+    (try while true do
+      let pos = Str.search_forward (Str.regexp_string eqv) msg !i in
+      i := pos + String.length eqv;
+      incr n_goals
+    done with Not_found -> ());
+    (* Extract the RHS of the first ≡ as a hint *)
+    let hint =
+      try
+        let eqv_len = String.length eqv in
+        let pos = Str.search_forward (Str.regexp_string eqv) msg 0 in
+        let after = pos + eqv_len in
+        (* Skip leading whitespace *)
+        let start = ref after in
+        while !start < String.length msg && msg.[!start] = ' ' do incr start done;
+        (* Take until newline or next goal number *)
+        let rest = String.sub msg !start (String.length msg - !start) in
+        let rhs = try
+          let nl = String.index rest '\n' in
+          String.sub rest 0 nl
+        with Not_found -> rest in
+        let rhs = String.trim rhs in
+        let rhs = if String.length rhs > 40 then String.sub rhs 0 40 ^ "..." else rhs in
+        if rhs <> "" then Printf.sprintf " (... ≡ %s)" rhs else ""
+      with Not_found -> "" in
+    Printf.sprintf "%s proof not finished: %d goal(s)%s" loc !n_goals hint
+  end
+  else if String.length msg > max_len then
+    String.sub msg 0 max_len ^ "..."
+  else msg
+
 let print_failure output_dir (name, phase, msg) =
   (* Convert module name cpc.programs.Foo to file path programs/Foo.lp *)
   let lp_path =
@@ -340,12 +417,23 @@ let print_failure output_dir (name, phase, msg) =
      if source <> "" then
        Printf.printf "    %s %s\n" loc (dim source)
      else
-       Printf.printf "    %s\n" loc
+       Printf.printf "    %s\n" loc;
+     (* For "proof not finished" and other verbose errors, show a summary
+        instead of dumping all body lines *)
+     let summary = summarize_error msg in
+     if summary <> msg then
+       Printf.printf "    %s\n" summary
+     else
+       List.iter (fun l ->
+         Printf.printf "      %s\n" l
+       ) body_lines
    | None ->
-     Printf.printf "    %s\n" first_line);
-  List.iter (fun l ->
-    Printf.printf "      %s\n" l
-  ) body_lines
+     Printf.printf "    %s\n" (summarize_error first_line);
+     if body_lines <> [] then
+       List.iter (fun l ->
+         let l = if String.length l > 80 then String.sub l 0 80 ^ "..." else l in
+         Printf.printf "      %s\n" l
+       ) body_lines)
 
 (* ---------------------------------------------------------------------------
    Main entry point
@@ -353,6 +441,10 @@ let print_failure output_dir (name, phase, msg) =
 
 let run () =
   Arg.parse speclist (fun _ -> ()) usage;
+
+  (* --bench implies --check (benchmarking without verification is useless) *)
+  if !config.bench then
+    config := { !config with check = true };
 
   (* Apply global settings before any output *)
   LP.no_color := !config.no_color;
@@ -385,9 +477,8 @@ let run () =
   let t1 = Unix.gettimeofday () in
   Printf.printf "initializing lambdapi... ";
   flush stdout;
-  let proofs_only = !config.proofs_only in
   let prelude_sign =
-    init_lambdapi ~clean:(not proofs_only) ~output_dir ~pkg_name () in
+    init_lambdapi ~output_dir ~pkg_name () in
   LP.init prelude_sign;
   Printf.printf "%s (%s)\n"
     (green "ok") (fmt_time (Unix.gettimeofday () -. t1));
@@ -396,94 +487,77 @@ let run () =
   let order = topo_sort_graph graph in
   let total = List.length order in
 
-  (* -- Stages 3-4: Encode and check CPC modules (skipped with --proofs-only) *)
+  (* -- Stage 3: Encode all modules -------------------------------------- *)
+  let t2 = Unix.gettimeofday () in
+  Printf.printf "encoding %d modules... " total;
+  flush stdout;
 
+  let encode_results : (path * encode_result) list =
+    List.map (fun mod_path ->
+      let t_start = Unix.gettimeofday () in
+      let errors =
+        try encode_module ~pkg_name ~output_dir graph mod_path
+        with e ->
+          let name = path_to_module pkg_name mod_path in
+          [("(module)", Printf.sprintf "%s: %s" name (exn_msg e))]
+      in
+      let enc = {
+        enc_errors = errors;
+        enc_time   = Unix.gettimeofday () -. t_start;
+      } in
+      (mod_path, enc)
+    ) order
+  in
+
+  let encode_errs =
+    List.filter (fun (_, enc) -> enc.enc_errors <> []) encode_results
+  in
+  let t_encode = Unix.gettimeofday () -. t2 in
+  if encode_errs = [] then
+    Printf.printf "%s (%s)\n" (green "ok") (fmt_time t_encode)
+  else
+    Printf.printf "%s %d/%d with errors (%s)\n"
+      (red "WARN") (List.length encode_errs) total (fmt_time t_encode);
+
+  (* -- Stage 4: Check all modules with LambdaPi (if --check) ------------ *)
   let results : module_result list =
-    if proofs_only then begin
-      (* Load pre-built CPC modules into lambdapi *)
-      let t2 = Unix.gettimeofday () in
-      Printf.printf "loading %d modules... " total;
-      flush stdout;
-      load_cpc_modules ~output_dir ~pkg_name order;
-      Printf.printf "%s (%s)\n"
-        (green "ok") (fmt_time (Unix.gettimeofday () -. t2));
-      []
-    end else begin
-      (* -- Stage 3: Encode all modules ----------------------------------- *)
-      let t2 = Unix.gettimeofday () in
-      Printf.printf "encoding %d modules... " total;
+    if !config.check then begin
+      let t3 = Unix.gettimeofday () in
+      Printf.printf "checking %d modules... " total;
       flush stdout;
 
-      let encode_results : (path * encode_result) list =
-        List.map (fun mod_path ->
+      let results =
+        List.map (fun (mod_path, enc) ->
+          let mod_name = path_to_module pkg_name mod_path in
           let t_start = Unix.gettimeofday () in
-          let errors =
-            try encode_module ~pkg_name ~output_dir graph mod_path
-            with e ->
-              let name = path_to_module pkg_name mod_path in
-              [("(module)", Printf.sprintf "%s: %s" name (exn_msg e))]
+          let r = check_module ~output_dir mod_path in
+          let dt = Unix.gettimeofday () -. t_start in
+          let check = match r with
+            | LP.Check_ok    -> Check_ok
+            | LP.Check_error msg -> Check_error msg
           in
-          let enc = {
-            enc_errors = errors;
-            enc_time   = Unix.gettimeofday () -. t_start;
-          } in
-          (mod_path, enc)
-        ) order
+          { mod_path; mod_name; encode = enc;
+            check; check_time = dt }
+        ) encode_results
       in
 
-      let encode_errs =
-        List.filter (fun (_, enc) -> enc.enc_errors <> []) encode_results
+      let check_failures =
+        List.filter (fun r ->
+          match r.check with Check_error _ -> true | _ -> false) results
       in
-      let t_encode = Unix.gettimeofday () -. t2 in
-      if encode_errs = [] then
-        Printf.printf "%s (%s)\n" (green "ok") (fmt_time t_encode)
+      let t_check = Unix.gettimeofday () -. t3 in
+      if check_failures = [] then
+        Printf.printf "%s (%s)\n" (green "ok") (fmt_time t_check)
       else
-        Printf.printf "%s %d/%d with errors (%s)\n"
-          (red "WARN") (List.length encode_errs) total (fmt_time t_encode);
-
-      (* -- Stage 4: Check all modules with LambdaPi (if --check) --------- *)
-      let results : module_result list =
-        if !config.check then begin
-          let t3 = Unix.gettimeofday () in
-          Printf.printf "checking %d modules... " total;
-          flush stdout;
-
-          let results =
-            List.map (fun (mod_path, enc) ->
-              let mod_name = path_to_module pkg_name mod_path in
-              let t_start = Unix.gettimeofday () in
-              let r = check_module ~output_dir mod_path in
-              let dt = Unix.gettimeofday () -. t_start in
-              let check = match r with
-                | LP.Check_ok    -> Check_ok
-                | LP.Check_error msg -> Check_error msg
-              in
-              { mod_path; mod_name; encode = enc;
-                check; check_time = dt }
-            ) encode_results
-          in
-
-          let check_failures =
-            List.filter (fun r ->
-              match r.check with Check_error _ -> true | _ -> false) results
-          in
-          let t_check = Unix.gettimeofday () -. t3 in
-          if check_failures = [] then
-            Printf.printf "%s (%s)\n" (green "ok") (fmt_time t_check)
-          else
-            Printf.printf "%s %d/%d failed (%s)\n"
-              (red "FAIL") (List.length check_failures) total (fmt_time t_check);
-          results
-        end else
-          List.map (fun (mod_path, enc) ->
-            let mod_name = path_to_module pkg_name mod_path in
-            { mod_path; mod_name; encode = enc;
-              check = Check_skipped "no --check"; check_time = 0.0 }
-          ) encode_results
-      in
-
+        Printf.printf "%s %d/%d failed (%s)\n"
+          (red "FAIL") (List.length check_failures) total (fmt_time t_check);
       results
-    end
+    end else
+      List.map (fun (mod_path, enc) ->
+        let mod_name = path_to_module pkg_name mod_path in
+        { mod_path; mod_name; encode = enc;
+          check = Check_skipped "no --check"; check_time = 0.0 }
+      ) encode_results
   in
 
   (* -- Stage 5: Encode and check proofs (if --proofs given) -------------- *)
@@ -567,6 +641,16 @@ let run () =
             let dt = Unix.gettimeofday () -. t_start in
             let enc = { enc_errors = errors; enc_time = dt } in
             if errors <> [] then incr n_enc_err;
+            if !config.bench then begin
+              let ms = int_of_float (dt *. 1000.) in
+              if errors = [] then
+                Printf.eprintf "BENCH proof:%s encode ok %d\n%!" name ms
+              else begin
+                let _, first_msg = List.hd errors in
+                let msg = String.split_on_char '\n' first_msg |> List.hd in
+                Printf.eprintf "BENCH proof:%s encode error %d %s\n%!" name ms msg
+              end
+            end;
             if is_tty then begin
               let elapsed = Unix.gettimeofday () -. t5 in
               let rate = if elapsed > 0.0 then
@@ -605,16 +689,7 @@ let run () =
                 let check =
                   if enc.enc_errors <> [] then
                     Check_skipped "encode errors"
-                  else if proofs_only then begin
-                    (* In-process checking — CPC modules were loaded via
-                       Compile, so dependencies are properly resolved *)
-                    let lp_path = pkg_name :: proof_path in
-                    let r = LP.check_file_inproc output_dir lp_path in
-                    LP.remove_sign lp_path;
-                    match r with
-                    | LP.Check_ok -> Check_ok
-                    | LP.Check_error msg -> Check_error msg
-                  end else
+                  else
                     match check_module ~timeout ~output_dir proof_path with
                     | LP.Check_ok -> Check_ok
                     | LP.Check_error msg -> Check_error msg
@@ -623,6 +698,17 @@ let run () =
                 (match check with
                  | Check_ok -> ()
                  | Check_error _ | Check_skipped _ -> incr n_chk_fail);
+                if !config.bench then begin
+                  let ms = int_of_float (dt *. 1000.) in
+                  match check with
+                  | Check_ok ->
+                    Printf.eprintf "BENCH proof:%s check ok %d\n%!" name ms
+                  | Check_error msg ->
+                    let line = String.split_on_char '\n' msg |> List.hd in
+                    Printf.eprintf "BENCH proof:%s check error %d %s\n%!" name ms line
+                  | Check_skipped reason ->
+                    Printf.eprintf "BENCH proof:%s check skip %d %s\n%!" name ms reason
+                end;
                 if is_tty then begin
                   let elapsed = Unix.gettimeofday () -. t6 in
                   let rate = if elapsed > 0.0 then
@@ -739,6 +825,67 @@ let run () =
         ) r.encode.enc_errors
     ) all_results
   end;
+
+  (* -- Write results CSV (if --results given) ----------------------------- *)
+
+  (match !config.results_file with
+   | None -> ()
+   | Some csv_path ->
+     let classify_error msg =
+       let has s = try ignore (Str.search_forward (Str.regexp_string s) msg 0); true
+                   with Not_found -> false in
+       if has "timed out" || has "timeout" then "timeout"
+       else if has "not finished" then "proof_not_finished"
+       else if has "not found" || has "Not_found" then "symbol_not_found"
+       else if has "unsupported literal" then "unsupported_literal"
+       else if has "parse error" || has "Parse error" then "parse_error"
+       else if has "pop_assumption" || has "assumption stack" then "stack_error"
+       else if has "Cannot infer" || has "infer_noexn" then "type_inference"
+       else if has "not in context" then "context_error"
+       else if has "not unifiable" || has "Unification" then "unification"
+       else if has "Subject" || has "subject" then "sr_failure"
+       else if has "Typ" || has "typ" || has "type" then "type_error"
+       else "other"
+     in
+     let escape_csv s =
+       (* Replace newlines with spaces so CSV stays one-line-per-record *)
+       let s = String.concat " " (String.split_on_char '\n' s) in
+       if String.contains s ',' || String.contains s '"'
+       then "\"" ^ String.concat "\"\"" (String.split_on_char '"' s) ^ "\""
+       else s
+     in
+     let oc = open_out csv_path in
+     Printf.fprintf oc "file,status,encode_time,check_time,error_category,error\n";
+     List.iter (fun r ->
+       (* Only write proof results, not CPC module results *)
+       let is_proof = match r.mod_path with "proofs" :: _ -> true | _ -> false in
+       if is_proof then begin
+         let name = String.concat "/" r.mod_path in
+         (* Strip leading "proofs/" prefix *)
+         let name = match String.split_on_char '/' name with
+           | "proofs" :: rest -> String.concat "/" rest
+           | _ -> name
+         in
+         let status, error =
+           if r.encode.enc_errors <> [] then
+             let _, msg = List.hd r.encode.enc_errors in
+             "fail_encode", msg
+           else match r.check with
+             | Check_error msg -> "fail_check", msg
+             | Check_ok -> "pass", ""
+             | Check_skipped reason -> "skip", reason
+         in
+         let error_cat = if error <> "" && status <> "skip"
+                         then classify_error error else "" in
+         let error = summarize_error ~max_len:150 error in
+         Printf.fprintf oc "%s,%s,%.3f,%.3f,%s,%s\n"
+           name status r.encode.enc_time r.check_time
+           error_cat (escape_csv error)
+       end
+     ) all_results;
+     close_out oc;
+     Printf.printf "Results written to %s\n" csv_path
+  );
 
   LP.reset ();
   if n_failed > 0 then exit 1;

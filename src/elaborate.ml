@@ -108,50 +108,6 @@ let rec resolve_sym_name s =
   | Some (EO.Defn ([], EO.Symbol s', _)) -> resolve_sym_name s'
   | _ -> s
 
-(* Infer substitutions for a declaration's implicit type params from actual
-   argument types. Returns a list of (param_name, actual_type) pairs. *)
-let infer_nil_subst decl_ps ty ts ps =
-  let impl_names =
-    List.filter_map (fun (n, t, _) ->
-      if t = EO.Symbol EO.Builtin.ty_type then Some n else None) decl_ps
-  in
-  if impl_names = [] then []
-  else
-    let declared_arg_tys = match ty with
-      | EO.Apply (s, args) when s = EO.Builtin.ty_arrow && args <> [] ->
-        let n = List.length args in
-        List.filteri (fun i _ -> i < n - 1) args
-      | _ -> []
-    in
-    let actual_arg_tys =
-      List.filter_map (fun t ->
-        match t with
-        | EO.Symbol s ->
-          (match EO.prm_find s ps with
-           | Some (_, ty, _) -> Some ty
-           | None -> None)
-        | _ -> None) ts
-    in
-    let bindings = Hashtbl.create 4 in
-    let rec match_ty pat act =
-      match pat, act with
-      | EO.Symbol s, _ when List.mem s impl_names ->
-        if not (Hashtbl.mem bindings s) then
-          Hashtbl.add bindings s act
-      | EO.Apply (f1, args1), EO.Apply (f2, args2)
-        when f1 = f2 && List.length args1 = List.length args2 ->
-        List.iter2 match_ty args1 args2
-      | _ -> ()
-    in
-    List.iter2 match_ty
-      (List.filteri (fun i _ -> i < List.length actual_arg_tys) declared_arg_tys)
-      (List.filteri (fun i _ -> i < List.length declared_arg_tys) actual_arg_tys);
-    Hashtbl.fold (fun k v acc -> (k, v) :: acc) bindings []
-
-(* Apply a list of substitutions to an Eunoia term *)
-let apply_substs substs t =
-  List.fold_left (fun acc (s, t') -> EO.subst acc s t') t substs
-
 let take_drop n xs =
   let rec go n = function
     | x :: rest when n > 0 -> let (t, d) = go (n - 1) rest in (x :: t, d)
@@ -188,9 +144,9 @@ and elab_inner ps = function
 
   | EO.Symbol s ->
     begin match lookup_eo_symbol s with
-    | Some (EO.Defn ([], body, _)) ->
-      dbg "define: %s -> %s" s (Pp_eo.term_str body);
-      elab_inner ps body
+    | Some (EO.Defn ([], EO.Symbol s', _)) ->
+      dbg "define: %s -> %s" s s';
+      elab_inner ps (EO.Symbol s')
     | _ -> EO.Symbol s
     end
 
@@ -212,8 +168,8 @@ and elab_inner ps = function
   (* eo::typeof x -> type of x from context *)
   | EO.Apply (op, [EO.Symbol s]) when op = EO.Builtin.eo_typeof ->
     begin match EO.prm_find s ps with
-    | Some (_, ty, _) -> ty
-    | None -> EO.Apply (EO.Builtin.eo_typeof, [elab_inner ps (EO.Symbol s)])
+    | Some (_, ty, _) when ty <> EO.Symbol "NONE" -> ty
+    | _ -> EO.Apply (EO.Builtin.eo_typeof, [elab_inner ps (EO.Symbol s)])
     end
 
   (* Builtin applications *)
@@ -224,8 +180,8 @@ and elab_inner ps = function
   | EO.Apply (s, ts) ->
     elab_apply ps s ts
 
-  (* eo::define as local let-binding *)
-  | EO.Bind (op, xs, body) when op = EO.Builtin.eo_define ->
+  (* eo::define and let as local let-binding *)
+  | EO.Bind (op, xs, body) when op = EO.Builtin.eo_define || op = "let" ->
     elab_let ps xs body
 
   (* Binder application (forall, exists, etc.) *)
@@ -246,8 +202,9 @@ and elab_builtin ps s ts =
   else if s = EO.Builtin.eo_list_cons then begin
     (* eo::List::cons: expand :list params eagerly *)
     match ts with
-    | [x; xs] when (match xs with EO.Symbol s' -> EO.prm_has_attr s' EO.List ps | _ -> false)
-                 && not (match x with EO.Symbol s' -> EO.prm_has_attr s' EO.List ps | _ -> false) ->
+    | [x; xs] when not (match x with EO.Symbol s' -> EO.prm_has_attr s' EO.List ps | _ -> false)
+                 && (match xs with EO.Symbol s' -> EO.prm_has_attr s' EO.List ps
+                                 | EO.Apply _ -> true | _ -> false) ->
       EO.Apply (s, List.map (elab_inner ps) ts)
     | _ ->
       let nil = EO.Symbol EO.Builtin.eo_list_nil in
@@ -288,6 +245,12 @@ and elab_apply ps s ts =
           let n_opaque = List.length (List.filter
             (fun (_, _, atts) -> List.mem EO.Opaque atts) decl_ps) in
           let n_args = List.length ts - n_opaque in
+          (* Count non-implicit, non-opaque params: these appear in the
+             arrow type as explicit term-level arguments *)
+          let n_explicit_ps = List.length (List.filter
+            (fun (_, _, atts) ->
+              not (List.mem EO.Implicit atts) &&
+              not (List.mem EO.Opaque atts)) decl_ps) in
           let compat = match ao with
             | Some (EO.LeftAssoc | EO.RightAssoc
                    | EO.Chainable _ | EO.Pairwise _) ->
@@ -297,7 +260,7 @@ and elab_apply ps s ts =
                    | EO.LeftAssocNSN _ | EO.RightAssocNSN _) ->
               n_args >= 1
             | None ->
-              n_args = eo_type_arity ty - List.length decl_ps
+              n_args = eo_type_arity ty - n_explicit_ps
             | _ -> true
           in
           if not compat then None
@@ -317,17 +280,19 @@ and elab_nary ?(overload_idx=0) ps s k ts =
   | EO.Prog _ ->
     EO.Apply (name, List.map (elab_inner ps) ts)
 
-  | EO.Defn ([], body, _) ->
-    dbg "define: %s -> %s" s (Pp_eo.term_str body);
+  | EO.Defn ([], EO.Symbol s', _) ->
+    dbg "define: %s -> %s" s s';
     if ts = [] then
-      elab_inner ps body
+      elab_inner ps (EO.Symbol s')
     else
-      (* Apply remaining args to the expanded body *)
-      (match body with
-       | EO.Symbol s' ->
-         elab_inner ps (EO.Apply (s', ts))
-       | _ ->
-         elab_inner ps (EO.Apply (name, ts)))
+      elab_inner ps (EO.Apply (s', ts))
+
+  | EO.Defn ([], _body, _) ->
+    (* Non-alias nullary define: keep as a symbol reference *)
+    if ts = [] then
+      EO.Symbol name
+    else
+      EO.Apply (name, List.map (elab_inner ps) ts)
 
   | EO.Defn _ ->
     EO.Apply (name, List.map (elab_inner ps) ts)
@@ -353,11 +318,23 @@ and elab_nary_decl ?(overload_idx=0) ps s decl_ps ty ao ts =
   in
   let name = overload_name s overload_idx in
   dbg "overload: %s idx=%d -> %s" s overload_idx name;
-  (* Elaborate nil term with type param substitution *)
+  (* Elaborate nil term following the Ethos manual:
+     - Ground nil: use nil term directly
+     - Non-ground nil (references type params): use (eo::nil f (eo::typeof t1))
+       where t1 is the first argument, per the Ethos spec. *)
   let elab_nil_eo t_nil =
-    let subs = infer_nil_subst decl_ps ty ts ps in
-    if subs = [] then t_nil
-    else apply_substs subs t_nil
+    let impl_names =
+      List.filter_map (fun (n, t, _) ->
+        if t = EO.Symbol EO.Builtin.ty_type then Some n else None) decl_ps
+    in
+    let nil_has_params = List.exists (fun n ->
+      EO.term_contains_symbol n t_nil) impl_names in
+    if not nil_has_params then t_nil
+    else
+      match rest_ts with
+      | t1 :: _ ->
+        EO.Apply (EO.Builtin.eo_nil, [EO.Symbol name; EO.Apply (EO.Builtin.eo_typeof, [t1])])
+      | [] -> t_nil
   in
   (* EO-level fold helpers *)
   let glue_eo is_list arg acc =

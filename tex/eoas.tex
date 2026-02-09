@@ -441,13 +441,105 @@ corresponding to the constant attributes of
 
 
 \subsection{Built-in Operators}\label{sec:eo-builtin}
+%
+% ---------------------------------------------------------
+\begin{boxfigure}[t!]{fig:eo-builtins}
+	{A selection of built-in operators of Eunoia.}
+	%
+	$$ \eoBuiltinFig $$
+\end{boxfigure}
+% ---------------------------------------------------------
+%
+In addition to the user-defined symbols introduced by
+commands, Eunoia provides a fixed set of \emph{built-in
+	operators} (\autoref{fig:eo-builtins}).
+%
+Built-in operators are evaluated eagerly on ground
+arguments, so that e.g.\ $\eapp{\eo{add}}{1\ 1}$ is
+syntactically equal to $2$ in all contexts.
+%
+Apart from $\eo{ite}$, evaluation proceeds bottom-up:
+arguments are fully reduced before the operator is applied.
+For $\eo{ite}$, only the condition is evaluated; branches
+are left unevaluated until the condition resolves.
+%
+We briefly describe the main categories below.
 
-% TODO. eo::.. that operate on f-lists.
-% TODO. probably discuss literals and arithmetic here??
-% TODO. eo::List, eo::List::cons, eo::List::nil.
+\subsubsection{Core Operators.}
+%
+The operator $\eo{eq}$ tests syntactic equality of two
+ground values, returning $\mtt{true}$ or $\mtt{false}$.
+%
+$\eo{ite}$ is a conditional: $\eapp{\eo{ite}}{b\ t_1\ t_2}$
+returns $t_1$ if $b$ is $\mtt{true}$ and $t_2$ if $b$ is
+$\mtt{false}$.
+%
+$\eo{requires}$ acts as a guard:
+$\eapp{\eo{requires}}{t_1\ t_2\ t_3}$ returns $t_3$ when
+$t_1$ and $t_2$ are syntactically equal, and is unevaluated
+otherwise.
+%
+This operator is central to rule declarations
+(cf.~\autoref{sec:eo-judge}), where it constrains the
+applicability of inference rules to contexts satisfying
+certain equalities.
+%
+The operator $\eo{typeof}$ returns the type of a ground
+value, and $\eo{var}$ constructs a variable from a string
+name and a ground type.
 
+\subsubsection{Boolean and Arithmetic Operators.}
+%
+The Boolean operators $\eo{and}$, $\eo{or}$, $\eo{not}$,
+and $\eo{xor}$ have the expected semantics on $\mtt{true}$
+and $\mtt{false}$.
+%
+Arithmetic operators include $\eo{add}$, $\eo{mul}$,
+$\eo{neg}$, $\eo{is\_neg}$, integer division $\eo{zdiv}$
+and modulus $\eo{zmod}$.
+%
+These operate on integer (and rational) literals; for
+example, $\eapp{\eo{add}}{3\ 4}$ evaluates to $7$
+and $\eapp{\eo{is\_neg}}{-2}$ evaluates to $\mtt{true}$.
 
+\subsubsection{List Operators.}
+%
+A key feature of Eunoia is its treatment of $n$-ary
+operators via \emph{$f$-lists}.
+%
+Given a right-associative operator $f$ with nil terminator
+$t_\nil$, an $f$-list with elements $\plur t n$ is the
+term $\eapp{f}{t_1\ \eapp{f}{\ldots\ \eapp{f}{t_n\ t_\nil}}}$.
+%
+The built-in list operators manipulate these structures
+generically.
+%
+$\eapp{\eo{nil}}{f\ T}$ returns the nil terminator of $f$
+specialized to type $T$.
+%
+$\eapp{\eo{cons}}{f\ t_1\ t_2}$ prepends $t_1$ to the
+$f$-list $t_2$.
+%
+$\eapp{\eo{list\_concat}}{f\ t_1\ t_2}$ concatenates two
+$f$-lists.
+%
+Further operators include $\eo{list\_len}$,
+$\eo{list\_nth}$, $\eo{list\_find}$ (length, indexing,
+and search), as well as $\eo{list\_rev}$ (reversal),
+$\eo{list\_erase}$ (removal), and multiset operations
+such as $\eo{list\_minclude}$ and $\eo{list\_meq}$.
+%
+These operators are used extensively in the CPC signature
+to define programs that normalize and compare $n$-ary
+terms.
 
+%
+In addition to $f$-lists, Eunoia provides a
+\emph{heterogeneous} list type $\eo{List}$ with
+constructors $\eo{List::cons}$ and $\eo{List::nil}$.
+%
+These are used to encode binder variable lists and argument
+lists that may contain elements of different types.
 
 
 
