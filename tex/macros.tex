@@ -2,8 +2,11 @@
 \newcommand{\msf}{\mathsf}
 \newcommand{\mbf}{\mathbf}
 \newcommand{\mscr}{\mathscr}
-\newcommand{\mtt}[1]{{\color{MaterialPink500}{\texttt{#1}}}}
+\newcommand{\mtt}[1]{{\color{eoConst}{\texttt{#1}}}}% types/constants: Type, Bool, true, false, Proof
+\newcommand{\kw}[1]{{\color{eoKeyword}{\texttt{\textbf{#1}}}}}% commands: declare-const, define, program, ...
 \newcommand{\ev}[1]{{\color{MaterialGrey800}{\texttt{#1}}}}
+\newcommand{\equo}{{\color{eoString}{\texttt{"}}}}% string quote
+\newcommand{\estr}[1]{\equo{#1}\equo}% string literals
 
 \newcommand{\cpc}{\msf{CPC}}
 \newcommand{\tsm}[1]{{\small\text{#1}}}
@@ -51,17 +54,17 @@
 
 % -------------- Eunoia ------------------------------------
 % eunoia symbols
-\newcommand{\epar}[1]{\wrapp{MaterialGrey600}{\texttt{(}}{\texttt{)}}{#1}}
+\newcommand{\epar}[1]{\wrapp{eoPunct}{\texttt{(}}{\texttt{)}}{#1}}
 \newcommand{\eapp}[2]{\epar{#1\ #2}}
 \newcommand{\earr}[1]{\epar{\mtt{->}\ #1}}
 \newcommand{\eprf}[1]{\epar{\mtt{Proof}\ #1}}
 \newcommand{\ecase}[2]{\epar{#1\ #2}}
-\newcommand{\eo}[1]{\mtt{eo::#1}}
+\newcommand{\eo}[1]{{\color{eoBuiltin}{\texttt{eo::#1}}}}% builtins
 \newcommand{\etype}{\mtt{Type}}
 \newcommand{\eoreqs}[3]{\eapp{\eo{requires}}{#1\ #2\ #3}}
 \newcommand{\equote}[1]{\eapp{\eo{quote}}{#1}}
 
-\newcommand{\attr}[1]{\mtt{:#1}}
+\newcommand{\attr}[1]{{\color{eoAttr}{\texttt{:#1}}}}% attributes
 \newcommand{\premises}[1]{\attr{premises}\,\epar{#1}}
 \newcommand{\premiselist}[2]{\attr{premise-list}\ #1\ #2}
 \newcommand{\requires}[1]{\attr{requires}\ \epar{#1}}
@@ -79,21 +82,21 @@
 \newcommand{\prf}{\mbf{prf}}
 \newcommand{\step}{\mbf{step}}
 
-\newcommand{\eor}{\mtt{or}}
+\newcommand{\eor}{\texttt{or}}
 \newcommand{\econcat}[3]{\eapp{\eo{list\_concat}}{#1\ #2\ #3}}
 \newcommand{\econs}[3]{\eapp{#1}{#2\ #3}}
-\newcommand{\false}{\mtt{false}}
+\newcommand{\false}{\texttt{false}}
 
-\newcommand{\rcn}[1]{\mtt{:right-assoc-nil}\ {#1}}
-\newcommand{\rc}{\mtt{:right-assoc}}
+\newcommand{\rcn}[1]{\attr{right-assoc-nil}\ {#1}}
+\newcommand{\rc}{\attr{right-assoc}}
 
-\newcommand{\lcn}[1]{\mtt{:left-assoc-nil}\ {#1}}
-\newcommand{\lc}{\mtt{:left-assoc}}
+\newcommand{\lcn}[1]{\attr{left-assoc-nil}\ {#1}}
+\newcommand{\lc}{\attr{left-assoc}}
 
-\newcommand{\ch}[1]{\mtt{:chainable}\ {#1}}
-\newcommand{\pw}[1]{\mtt{:pairwise}\ {#1}}
-\newcommand{\bd}[1]{\mtt{:binder}\ {#1}}
-\newcommand{\al}[1]{\mtt{:arg-list}\ {#1}}
+\newcommand{\ch}[1]{\attr{chainable}\ {#1}}
+\newcommand{\pw}[1]{\attr{pairwise}\ {#1}}
+\newcommand{\bd}[1]{\attr{binder}\ {#1}}
+\newcommand{\al}[1]{\attr{arg-list}\ {#1}}
 \newcommand{\eovar}[2]{\eapp{\eo{var}}{#1\ #2}}
 
 % --- builtin operators (sec:eo-builtin) ---
@@ -119,10 +122,10 @@
 \newcommand{\foldr}{\mbf{foldr}}
 \newcommand{\elab}[1]{\mbf{elab}_{\prn{#1}}}
 \newcommand{\glue}[1]{\mbf{glue}_{\prn{#1}}}
-\newcommand{\bool}{\mtt{Bool}}
+\newcommand{\bool}{\texttt{Bool}}
 % ---- eo commands ------
-\newcommand{\dc}[2]{\epar{\mtt{declare-const}\ {#1}\ {#2}}}
-\newcommand{\dca}[3]{\epar{\mtt{declare-const}\ {#1}\ {#2}\ {#3}}}
+\newcommand{\dc}[2]{\epar{\kw{declare-const}\ {#1}\ {#2}}}
+\newcommand{\dca}[3]{\epar{\kw{declare-const}\ {#1}\ {#2}\ {#3}}}
 
 % --- figures for `eoas.tex` ------------------------------
 % s & {⦂}\ \sym 0 ∣ \sym 1 ∣ \ldots
@@ -140,38 +143,38 @@
 
 \newcommand{\eoAttrSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}l}
-		ν & {⦂} & \mtt{:implicit} \mid \mtt{:list}               & \mcomment{(prm. attributes)}   \\
-		α & {⦂} & \mtt{:right-assoc} ∣ \mtt{:right-assoc-nil}\ t & \mcomment{(const. attributes)} \\
-		  & {∣} & \mtt{:left-assoc} ∣ \mtt{:left-assoc-nil}\ t                                    \\
-		  & {∣} & \mtt{:chainable}\ s ∣ \mtt{:pairwise}\ s                                        \\
-		  & {∣} & \mtt{:binder}\ s ∣ \mtt{:arg-list}\ s
+		ν & {⦂} & \attr{implicit} \mid \attr{list}               & \mcomment{(prm. attributes)}   \\
+		α & {⦂} & \attr{right-assoc} ∣ \attr{right-assoc-nil}\ t & \mcomment{(const. attributes)} \\
+		  & {∣} & \attr{left-assoc} ∣ \attr{left-assoc-nil}\ t                                    \\
+		  & {∣} & \attr{chainable}\ s ∣ \attr{pairwise}\ s                                        \\
+		  & {∣} & \attr{binder}\ s ∣ \attr{arg-list}\ s
 	\end{array}
 }
 
 \newcommand{\eoCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
 		δ & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \epar{\mtt{declare-const}\ s\ t\ \maybe{α}}                               \\
-			    {∣} & \epar{\mtt{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}} \\
-			    {∣} & \epar{\mtt{declare-consts}\ ℓ\ t}                                         \\
-			    {∣} & \epar{\mtt{define}\ {s} \ \epar{\vec ρ} \ t\ \ \maybe{\mtt{:type}\,t'}}   \\
-			    {∣} & \epar{\mtt{program}\ {s} \ \epar{\vec ρ}\
-			    \mtt{:signature}\,\epar{\vec{t}}\,t'\
+			    {⦂} & \epar{\kw{declare-const}\ s\ t\ \maybe{α}}                               \\
+			    {∣} & \epar{\kw{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}} \\
+			    {∣} & \epar{\kw{declare-consts}\ ℓ\ t}                                         \\
+			    {∣} & \epar{\kw{define}\ {s} \ \epar{\vec ρ} \ t\ \ \maybe{\attr{type}\,t'}}   \\
+			    {∣} & \epar{\kw{program}\ {s} \ \epar{\vec ρ}\
+			    \attr{signature}\,\epar{\vec{t}}\,t'\
 			    \epar{\vec{c}}
-			    }                                                                               \\
-			    {∣} & {\color{MaterialGrey600}{\texttt{(}}}
-			    \mtt{declare-rule}\ s\ \epar{\vec ρ}\
-			    \\ & \quad \maybe{\mtt{:assumption}\ t_{\text{assm}}}\
+			    }                                                                              \\
+			    {∣} & {\color{eoPunct}{\texttt{(}}}
+			    \kw{declare-rule}\ s\ \epar{\vec ρ}\
+			    \\ & \quad \maybe{\attr{assumption}\ t_{\text{assm}}}\
 			    \\ & \quad \maybe{
-			    \mtt{:premises}\ \epar{\vec{t}_{\text{prem}}}
+			    \attr{premises}\ \epar{\vec{t}_{\text{prem}}}
 			    \mid
-			    \mtt{:premise-list}\ t_{\text{prem}}\ t_{\text{op}}
+			    \attr{premise-list}\ t_{\text{prem}}\ t_{\text{op}}
 			    }\
-			    \\ & \quad \maybe{\mtt{:args}\ \epar{\vec{t}_{\text{args}}}}\
-			    \\ & \quad \maybe{\mtt{:requires}\ \epar{\vec{c}}}\
-			    \\ & \quad \mtt{:conclusion}\ {t_{\text{conc}}}
-			    {\color{MaterialGrey600}{\texttt{)}}}                                           \\
-			    {∣} & \epar{\mtt{include}\ μ}
+			    \\ & \quad \maybe{\attr{args}\ \epar{\vec{t}_{\text{args}}}}\
+			    \\ & \quad \maybe{\attr{requires}\ \epar{\vec{c}}}\
+			    \\ & \quad \attr{conclusion}\ {t_{\text{conc}}}
+			    {\color{eoPunct}{\texttt{)}}}                                                  \\
+			    {∣} & \epar{\kw{include}\ μ}
 		    \end{array}
 		  & \mcomment{(std. commands)}
 	\end{array}
@@ -180,16 +183,16 @@
 \newcommand{\eoPrfCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
 		π & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \epar{\mtt{assume}\ s\ φ}      \\
-			    {∣} & \epar{\mtt{assume-push}\ s\ φ} \\
-			    {∣} & \epar{\mtt{step}\ s\ φ\
-			    \mtt{:rule}\ s'\
-			    \maybe{\mtt{:premises}\ {\vec ψ}}\
-			    \maybe{\mtt{:args}\ {\vec t}}}       \\
-			    {∣} & \epar{\mtt{step-pop}\ s\ φ\
-			    \mtt{:rule}\ s'\
-			    \maybe{\mtt{:premises}\ {\vec ψ}}\
-			    \maybe{\mtt{:args}\ {\vec t}}}       \\
+			    {⦂} & \epar{\kw{assume}\ s\ φ}      \\
+			    {∣} & \epar{\kw{assume-push}\ s\ φ} \\
+			    {∣} & \epar{\kw{step}\ s\ φ\
+			    \attr{rule}\ s'\
+			    \maybe{\attr{premises}\ {\vec ψ}}\
+			    \maybe{\attr{args}\ {\vec t}}}      \\
+			    {∣} & \epar{\kw{step-pop}\ s\ φ\
+			    \attr{rule}\ s'\
+			    \maybe{\attr{premises}\ {\vec ψ}}\
+			    \maybe{\attr{args}\ {\vec t}}}      \\
 		    \end{array}
 		  & \mcomment{(prf. commands)}
 	\end{array}

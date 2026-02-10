@@ -1,0 +1,12 @@
+(assume @p1 (not (= x0 x0)))
+(step @p2 (= (= x0 x0) true)
+    :rule refl :args (x0))
+(step @p3 (= (not (= x0 x0)) (not true))
+    :rule cong :premises (@p2)
+    :args ((not (= x0 x0))))
+(step @p4 (= (not true) false)
+    :rule evaluate :args ((not true)))
+(step @p5 (= (not (= x0 x0)) false)
+    :rule trans :premises (@p3 @p4))
+(step @p6 false
+    :rule eq_resolve :premises (@p1 @p5))

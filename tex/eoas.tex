@@ -73,6 +73,13 @@ with respect to parameters $\vec ρ$.
 Furthermore, if a constant attribute $α$ is given by $δ$,
 we may write $\prn{δ ⊢ s(\vec ρ) ∷ α}$.
 %
+\begin{example}\label{ex:const-decl}
+	The following declarations from CPC
+	introduce Boolean negation, a right-associative
+	disjunction with nil terminator $\texttt{false}$, and
+	a polymorphic conditional:
+\eofile{examples/const-decl.eo}
+\end{example}
 
 \subsubsection{Macro Definition.}
 %
@@ -82,14 +89,20 @@ symbol $s$, parameters $\vec ρ$, and term $t$.
 Then $δ$ declares $t$ as the \emph{definiens} of $s$
 wrt. $\vec ρ$; written $\prn{δ ⊢ s(\vec ρ) ≔ t}$.
 %
-If the attribute $\mtt{:type}\ t'$ is given by $δ$,
+If the attribute $\attr{type}\ t'$ is given by $δ$,
 then $\prn{δ ⊢ s(\vec ρ) : t'}$ also holds.
+%
+\begin{example}\label{ex:macro-defn}
+	The following macro is used by CPC's
+	resolution rule to remove a literal from a clause:
+\eofile{examples/macro-defn.eo}
+\end{example}
 
 \subsubsection{Program Declaration.}
 %
 Let $δ$ be a \emph{program declaration} with
 symbol $s$, parameters $\vec ρ$,
-$\mtt{:signature}\,\prn{\plur t n}\,t'$,
+$\attr{signature}\,\prn{\plur t n}\,t'$,
 and cases $\plur c m$.
 %
 Then, $δ$ declares the type and definiens of $s$
@@ -108,14 +121,12 @@ $$
 	\quad\text{and}\quad
 	δ ⊢ s(\vec ρ) ≔ \mbf{cases}[c_1, \ldots, c_m]
 $$
-% for the type of $s$,
-% and
-%   $$
-% for the cases.
-% %
-% To distinguish `program' symbols from `constant' symbols,
-% we write $\prn{δ ⊢ s(\vec ρ) ∷ \mtt{:prog}}$.
-
+%
+\begin{example}\label{ex:program-decl}
+	The following program converts a formula
+	to a clause (i.e., an $\texttt{or}$-list) by pattern matching:
+\eofile{examples/program-decl.eo}
+\end{example}
 
 \subsubsection{Inference Rule Declaration.}
 %
@@ -133,7 +144,7 @@ parameters $\vec ρ$, and $\conclusion φ$.
 	      Otherwise, $φ^★ ≔ φ$.
 
 	      % TODO. "see ... for steps using rules with :premise-list".
-	\item If $δ$ provides $\mtt{:premises}\ \epar{\plur ψ m}$,
+	\item If $δ$ provides $\attr{premises}\ \epar{\plur ψ m}$,
 	      then let:
 	      $$τ^★ ≔ \earr{\eprf{ψ_1}\,\ldots\,\eprf{ψ_m}\ \eprf{φ^★}}$$
 	      %
@@ -142,7 +153,7 @@ parameters $\vec ρ$, and $\conclusion φ$.
 	      $$τ^★ ≔ \earr{\eprf{ψ}\ \eprf{φ^★}}$$
 	      Otherwise, let $τ^★ ≔ \eprf{φ^★}$.
 
-	\item Suppose $δ$ provides $\mtt{:args}\ \epar{\plur t n}$
+	\item Suppose $δ$ provides $\attr{args}\ \epar{\plur t n}$
 	      where each $t_i$ has type $τ_i$ with respect to the
 	      current context $\prn{Δ, \vec ρ}$.
 	      %
@@ -179,33 +190,25 @@ parameters $\vec ρ$, and $\conclusion φ$.
 	      of the rule may be obtained iff the given
 	      arguments match the `patterns' specified by each $t_i$.
 \end{enumerate}
-
 %
-
-% and $$.
-
-% \subsubsection{Signature Inclusion.}
-% %
-% Hereinafter, let $Θ$ be a \emph{(global) environment}
-% mapping from filepaths to Eunoia signatures.
-% %
-% Let $δ$ be an inclusion with valid filepath $μ$.
-% Then, any judgement $J$ made by a command $δ'$ in $Θ_μ$
-% is also made by $δ$.
-% That is:
-% $$
-% 	\text{$∀\,δ' ∈ Θ_μ$,}\quadδ' ⊢ J \quad⟹\quad \epar{\mtt{include}\ μ} ⊢ J
-% $$
+\begin{example}\label{ex:rule-decl}
+	CPC's reflexivity rule takes an argument
+	$t$ and concludes $\prn{= t\ t}$:
+\eofile{examples/rule-refl.eo}
+	The resolution rule takes two premise clauses and
+	a pivot literal, and concludes their resolvent:
+\eofile{examples/rule-resolution.eo}
+\end{example}
 
 \subsubsection{Proof Scripts.}
 
 Each proof command $π$ is either an \emph{assumption}
-(i.e., $\epar{\mtt{assume}\ s\ φ}$ or
-$\epar{\mtt{assume-push}\ s\ φ}$)
+(i.e., $\epar{\kw{assume}\ s\ φ}$ or
+$\epar{\kw{assume-push}\ s\ φ}$)
 or a \emph{step}
 (i.e.,
-$\epar{\mtt{step}\ s\ φ\ \ldots}$ or
-$\epar{\mtt{step-pop}\ s\ φ\ \ldots}$).
+$\epar{\kw{step}\ s\ φ\ \ldots}$ or
+$\epar{\kw{step-pop}\ s\ φ\ \ldots}$).
 %
 We call
 $s$ the \emph{name} of $π$ and $φ$ the \emph{conclusion},
@@ -216,33 +219,106 @@ $$π ⊢ s : \eapp{\mtt{Proof}}{φ}$$
 % no args :args` or `:premises`?
 % only one of `:args`, `:premises`?
 Furthermore, if $π$ is a step with
-$\mtt{:rule}\ r$,
-$\mtt{:args}\ \epar{\plur t m}$,
+$\attr{rule}\ r$,
+$\attr{args}\ \epar{\plur t m}$,
 and
-$\mtt{:premises}\ \epar{\plur p n}$
+$\attr{premises}\ \epar{\plur p n}$
 %
 then the definiens of $s$ is given as follows:
 $$
 	π ⊢ s ≔ \eapp{r}{\plur t m\ \plur p n}
 $$
+%
+\begin{example}\label{ex:proof-script}
+	The following is a proof script for the
+	unsatisfiability of $x_0 \neq x_0$:
+\eofile{examples/proof-script.eo}
+\end{example}
 
-% TODO.
-% if π is: `(assume-push)`, `(step-pop)`
-% if r has `:premise-list`
+\subsection{Built-in Operators}\label{sec:eo-builtin}
+%
+In addition to the user-defined symbols introduced by
+commands, Eunoia provides a fixed set of \emph{built-in
+	operators}.
+%
+We briefly describe the main categories below.
 
-% TODO. examples from CPC.
+\subsubsection{Core Operators.}
+%
+The operator $\eo{eq}$ tests syntactic equality of two
+ground values, returning $\texttt{true}$ or $\texttt{false}$.
+%
+$\eo{ite}$ is a conditional: $\eapp{\eo{ite}}{b\ t_1\ t_2}$
+returns $t_1$ if $b$ is $\texttt{true}$ and $t_2$ if $b$ is
+$\texttt{false}$.
+%
+$\eo{requires}$ acts as a guard:
+$\eapp{\eo{requires}}{t_1\ t_2\ t_3}$ returns $t_3$ when
+$t_1$ and $t_2$ are syntactically equal, and is unevaluated
+otherwise.
+%
+This operator is central to rule declarations
+(cf.~\autoref{sec:eo-judge}), where it constrains the
+applicability of inference rules to contexts satisfying
+certain equalities.
+%
+The operator $\eo{typeof}$ returns the type of a ground
+value, and $\eo{var}$ constructs a variable from a string
+name and a ground type.
 
-% TODO. can we define a type system here?
-% parameters probably pose an issue here.
-% but there's info somewhere in the user manual
-% about parameters/substitution/etc.
+\subsubsection{Boolean and Arithmetic Operators.}
+%
+The Boolean operators $\eo{and}$, $\eo{or}$, $\eo{not}$,
+and $\eo{xor}$ have the expected semantics on $\texttt{true}$
+and $\texttt{false}$.
+%
+Arithmetic operators include $\eo{add}$, $\eo{mul}$,
+$\eo{neg}$, $\eo{is\_neg}$, integer division $\eo{zdiv}$
+and modulus $\eo{zmod}$.
+%
+These operate on integer (and rational) literals; for
+example, $\eapp{\eo{add}}{3\ 4}$ evaluates to $7$
+and $\eapp{\eo{is\_neg}}{-2}$ evaluates to $\texttt{true}$.
+
+\subsubsection{List Operators.}
+%
+A key feature of Eunoia is its treatment of $n$-ary
+operators via \emph{$f$-lists}.
+%
+Given a right-associative operator $f$ with nil terminator
+$t_\nil$, an $f$-list with elements $\plur t n$ is the
+term $\eapp{f}{t_1\ \eapp{f}{\ldots\ \eapp{f}{t_n\ t_\nil}}}$.
+%
+The built-in list operators manipulate these structures
+generically.
+%
+$\eapp{\eo{nil}}{f\ T}$ returns the nil terminator of $f$
+specialized to type $T$.
+%
+$\eapp{\eo{cons}}{f\ t_1\ t_2}$ prepends $t_1$ to the
+$f$-list $t_2$.
+%
+$\eapp{\eo{list\_concat}}{f\ t_1\ t_2}$ concatenates two
+$f$-lists.
+%
+Further operators include $\eo{list\_len}$,
+$\eo{list\_nth}$, $\eo{list\_find}$ (length, indexing,
+and search), as well as $\eo{list\_rev}$ (reversal),
+$\eo{list\_erase}$ (removal), and multiset operations
+such as $\eo{list\_minclude}$ and $\eo{list\_meq}$.
+%
+These operators are used extensively in the CPC signature
+to define programs that normalize and compare $n$-ary
+terms.
 
 %
-% We define We say that a proof scripts is \emph{valid} with respect
-% to $Δ$ iff a list of
-% commands of the form $\vec δ, \vec π$ proof commands.
+In addition to $f$-lists, Eunoia provides a
+\emph{heterogeneous} list type $\eo{List}$ with
+constructors $\eo{List::cons}$ and $\eo{List::nil}$.
+%
+These are used to encode binder variable lists and argument
+lists that may contain elements of different types.
 
-% ----------------------------------------------------------
 \subsection{Elaboration of Terms}\label{sec:eo-elab}
 %
 % TODO.
@@ -351,9 +427,9 @@ corresponding to the constant attributes of
 		      $t_{\text{vars}} ≔ \elab{Δ, \vec ρ}
 			      [
 				      \eapp{t_\cons}{
-					      \eovar{\mtt{"}x_1\mtt{"}}{t_1}
+					      \eovar{\estr{x_1}}{t_1}
 					      \ldots
-					      \eovar{\mtt{"}x_n\mtt{"}}{τ_n}
+					      \eovar{\estr{x_n}}{τ_n}
 				      }
 			      ]
 		      $
@@ -438,121 +514,6 @@ corresponding to the constant attributes of
 
 %
 
-
-
-\subsection{Built-in Operators}\label{sec:eo-builtin}
-%
-% ---------------------------------------------------------
-\begin{boxfigure}[t!]{fig:eo-builtins}
-	{A selection of built-in operators of Eunoia.}
-	%
-	$$ \eoBuiltinFig $$
-\end{boxfigure}
-% ---------------------------------------------------------
-%
-In addition to the user-defined symbols introduced by
-commands, Eunoia provides a fixed set of \emph{built-in
-	operators} (\autoref{fig:eo-builtins}).
-%
-Built-in operators are evaluated eagerly on ground
-arguments, so that e.g.\ $\eapp{\eo{add}}{1\ 1}$ is
-syntactically equal to $2$ in all contexts.
-%
-Apart from $\eo{ite}$, evaluation proceeds bottom-up:
-arguments are fully reduced before the operator is applied.
-For $\eo{ite}$, only the condition is evaluated; branches
-are left unevaluated until the condition resolves.
-%
-We briefly describe the main categories below.
-
-\subsubsection{Core Operators.}
-%
-The operator $\eo{eq}$ tests syntactic equality of two
-ground values, returning $\mtt{true}$ or $\mtt{false}$.
-%
-$\eo{ite}$ is a conditional: $\eapp{\eo{ite}}{b\ t_1\ t_2}$
-returns $t_1$ if $b$ is $\mtt{true}$ and $t_2$ if $b$ is
-$\mtt{false}$.
-%
-$\eo{requires}$ acts as a guard:
-$\eapp{\eo{requires}}{t_1\ t_2\ t_3}$ returns $t_3$ when
-$t_1$ and $t_2$ are syntactically equal, and is unevaluated
-otherwise.
-%
-This operator is central to rule declarations
-(cf.~\autoref{sec:eo-judge}), where it constrains the
-applicability of inference rules to contexts satisfying
-certain equalities.
-%
-The operator $\eo{typeof}$ returns the type of a ground
-value, and $\eo{var}$ constructs a variable from a string
-name and a ground type.
-
-\subsubsection{Boolean and Arithmetic Operators.}
-%
-The Boolean operators $\eo{and}$, $\eo{or}$, $\eo{not}$,
-and $\eo{xor}$ have the expected semantics on $\mtt{true}$
-and $\mtt{false}$.
-%
-Arithmetic operators include $\eo{add}$, $\eo{mul}$,
-$\eo{neg}$, $\eo{is\_neg}$, integer division $\eo{zdiv}$
-and modulus $\eo{zmod}$.
-%
-These operate on integer (and rational) literals; for
-example, $\eapp{\eo{add}}{3\ 4}$ evaluates to $7$
-and $\eapp{\eo{is\_neg}}{-2}$ evaluates to $\mtt{true}$.
-
-\subsubsection{List Operators.}
-%
-A key feature of Eunoia is its treatment of $n$-ary
-operators via \emph{$f$-lists}.
-%
-Given a right-associative operator $f$ with nil terminator
-$t_\nil$, an $f$-list with elements $\plur t n$ is the
-term $\eapp{f}{t_1\ \eapp{f}{\ldots\ \eapp{f}{t_n\ t_\nil}}}$.
-%
-The built-in list operators manipulate these structures
-generically.
-%
-$\eapp{\eo{nil}}{f\ T}$ returns the nil terminator of $f$
-specialized to type $T$.
-%
-$\eapp{\eo{cons}}{f\ t_1\ t_2}$ prepends $t_1$ to the
-$f$-list $t_2$.
-%
-$\eapp{\eo{list\_concat}}{f\ t_1\ t_2}$ concatenates two
-$f$-lists.
-%
-Further operators include $\eo{list\_len}$,
-$\eo{list\_nth}$, $\eo{list\_find}$ (length, indexing,
-and search), as well as $\eo{list\_rev}$ (reversal),
-$\eo{list\_erase}$ (removal), and multiset operations
-such as $\eo{list\_minclude}$ and $\eo{list\_meq}$.
-%
-These operators are used extensively in the CPC signature
-to define programs that normalize and compare $n$-ary
-terms.
-
-%
-In addition to $f$-lists, Eunoia provides a
-\emph{heterogeneous} list type $\eo{List}$ with
-constructors $\eo{List::cons}$ and $\eo{List::nil}$.
-%
-These are used to encode binder variable lists and argument
-lists that may contain elements of different types.
-
-
-
-
-
-
-
-
-
-
-% ----------------------------------------------------------
-
-
 \end{document}
 
 
@@ -564,4 +525,4 @@ lists that may contain elements of different types.
 % $\mtt{->}$ (arrow-type constructor),
 % $\mtt{\_}$ (binary function application),
 % $\mtt{Bool}$ (the type of Boolean values),
-% $\mtt{true}$ and $\mtt{false}$ (terms of type \mtt{Bool}).
+% $\texttt{true}$ and $\texttt{false}$ (terms of type \mtt{Bool}).

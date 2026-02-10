@@ -11,6 +11,100 @@
 \usepackage{jbw-boxfigure}
 \usepackage{jbw-fix-hyperref-autoref}
 
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{listings}
+
+% Eunoia syntax colours (xcolor-material palette)
+\colorlet{eoKeyword}{MaterialPink500}%        commands
+\colorlet{eoAttr}{MaterialBlue700}%           attributes
+\colorlet{eoBuiltin}{MaterialTeal700}%        builtins (eo::*)
+\colorlet{eoConst}{MaterialDeepPurple500}%    types/constants
+\colorlet{eoComment}{MaterialGrey500}%        comments
+\colorlet{eoString}{MaterialBrown600}%        strings
+\colorlet{eoPunct}{MaterialGrey600}%          punctuation
+
+% Eunoia language definition for listings
+\lstdefinelanguage{eunoia}{
+	comment=[l]{;},
+	string=[b]",
+	morecomment=[s]{|}{|},% quoted symbols |...|
+	alsoletter={-:@.},
+	keywords={declare-const, declare-parameterized-const, declare-consts,
+			declare-rule, declare-fun, declare-sort, declare-datatype,
+			define, define-fun, define-const, define-sort,
+			program, include, assume, assume-push, step, step-pop,
+			let, match, as, par, forall, exists, lambda},
+	keywords=[2]{:conclusion, :premises, :premise-list, :args,
+			:requires, :assumption, :rule, :signature, :type,
+			:right-assoc, :right-assoc-nil, :left-assoc, :left-assoc-nil,
+			:chainable, :pairwise, :binder, :arg-list,
+			:implicit, :opaque, :list, :sorry},
+	keywords=[3]{eo::eq, eo::ite, eo::requires, eo::typeof, eo::var,
+			eo::add, eo::mul, eo::neg, eo::not, eo::and, eo::or, eo::xor,
+			eo::is_neg, eo::is_z, eo::is_q, eo::is_var, eo::is_bool,
+			eo::zdiv, eo::zmod, eo::to_z, eo::to_q, eo::quote,
+			eo::nil, eo::cons, eo::list_concat, eo::list_len,
+			eo::list_nth, eo::list_find, eo::list_rev, eo::list_erase,
+			eo::cmp, eo::gt, eo::define},
+	keywords=[4]{Type, Proof, ->},
+	sensitive=true,
+}
+
+\lstdefinestyle{eo}{
+language=eunoia,
+basicstyle=\small\ttfamily,
+keywordstyle=\color{eoKeyword}\bfseries,
+keywordstyle=[2]\color{eoAttr},
+keywordstyle=[3]\color{eoBuiltin},
+keywordstyle=[4]\color{eoConst},
+commentstyle=\color{eoComment}\itshape,
+stringstyle=\color{eoString},
+showstringspaces=false,
+columns=flexible,
+keepspaces=true,
+frame=none,
+literate={(}{{{\color{eoPunct}(}}}1
+				{)}{{{\color{eoPunct})}}}1,
+		aboveskip=0.5\medskipamount,
+		belowskip=0.5\medskipamount,
+	}
+
+% tcolorbox style for Eunoia code blocks (rounded corners)
+\newtcblisting{eolisting}{
+	listing only,
+	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
+	colback=MaterialGrey50,
+	colframe=MaterialGrey300,
+	arc=3pt,
+	boxrule=0.4pt,
+	left=2pt, right=2pt, top=0pt, bottom=0pt,
+	before skip=\medskipamount,
+	after skip=\medskipamount,
+}
+% Input listing from file (immune to editor reformatting)
+\newtcbinputlisting{\eofile}[1]{
+	listing only,
+	listing file={#1},
+	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
+	colback=MaterialGrey50,
+	colframe=MaterialGrey300,
+	arc=3pt,
+	boxrule=0.4pt,
+	left=2pt, right=2pt, top=0pt, bottom=0pt,
+	before skip=\medskipamount,
+	after skip=\medskipamount,
+}
+\lstset{defaultdialect=[]{eunoia}}
+
+% Redefine example and definition to use italic headings
+\let\example\relax
+\let\endexample\relax
+\spnewtheorem{example}{Example}{\itshape}{\rmfamily}
+\let\definition\relax
+\let\enddefinition\relax
+\spnewtheorem{definition}{Definition}{\itshape}{\rmfamily}
+
 \usepackage[backend=biber]{biblatex}
 \addbibresource{inria.bib}
 

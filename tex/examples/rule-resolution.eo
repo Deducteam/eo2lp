@@ -1,0 +1,5 @@
+(declare-rule resolution
+    ((C1 Bool) (C2 Bool) (pol Bool) (L Bool))
+    :premises (C1 C2)
+    :args (pol L)
+    :conclusion ($resolve C1 C2 pol L))

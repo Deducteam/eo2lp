@@ -1,0 +1,8 @@
+(program $to_clause ((F1 Bool) (F2 Bool :list))
+  :signature (Bool) Bool
+  (
+    (($to_clause (or F1 F2)) (or F1 F2))
+    (($to_clause false)      false)
+    (($to_clause F1)         (or F1))
+  )
+)

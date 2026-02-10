@@ -55,28 +55,21 @@
 
 We have presented a translation from Eunoia specifications and proofs
 to the $\lambda\Pi$-calculus, as implemented in the $\lambdapi$ proof
-assistant. Our tool \texttt{eo2lp} automates this translation and has
-been demonstrated on a subset of the CPC signature and proofs from
-QF-UF benchmarks.
+assistant. Our tool \texttt{eo2lp} automates this translation,
+and we have demonstrated it on CPC-MINI and on proof scripts
+from a range of SMT-LIB fragments.
+% TODO: update with final benchmark numbers.
 
-It should be stressed that the presentation of Eunoia in this paper
-only represents the core features, and there is more work to do in
-order to (a) translate all of the CPC signature and therefore be able
-to translate arbitrary \cvc{5} proofs, and (b) robustly cover the
-entirety of Eunoia to be able to translate arbitrary Eunoia signatures
-and proof scripts.
-
-We should also aim to support larger proofs, as those from the rodin
-benchmark have fewer than 70 proof steps. Some \cvc{5} proofs can be
-massive, so computational and efficiency aspects of the translation
-must be investigated.
-
-For future work, we should also investigate using our translated
-signatures and proof scripts in the realm of proof interoperability.
-For example, to gain even more confidence in the results of \cvc{5},
-one could attempt to prove the consistency of CPC, either within
-$\lambdapi$ or by exporting to some other proof assistant like
-Isabelle/HOL or Rocq.
+For future work, covering the full CPC signature would enable
+translation of arbitrary \cvc{5} proofs. The remaining encoding
+failures are concentrated in theories not yet included in CPC-MINI
+(nonlinear arithmetic, strings, bitvectors), which require extending
+both the signature and the elaboration logic.
+%
+Another direction is proof interoperability: the $\lambdapi$
+encodings can be exported to other proof assistants (e.g.\ Rocq,
+Isabelle/HOL) via the Dedukti ecosystem, enabling independent
+verification of SMT solver results.
 
 \printbibliography
 

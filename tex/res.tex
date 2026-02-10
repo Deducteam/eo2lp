@@ -102,7 +102,7 @@ and also those of $\lambdapi$.
 				          & \text{otherwise.}
 			\end{cases}
 			\\[5mm]
-			\delta = \epar{\mtt{include}\ μ}
+			\delta = \epar{\kw{include}\ μ}
 			{\quad{⟹}\quad}
 			\cmd{δ} = \{\prn{\mtt{require}\ \mtt{open}\ {μ}}\}
 		\end{array}
@@ -123,68 +123,33 @@ applies the translation operators defined above, and outputs
 corresponding $\lambdapi$ code.
 
 
-\subsubsection{Testing and Benchmarks.}
+\subsubsection{CPC-MINI.}
 %
-Because Eunoia is a complex and evolving system, we created a fork
-of the CPC signature called CPC-MINI, which corresponds to the
-fragment of CPC needed for formalizing the constants and inference
-rules used in \cvc{5} proofs whose input problems are from the QF-UF
-fragment of SMT-LIB. We translated all of CPC-MINI into $\lambdapi$
-code, mirroring the directory tree of CPC-MINI.
+% table for CPC-MINI translation and checking.
+% comparison to full CPC.
+Because the full CPC signature is large and evolving, we created
+a subset called CPC-MINI that covers the theories, inference rules,
+and side-condition programs needed for the fragments of SMT-LIB
+that we target.
+%
+CPC-MINI comprises 21 modules organized into theories
+(e.g.\ \texttt{Builtin}, \texttt{Arith}, \texttt{Ints},
+\texttt{Arrays}, \texttt{Sets}, \texttt{Quantifiers}),
+inference rules (e.g.\ \texttt{Booleans}, \texttt{Arith},
+\texttt{Uf}, \texttt{Rewrites}),
+and side-condition programs
+(e.g.\ \texttt{Nary}, \texttt{AciNorm}, \texttt{DistinctValues}).
+%
+All 21 modules are translated by \texttt{eo2lp} into $\lambdapi$
+files that pass \texttt{lambdapi check} with full subject reduction
+verification.
 
-For proof scripts, we used a small benchmark library (called `rodin')
-of 30 unsatisfiable problems from the SMT-LIB benchmark suite,
-restricted to the QF-UF fragment. We ran \cvc{5} on these problems
-with the option \texttt{--proof-format=cpc} to dump their proofs in
-Eunoia format. We then ran our \texttt{eo2lp} tool on these proof
-scripts and obtained $\lambdapi$ files that typecheck successfully.
 
-% \section{Conclusion and Future Work}\label{sec:conclu}
+\subsubsection{Proof Benchmarks.}
+%
+% TODO: write up final benchmark results and discussion.
+% Table is auto-generated: ./scripts/gen-results-table.sh bench_results.csv > tex/results-table.tex
 
-% \begin{definition}
-% Let $\cmd{⋅}$ be the least operator such that:
-% %
-% $$
-% \begin{array}[t]{l@{\ =\ }l}
-% \cmd{\epar{\mtt{declare-const}\ s\ t\ \maybe{α}}}
-% & \mtt{symbol}\ {\bar s} : {\ty{t}};
-% \\
-% %-----------
-% \cmd{\epar{\mtt{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}}}
-% & \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}}: {\ty{t}};\
-% \\
-% %-----------
-% \cmd{\epar{\mtt{define}\ {s}\ \epar{\vec ρ} \ t\ \maybe{\mtt{:type}\ t'}}}
-% & \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t'}}
-%   ≔ \tm{t};
-% \\
-% %-----------
-% \cmd{
-% \epar{\mtt{program}\ {s} \ \epar{\vec ρ}\
-% 			    \mtt{:signature}\,\epar{\vec{t}}\,t'
-% 				\
-% 			    \epar{\vec{r}}
-% 			}
-% }
-% & \mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{\earr{\vec t\ t'}}};
-
-% \end{array}
-% $$
-% $$
-% \begin{array}[t]{c@{\ }l}
-% 			    {⦂} &                                \\
-% 			    {∣} &  \\
-% 			    {∣} &    \\
-% 			    {∣} &                                                                           \\
-% 			    {∣} & {\color{MaterialGrey600}{\texttt{(}}}
-% 			    \mtt{declare-rule}\ s\ \epar{\vec ρ}\
-% 			    \\ & \quad \maybe{\mtt{:premises}\ \epar{\vec{t}_{\text{prem}}}}\
-% 			    \\ & \quad \maybe{\mtt{:args}\ \epar{\vec{t}_{\text{args}}}}\
-% 			    \\ & \quad \maybe{\mtt{:requires}\ \epar{\vec{r}}}\
-% 			    \\ & \quad \mtt{:conclusion}\ {t_{\text{conc}}}
-% 			    {\color{MaterialGrey600}{\texttt{)}}}                                           \\
-% 			    {∣} & \epar{\mtt{include}\ μ}
-% 		    \end{array}
-% $$
+\input{results-table.tex}
 
 \end{document}

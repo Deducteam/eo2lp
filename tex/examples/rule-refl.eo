@@ -1,0 +1,3 @@
+(declare-rule refl ((T Type) (t T))
+    :args (t)
+    :conclusion (= t t))

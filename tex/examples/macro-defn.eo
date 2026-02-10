@@ -1,0 +1,3 @@
+(define $remove_maybe_self ((l Bool) (C Bool))
+  (eo::ite (eo::eq l C) false
+    (eo::list_erase or C l)))

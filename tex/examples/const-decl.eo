@@ -1,0 +1,4 @@
+(declare-const not (-> Bool Bool))
+(declare-const or (-> Bool Bool Bool) :right-assoc-nil false)
+(declare-parameterized-const ite
+  ((A Type :implicit)) (-> Bool A A A))
