@@ -4,7 +4,7 @@
 \newcommand{\mscr}{\mathscr}
 \newcommand{\mtt}[1]{{\color{eoConst}{\texttt{#1}}}}% types/constants: Type, Bool, true, false, Proof
 \newcommand{\kw}[1]{{\color{eoKeyword}{\texttt{\textbf{#1}}}}}% commands: declare-const, define, program, ...
-\newcommand{\ev}[1]{{\color{MaterialGrey800}{\texttt{#1}}}}
+\newcommand{\ev}[1]{{\color{eoFgMath}{\texttt{#1}}}}
 \newcommand{\equo}{{\color{eoString}{\texttt{"}}}}% string quote
 \newcommand{\estr}[1]{\equo{#1}\equo}% string literals
 
@@ -56,10 +56,10 @@
 % eunoia symbols
 \newcommand{\epar}[1]{\wrapp{eoPunct}{\texttt{(}}{\texttt{)}}{#1}}
 \newcommand{\eapp}[2]{\epar{#1\ #2}}
-\newcommand{\earr}[1]{\epar{\mtt{->}\ #1}}
+\newcommand{\earr}[1]{\epar{\ev{->}\ #1}}
 \newcommand{\eprf}[1]{\epar{\mtt{Proof}\ #1}}
 \newcommand{\ecase}[2]{\epar{#1\ #2}}
-\newcommand{\eo}[1]{{\color{eoBuiltin}{\texttt{eo::#1}}}}% builtins
+\newcommand{\eo}[1]{{\color{eoBuiltin}{\texttt{eo}}}{\color{eoPunct}{∷}}{\ev{#1}}}% builtins
 \newcommand{\etype}{\mtt{Type}}
 \newcommand{\eoreqs}[3]{\eapp{\eo{requires}}{#1\ #2\ #3}}
 \newcommand{\equote}[1]{\eapp{\eo{quote}}{#1}}
@@ -101,17 +101,22 @@
 
 % --- builtin operators (sec:eo-builtin) ---
 \newcommand{\eoBuiltinFig}{
-	\begin{array}[t]{r@{\ }l@{\quad}l}
-		β & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \eo{ite}\ ∣\ \eo{eq}\ ∣\ \eo{requires}\ ∣\ \eo{typeof} \\
-			    {∣} & \eo{var}\ ∣\ \eo{is\_ok}\ ∣\ \eo{is\_eq}               \\
-			    {∣} & \eo{and}\ ∣\ \eo{or}\ ∣\ \eo{not}\ ∣\ \eo{xor}         \\
-			    {∣} & \eo{add}\ ∣\ \eo{mul}\ ∣\ \eo{neg}\ ∣\ \eo{is\_neg}    \\
-			    {∣} & \eo{nil}\ ∣\ \eo{cons}\ ∣\ \eo{list\_concat}           \\
-			    {∣} & \eo{list\_len}\ ∣\ \eo{list\_nth}\ ∣\ \eo{list\_find}  \\
-			    {∣} & \ldots
-		    \end{array}
-		  & \mcomment{(built-in operators)}
+	\begin{array}[t]{r@{\ }l@{\ }l@{\quad}l}
+		β & {⦂}
+		  & \eo{ite}\ ∣\ \eo{eq}\ ∣\ \eo{requires}\ ∣\ \eo{typeof}\ ∣\ \eo{var}\ ∣\ \ldots
+		  & \mcomment{(core)}
+		\\
+		  & {∣}
+		  & \eo{and}\ ∣\ \eo{or}\ ∣\ \eo{not}\ ∣\ \eo{xor}
+		  & \mcomment{(boolean)}
+		\\
+		  & {∣}
+		  & \eo{add}\ ∣\ \eo{mul}\ ∣\ \eo{neg}\ ∣\ \eo{zdiv}\ ∣\ \ldots
+		  & \mcomment{(arithmetic)}
+		\\
+		  & {∣}
+		  & \eo{nil}\ ∣\ \eo{cons}\ ∣\ \eo{list\_concat}\ ∣\ \eo{list\_len}\ ∣\ \ldots
+		  & \mcomment{(list)}
 	\end{array}
 }
 

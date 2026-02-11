@@ -16,13 +16,16 @@
 \tcbuselibrary{listings}
 
 % Eunoia syntax colours (xcolor-material palette)
-\colorlet{eoKeyword}{MaterialPink500}%        commands
-\colorlet{eoAttr}{MaterialBlue700}%           attributes
-\colorlet{eoBuiltin}{MaterialTeal700}%        builtins (eo::*)
-\colorlet{eoConst}{MaterialDeepPurple500}%    types/constants
-\colorlet{eoComment}{MaterialGrey500}%        comments
-\colorlet{eoString}{MaterialBrown600}%        strings
-\colorlet{eoPunct}{MaterialGrey600}%          punctuation
+% Zedokai Light palette (Monokai Pro adapted for light backgrounds)
+\definecolor{eoKeyword}{HTML}{e14775}%         commands   (pink)
+\definecolor{eoAttr}{HTML}{4a7fb5}%            attributes (muted blue)
+\definecolor{eoBuiltin}{HTML}{1c8ca8}%         builtins   (teal-cyan)
+\definecolor{eoConst}{HTML}{7058be}%           types      (purple)
+\definecolor{eoComment}{HTML}{a59fa0}%         comments   (warm grey)
+\definecolor{eoString}{HTML}{cc7a0a}%          strings    (amber)
+\definecolor{eoPunct}{HTML}{918c8e}%           punctuation (grey)
+\definecolor{eoFg}{HTML}{29242a}%              foreground  (warm black)
+\definecolor{eoFgMath}{HTML}{3a3338}%          math foreground (softer)
 
 % Eunoia language definition for listings
 \lstdefinelanguage{eunoia}{
@@ -40,23 +43,16 @@
 			:right-assoc, :right-assoc-nil, :left-assoc, :left-assoc-nil,
 			:chainable, :pairwise, :binder, :arg-list,
 			:implicit, :opaque, :list, :sorry},
-	keywords=[3]{eo::eq, eo::ite, eo::requires, eo::typeof, eo::var,
-			eo::add, eo::mul, eo::neg, eo::not, eo::and, eo::or, eo::xor,
-			eo::is_neg, eo::is_z, eo::is_q, eo::is_var, eo::is_bool,
-			eo::zdiv, eo::zmod, eo::to_z, eo::to_q, eo::quote,
-			eo::nil, eo::cons, eo::list_concat, eo::list_len,
-			eo::list_nth, eo::list_find, eo::list_rev, eo::list_erase,
-			eo::cmp, eo::gt, eo::define},
-	keywords=[4]{Type, Proof, ->},
+	% eo:: builtins handled via literate (see style below)
+	keywords=[4]{Type, Proof},
 	sensitive=true,
 }
 
 \lstdefinestyle{eo}{
 language=eunoia,
-basicstyle=\small\ttfamily,
+basicstyle=\small\ttfamily\color{eoFgMath},
 keywordstyle=\color{eoKeyword}\bfseries,
 keywordstyle=[2]\color{eoAttr},
-keywordstyle=[3]\color{eoBuiltin},
 keywordstyle=[4]\color{eoConst},
 commentstyle=\color{eoComment}\itshape,
 stringstyle=\color{eoString},
@@ -65,10 +61,11 @@ columns=flexible,
 keepspaces=true,
 frame=none,
 literate={(}{{{\color{eoPunct}(}}}1
-				{)}{{{\color{eoPunct})}}}1,
-		aboveskip=0.5\medskipamount,
-		belowskip=0.5\medskipamount,
-	}
+		{)}{{{\color{eoPunct})}}}1
+{eo::}{{{\color{eoBuiltin}eo}{\color{eoPunct}{::}}}}4,
+aboveskip=0.5\medskipamount,
+belowskip=0.5\medskipamount,
+}
 
 % tcolorbox style for Eunoia code blocks (rounded corners)
 \newtcblisting{eolisting}{
