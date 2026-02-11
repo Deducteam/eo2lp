@@ -46,9 +46,9 @@
 \newcommand{\appldots}[3]{((\app{#1}{#2})\,\ldots\,⋅\,{#3})}
 
 % universes
-\newcommand{\PROP}{\mtt{prop}}
-\newcommand{\TYPE}{\mtt{type}}
-\newcommand{\KIND}{\mtt{kind}}
+\newcommand{\PROP}{\mtt{PROP}}
+\newcommand{\TYPE}{\mtt{TYPE}}
+\newcommand{\KIND}{\mtt{KIND}}
 
 
 
@@ -213,7 +213,7 @@
 	\begin{array}[t]{r@{\ }l@{\quad}r}
 		% ------------------------------------- %
 		μ & {⦂}\ \TYPE ∣ \KIND
-		  & \mcomment{(universes)}                                                             \\
+		  & \mcomment{(universes)}                                                             \\[1mm]
 		% ------------------------------------- %
 		t & {⦂}\ x ∣ κ ∣ μ ∣ \prn{\app{t}{t'}} ∣ \prn{\lam{x : t}{t'}} ∣ \prn{\pii{x : t}{t'}}
 		  & \mcomment{(terms)}
@@ -307,6 +307,8 @@
 
 \newcommand{\lpTypingRules}{
 	\begin{array}[t]{c}
+		\lbl{wf0}{\wfRuleEmp} \qquad \lbl{wf+}{\wfRuleVar}
+		\\[6mm]
 		\lbl{var}{\varRule}    \qquad  \lbl{con}{\constRule}
 		\\[6mm]
 		\lbl{univ}{\typeRule}  \qquad \lbl{prod}{\prodRule}
@@ -316,13 +318,7 @@
 		\lbl{conv}{\convRule}
 	\end{array}
 }
-\newcommand{\lpWfRules}{
-	\begin{array}[t]{c}
-		\lbl{wf0}{\wfRuleEmp}
-		\qquad
-		\lbl{wf+}{\wfRuleVar}
-	\end{array}
-}
+
 
 
 % --- concrete syntax for lambdapi
@@ -344,23 +340,29 @@
 
 \newcommand{\lpTermsConcrete}{
 	\begin{array}[t]{r@{\ }l@{\quad}r}
-		ρ & {⦂}\,\xpl{s : t} ∣ \imp{s : t}
-		  & \mcomment{(parameters)}
-		\\[1mm]
 		t & {⦂}\ s ∣ \imp{t} ∣ \prn{\app{t}{t'}}
 		∣ \prn{\llam{ρ}{t}} ∣ \prn{\ppii{ρ}{t}}
 		  & \mcomment{(terms)}
 	\end{array}
 }
 
-
 \newcommand{\lpPatternSyntax}{
-	\begin{array}[t]{r@{\ }l@{\quad}r}
-		% ------------------------------------- %
-		θ & {⦂}\ \ptrn{x} ∣ s\,\any{θ}
+	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r@{\qquad}r@{\ }c@{\ }l@{\quad}r}
+		m & {⦂}
+		  & \mtt{constant} ∣ \mtt{sequential}
+		  & \mcomment{(modifiers)}
+		  &
+		θ & {⦂}
+		  & \ptrn{x} ∣ s\,\any{θ}
 		  & \mcomment{(patterns)}
 		\\[1mm]
-		r & {⦂}\ \prn{{s\,\any{θ}} ↪ {θ'}}
+		ρ & {⦂}
+		  & \xpl{s : t} ∣ \imp{s : t}
+		  & \mcomment{(parameters)}
+		  &
+		% ------------------------------------- %
+		r & {⦂}
+		  & \prn{{s\,\any{θ}} ↪ {θ'}}
 		  & \mcomment{(rewrite rules)}
 		% ------------------------------------- %
 	\end{array}
@@ -368,10 +370,6 @@
 
 \newcommand{\lpConcreteSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r}
-		m & {⦂}
-		  & \mtt{constant} ∣ \mtt{sequential}
-		  & \mcomment{(modifiers)}
-		\\[1mm]
 		c & {⦂}
 		  & \maybe{m}\, \mtt{symbol}\ s \ \any{ρ} \,{: t} \ \maybe{≔ t'};
 		  & \mcomment{(commands)}
@@ -387,9 +385,8 @@
 
 % \newcommand{\symb}[1]{\mtt{rule}\ {#1};}
 
-\newcommand{\Set}{\texttt{Set}}
-\newcommand{\El}[1]{\texttt{El}\,{#1}}
-\newcommand{\Ell}[1]{\texttt{El}\,\prn{#1}}
+\newcommand{\Set}{\msf{Set}}
+\newcommand{\El}[1]{\msf{τ}\,{#1}}
 
 % ------- translation stuff -----------
 \newcommand{\Term}{\msf{Term}}

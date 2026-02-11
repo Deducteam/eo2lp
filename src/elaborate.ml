@@ -399,13 +399,13 @@ and elab_nary_decl ?(overload_idx=0) ps s decl_ps ty ao ts =
           match rest_ts with
           | [] -> failwith "left-assoc-nil: empty args"
           | acc :: tail ->
-            elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) acc tail)
+            elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) acc t) acc tail)
         else
           let nil = elab_nil_eo t_nil in
-          elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) nil rest_ts)
+          elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) acc t) nil rest_ts)
     end else begin
       let nil = elab_nil_eo t_nil in
-      elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) nil rest_ts)
+      elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) acc t) nil rest_ts)
     end
   in
   match ao with
@@ -428,7 +428,7 @@ and elab_nary_decl ?(overload_idx=0) ps s decl_ps ty ao ts =
     begin match rest_ts with
     | [] -> failwith "left-assoc: empty args"
     | acc :: tail ->
-      elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) t acc) acc tail)
+      elab_inner ps (List.fold_left (fun acc t -> glue_eo (is_list_of t) acc t) acc tail)
     end
 
   | Some (EO.Chainable op) ->

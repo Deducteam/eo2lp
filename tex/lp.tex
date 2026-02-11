@@ -10,17 +10,12 @@
 	%
 	$$\lpTermSyntax$$
 	\hrule
-	$$ \lpWfRules $$
-	\hrule
 	$$\lpTypingRules$$
 	%
 \end{boxfigure}
 %
-\Autoref{fig:lpTermSyntax} provides abstract syntax
+\Autoref{fig:lpTermSyntax} provides syntax and typing rules
 for the \emph{$λΠ$-calculus modulo rewriting}.
-%
-In particular, the rules in \autoref{fig:lpTermSyntax}
-define the \emph{terms} of the $λΠ$-calculus.
 %
 Each term is either a \emph{variable} $x$,
 a \emph{constant} $κ$,
@@ -29,46 +24,33 @@ an \emph{application} of two terms $\prn{\app{t}{t'}}$,
 or an \emph{abstraction}
 $\prn{\binddot{\mscr{B}}{x : t}{t'}}$
 where $\mscr{B}$ is a \emph{binder} from $\{ λ, Π \}$.
-% TODO. define/declare α-conversion and β-reduction.
+%
 Terms are identified up to $α$-conversion
 (i.e., renaming of bound variables), and we assume
-the usual definitions for \emph{substitution} $\prn{t[x ↦ t']}$
+appropriate definitions for \emph{substitution} $\prn{t[x ↦ t']}$
 and \emph{$β$-reduction} $\prn{t ⇝_{β} t'}$.
+%
+Hereinafter, we write $\prn{t_1 → t_2}$ for the term
+$\prn{\ppii{(x : t_1)}{t_2}}$, where $x$ is some `fresh'
+variable that does not occur free in $t_2$.
 
 % --------------------------------------------------------%
-% \begin{boxfigure}[t!]{fig:lpCtxSyntax}
-% 	{Abstract syntax for $\lp$-contexts.}
-% 	%
-% 	$$\lpCtxSyntax$$
-% 	%
-% \end{boxfigure}
-A \emph{typing} is an expression of the form $\prn{t : t'}$
-for some terms $t$, $t'$, and a \emph{context} is a list of
-typings of the form $\prn{x : t}$ for some variable $x$ and
-term $t$.
+A \emph{typing} is an expression of the form $\prn{t : t'}$,
+and a \emph{context} is a list of typings each of the
+form $\prn{x : t}$.
 %
 % Hereinafter, given a context $Γ$ and a typing $\prn{x : t}$,
 % let $\prn{Γ, \prn{x : t}}$ denote the extension $Γ ∪ \{x : t\}$.
 %
 A \emph{rewrite rule} is an expression of the form
-$\prn{ℓ ↪ r}$, where $ℓ$ and $r$ are terms such that
-$ℓ$ has the form
-$\prn{\app{\prn{\app{κ}{t_1}} ⋅ \ldots}{t_n}}$
-for some terms $\plur t n$.
-% -------------------------------------------------------- %
-% \begin{boxfigure}[t!]{fig:lpTypingRules}
-% 	{Typing rules for the $\lp$-calculus.}
-% 	%
-% 	$$ \lpTypingRules $$
-% 	\hrule
-% 	$$ \lpWfRules $$
-% \end{boxfigure}
-% ----
-A \emph{signature} is a list of typings and rewrite rules,
-where each typing has the form $\prn{κ : t}$
-for some constant $κ$ and term $t$ with no free variables.
+$\prn{t ↪ t'}$, where $t$ has the form
+$\prn{\app{\prn{\app{κ}{t_1}} ⋅ \ldots}{t_n}}$.
 %
-Given some signature $Σ$, let $R_{Σ}$ be the smallest
+A \emph{signature} is a list of typings and rewrite
+rules, where each typing has the form $\prn{κ : t}$ for
+where $t$ has no free variables.
+%
+For any signature $Σ$, let $R_{Σ}$ be the smallest
 binary relation such that:
 %
 \begin{enumerate}
@@ -78,25 +60,17 @@ binary relation such that:
 \end{enumerate}
 %
 %, abstraction and substitution.  $R$
-Then, \emph{equality modulo rewriting} $\prn{{≡_{Σ}}}$ is
+Then, \emph{equality modulo rewriting} $\prn{{≡_{βΣ}}}$ is
 defined as the least equivalence relation containing
 $R_Σ$ and the $β$-reduction relation.
-Furthermore, the rules in \autoref{fig:lpTermSyntax}
+%
+The rules in \autoref{fig:lpTermSyntax}
 provide a (mutually inductive) definition of a
-\emph{well-formedness} relation $\prn{\msf{wf}}$ on
-contexts and a \emph{typing relation}
+\emph{well-formedness} relation $\prn{\msf{wf}_Σ}$
+on contexts and a \emph{typing relation}
 $\prn{⊢_{Σ}}$ between contexts and typings,
 where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
-``$Γ$ proves $e$ has type $t$ with respect to $Σ$''.
-
-% The rules in \autoref{fig:lpCtxSyntax} define
-% a \emph{context element} $γ$ as either a \emph{typing}
-% $\prn{x : t}$, or a \emph{rewrite rule} .
-% %
-% Furthermore, a \emph{context} is defined as a list $Γ$ of
-% context elements.
-
-
+``$e$ has type $t$ with respect to signature $Σ$ and context $Γ$''.
 
 % -------------------------------------------------------- %
 \subsection{The \textsc{LambdaPi} Proof Assistant}
@@ -104,36 +78,75 @@ where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
 \begin{boxfigure}[t!]{fig:lpSyntax}
 	{Syntax for the \textsc{LambdaPi} proof assistant.}
 	%
-	$$ \lpTermsConcrete $$
+	$$\lpPatternSyntax$$
 	\hrule
-	$$ \lpPatternSyntax $$
-	\hrule
-	$$ \lpConcreteSyntax $$
+	$$\lpConcreteSyntax$$
 \end{boxfigure}
 %
 \Autoref{fig:lpSyntax} gives the syntax for a fragment of
 the $\lambdapi$ proof assistant.
 %
-Note that the set of terms differs from that of the `pure'
-$λΠ$-calculus presented earlier.
+Each $\lambdapi$ \emph{file} is a list of \emph{commands},
+which may be seen as representing a $λΠ$-signature.
 %
-The main differences are made to support \emph{implicit bindings},
-which allow the user to omit some subterms and have them
-automatically `inferred' by $\lambdapi$.
 %
-To facilitate this, abstractions now bind a \emph{parameter}
-which may be either \emph{explicit} or \emph{implicit}
-(written $\xpl{s : t}$ and $\imp{s : t}$ resp.),
-and we have terms of the form $[t]$ which are
-said to be \emph{explicated}.
-%
-Hereinafter, we may write $\prn{t_1 → t_2}$ for the term
-$\prn{\ppii{(x : t_1)}{t_2}}$, where $x$ is some `fresh'
-symbol that does not occur free in $t_2$.
 
 
-We also introduce a syntax of \emph{patterns} which is
-used within declarations of rewrite rules.
+
+Because the type system of $\lambdapi$ does not allow
+`quantifying' over types
+(i.e., $\prn{\TYPE → \TYPE}$ is ill-typed),
+we use a `Tarski-style' type universe to support treating
+types as `first-class citizens'.
+%
+In particular, we identify the types of Eunoia with
+$\lambdapi$ terms of type $\Set$, which encode
+$\lambdapi$ types via $\msf{τ} : \Set → \TYPE$
+and is closed under
+$\prn{⤳} : \msf{Set} → \msf{Set} →  \msf{Set}$.
+%
+$$
+	\begin{array}[t]{l@{\ {:}\ }l}
+		\mtt{symbol}\ \msf{Set} & \TYPE;             \\
+		%
+		\mtt{symbol}\ \msf{El}  & \msf{Set} → \TYPE; \\
+		%
+		\mtt{symbol}\ ;                              \\
+	\end{array}
+$$
+%
+We work `within' $\msf{Set}$ when embedding `many-sorted'
+logics in $\lambdapi$. Namely, the translation outlined
+in this document identifies Eunoia's types with terms of
+type $\msf{Set}$ and uses $\msf{El}$ to `lift' these to
+top-level $\lambdapi$ types.
+%
+Moreover, the (infix) symbol $\prn{⤳}$ is used as a
+`set-level' type constructor, where the following rewrite
+rule specifies how these sets are `lifted'.
+%
+$$
+	\mtt{rule}\ \msf{El}\,\prn{\ptrn{α} ⤳ \ptrn{β}}
+	\ {↪}\
+	\prn{{\msf{El}\,\ptrn{α}} → {\msf{El}\,\ptrn{β}}};
+$$
+
+
+
+To support \emph{implicit bindings} (which allow the user
+to omit some subterms and have them automatically `inferred'
+during typechecking), symbol declarations may have
+\emph{parameters} which are either
+\emph{explicit} or \emph{implicit}
+(written $\xpl{x : t}$ and $\imp{x : t}$ resp.).
+%
+In particular, if a symbol has
+
+
+
+
+We also introduce a syntax of \emph{patterns} used for
+declaring rewrite rules.
 %
 Each pattern is either a \emph{pattern variable}
 $\prn{\ptrn{x}}$ or a \emph{pattern application}
@@ -144,15 +157,13 @@ Hereinafter, let $\pv(p)$ denote the set of
 pattern variables occurring in some pattern $p$.
 
 % ---------------------
-A $\lambdapi$ \emph{file} is a list of \emph{commands},
-which should be seen as a representation of a $λΠ$-signature.
+
 % Each command is either a \emph{symbol declaration}
 % (\mtt{symbol}), \emph{rewrite rule declaration} (\mtt{rule}),
 % or an \emph{import} (\mtt{require}).
 %
-To make this correspondence a bit clearer, the syntax
-and behaviour of each command is discussed in the
-following passages of text:
+The behaviour of each command is discussed in the
+following text:
 
 \subsubsection{Symbol Declaration.}
 %
@@ -204,39 +215,6 @@ declarations and rewrite rules from the specified files.
 
 \subsubsection{Type Universes.}
 %
-Because the type system of $\lambdapi$ does not allow
-`quantifying' over types
-(i.e., $\prn{\TYPE → \TYPE}$ is not well-typed),
-most $\lambdapi$ developments make use of `Tarski-style'
-universes to support treating types as `first-class citizens'.
-%
-In particular, we use the following symbol declarations:
-%
-$$
-	\begin{array}[t]{l@{\ {:}\ }l}
-		\mtt{symbol}\ \msf{Set} & \TYPE;                              \\
-		%
-		\mtt{symbol}\ \msf{El}  & \msf{Set} → \TYPE;                  \\
-		%
-		\mtt{symbol}\ \prn{⤳}   & \msf{Set} → \msf{Set} →  \msf{Set}; \\
-	\end{array}
-$$
-%
-We work `within' $\msf{Set}$ when embedding `many-sorted'
-logics in $\lambdapi$. Namely, the translation outlined
-in this document identifies Eunoia's types with terms of
-type $\msf{Set}$ and uses $\msf{El}$ to `lift' these to
-top-level $\lambdapi$ types.
-%
-Moreover, the (infix) symbol $\prn{⤳}$ is used as a
-`set-level' type constructor, where the following rewrite
-rule specifies how these sets are `lifted'.
-%
-$$
-	\mtt{rule}\ \msf{El}\,\prn{\ptrn{α} ⤳ \ptrn{β}}
-	\ {↪}\
-	\prn{{\msf{El}\,\ptrn{α}} → {\msf{El}\,\ptrn{β}}};
-$$
 
 
 \subsubsection{Implicit Parameters.}
@@ -253,7 +231,7 @@ $\lambdapi$.
 %
 To make this notion more precise, consider the following
 symbol declaration:
-$$\mtt{symbol}\ \msf{foo}\ [α : \msf{Set}] : \Ell{α ⤳ α ⤳ α};$$
+$$\mtt{symbol}\ \msf{foo}\ [α : \msf{Set}] : \El{α ⤳ α ⤳ α};$$
 Modulo rewriting, the type of $\msf{foo}$ is
 $\prn{
 		\ppii{\imp{α : \Set}}{

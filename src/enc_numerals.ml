@@ -79,8 +79,10 @@ let enc_ltrl_num target =
   let to_z_body = tau_of (hol_arrow (mk_Vari tv_to_z) target) in
   let to_z_ty = mk_Prod (set_ty, bind_var tv_to_z to_z_body) in
   let to_z_sym = add_sequential ~impl:[true] "{|eo::to_z|}" to_z_ty in
-  let _zdiv_sym = find "{|eo::zdiv|}" in
-  let _zmod_sym = find "{|eo::zmod|}" in
+  let zdiv_sym = find "{|eo::zdiv|}" in
+  let zmod_sym = find "{|eo::zmod|}" in
+  let stdlib_zdiv = get_sym "zdiv" in
+  let stdlib_zmod = get_sym "zmod" in
   (* Int-specialized computation rules *)
   let add_rule_ = mk_rl add_sym
     [target; of_z (p 0 "i"); of_z (p 1 "j")]
@@ -112,6 +114,16 @@ let enc_ltrl_num target =
     [target; of_z (p 0 "i")]
     (of_z (p 0 "i"))
     1 in
+  (* eo::zdiv Int (of_Z i) (of_Z j) ↪ of_Z (zdiv i j) *)
+  let zdiv_rule = mk_rl zdiv_sym
+    [target; of_z (p 0 "i"); of_z (p 1 "j")]
+    (of_z (add_args (mk_Symb stdlib_zdiv) [p 0 "i"; p 1 "j"]))
+    2 in
+  (* eo::zmod Int (of_Z i) (of_Z j) ↪ of_Z (zmod i j) *)
+  let zmod_rule = mk_rl zmod_sym
+    [target; of_z (p 0 "i"); of_z (p 1 "j")]
+    (of_z (add_args (mk_Symb stdlib_zmod) [p 0 "i"; p 1 "j"]))
+    2 in
   (* $zero/$one rules specialized at Int *)
   let zero_sym = find "{|$zero|}" in
   let one_sym = find "{|$one|}" in
@@ -274,6 +286,7 @@ let enc_ltrl_num target =
             hfind_aux_sym; hfind_sym];
     rules = [add_rule_; mul_rule; neg_rule;
              is_neg_rule; gt_rule; is_z_rule; to_z_rule;
+             zdiv_rule; zmod_rule;
              zero_rule; one_rule;
              list_len_r1; list_len_r2;
              list_nth_r1; list_nth_r2;
@@ -299,8 +312,8 @@ let enc_ltrl_rat target =
   let p i name = mk_Patt (Some i, name, [||]) in
   let true_sym = find "true" in
   (* Stdlib rational arithmetic *)
-  let stdlib_qadd = get_sym "qadd" in
-  let stdlib_qmul = get_sym "qmul" in
+  let stdlib_qadd = get_sym "qaddnorm" in
+  let stdlib_qmul = get_sym "qmulnorm" in
   let stdlib_qneg1 = get_sym "qneg1" in
   (* Real-specialized computation rules for eo:: arithmetic *)
   let add_sym = find "{|eo::add|}" in
@@ -349,7 +362,7 @@ let enc_ltrl_rat target =
     (mk_Symb true_sym)
     1 in
   (* eo::qdiv Real (of_Q r1) (of_Q r2) ↪ of_Q (qdiv r1 r2) *)
-  let stdlib_qdiv = get_sym "qdiv" in
+  let stdlib_qdiv = get_sym "qdivnorm" in
   let qdiv_rule = mk_rl qdiv_sym
     [target; of_q (p 0 "r1"); of_q (p 1 "r2")]
     (of_q (add_args (mk_Symb stdlib_qdiv) [p 0 "r1"; p 1 "r2"]))
@@ -362,6 +375,21 @@ let enc_ltrl_rat target =
     [int_target; of_z (p 0 "i")]
     (of_q (enc_rational_var (p 0 "i") (enc_int 1)))
     1 in
+  (* eo::is_neg Real (of_Q (Frac $n $d)) ↪ isZneg $n *)
+  let is_neg_sym = find "{|eo::is_neg|}" in
+  let stdlib_isZneg = get_sym "isZneg" in
+  let frac_sym = find "Frac" in
+  let is_neg_rat_rule = mk_rl is_neg_sym
+    [target; of_q (add_args (mk_Symb frac_sym) [p 0 "n"; p 1 "d"])]
+    (mk_Appl (mk_Symb stdlib_isZneg, p 0 "n"))
+    2 in
+  (* eo::to_z Real (of_Q (Frac $n $d)) ↪ of_Z (zdiv $n $d) — cross-type Real→Int *)
+  let to_z_sym = find "{|eo::to_z|}" in
+  let stdlib_zdiv = get_sym "zdiv" in
+  let to_z_rat_rule = mk_rl to_z_sym
+    [target; of_q (add_args (mk_Symb frac_sym) [p 0 "n"; p 1 "d"])]
+    (of_z (add_args (mk_Symb stdlib_zdiv) [p 0 "n"; p 1 "d"]))
+    2 in
   (* $zero/$one rules specialized at Real *)
   let zero_sym = find "{|$zero|}" in
   let one_sym = find "{|$one|}" in
@@ -370,6 +398,7 @@ let enc_ltrl_rat target =
   { syms = [of_q_sym; to_q_sym; is_q_sym; qdiv_sym];
     rules = [add_rule; mul_rule; neg_rule;
              to_q_real_rule; to_q_int_rule; is_q_real_rule;
+             is_neg_rat_rule; to_z_rat_rule;
              qdiv_rule; zero_rule; one_rule] }
 
 (* Encode a declare-consts command.
