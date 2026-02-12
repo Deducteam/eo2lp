@@ -176,61 +176,147 @@ when the $\mtt{constant}$ modifier is not,
 which provides the rewrite rule
 $\prn{s\,↪ t}$
 (resp. $\prn{s\,↪ \lam{\vec ρ}{t}}$ given parameters $\vec ρ$).
-% ----------------------------------
-
-
-
-
-
-
-
-
-% ---------------------
-
-% Each command is either a \emph{symbol declaration}
-% (\mtt{symbol}), \emph{rewrite rule declaration} (\mtt{rule}),
-% or an \emph{import} (\mtt{require}).
-%
-
-
+% ---------------------------------------
 \subsubsection{Rewrite Rule Declaration.}
+% ---------------------------------------
+Each \emph{rewrite rule declaration} provides a
+list $\plur r n$ of rewrite rules.
 %
-Rewrite rules are introduced with the $\prn{\mtt{rule}}$
-command.
-%
-For user convenience, a list of rewrite rules
-may be introduced using the keyword $\prn{\mtt{with}}$.
+The left and right sides of each rewrite rule are
+\emph{patterns}, where each pattern is either a
+\emph{pattern variable} $\prn{\ptrn{x}}$
+or a \emph{pattern application} $\prn{{s}\,{\any{θ}}}$,
+where $s$ is called the \emph{head} of the pattern.
 
-We also introduce a syntax of \emph{patterns} used for
-declaring classes of rewrite rules.
+Hereinafter, let $\pv(θ)$ denote the set of
+pattern variables occurring in some pattern $θ$.
 %
-Each pattern is either a \emph{pattern variable}
-$\prn{\ptrn{x}}$ or a \emph{pattern application}
-$\prn{{s}\,{\any{p}}}$, where $s$ is called
-the \emph{head} of the pattern.
+In practice, a rewrite rule $\prn{θ ↪ θ'}$ is only valid
+when $θ$ is a pattern application and $\pv(θ') ⊆ \pv(θ)$.
 %
-Hereinafter, let $\pv(p)$ denote the set of
-pattern variables occurring in some pattern $p$.
-%
-In practice, a rewrite rule $\prn{p ↪ p'}$ will only be
-accepted by $\lambdapi$ if $p$ is a pattern application
-and $\pv(p') ⊆ \pv(p)$.
-%
-The rewrite rule(s) will be added to the signature in this
-case, effectively augmenting the typechecking
+The rewrite rule(s) given by the declaration are added to
+the signature, effectively augmenting the typechecking
 procedure of $\lambdapi$ to behave `modulo' those rule(s).
 
-\subsubsection{Theory Import.}
+
+% ----------------------------------------------------------
+\subsection{Translating Eunoia Signatures to $\lambdapi$}
+% ----------------------------------------------------------
+We define a \emph{translation} operator below, which
+acts on the symbols, terms, parameters, and commands
+of Eunoia to produce corresponding $\lambdapi$ syntax.
 %
-$\lambdapi$ uses a lightweight module system which allows
-users to develop formalizations across multiple files,
-possibly making use of third-party libraries.
+Crucially, the translation assumes that terms have already
+been processed by the $\mbf{elab}$ operator of
+\autoref{sec:eo-elab}.
+
+
+Some symbols used in Eunoia signatures are not valid
+$\lambdapi$ identifiers. Fortunately, $\lambdapi$ has
+syntax for `escaping' such identifiers.
 %
-Within this document, we use the command
-$\prn{\mtt{require}\ \mtt{open}\ {\vec μ}}$
-where $\vec μ$ is a list of $\prn{.}$-delimited \emph{paths}.
-This command has the effect of importing all symbol
-declarations and rewrite rules from the specified files.
+Define $\bar s ≔ \esc s$ for any Eunoia symbol
+$s$ containing `forbidden characters',
+and $\bar s ≔ s$ otherwise.
+
+\begin{definition}
+	%
+	Let $\tm{⋅}$ be the least operator such that:
+	%
+	$$
+		\begin{array}[t]{r@{\ =\ }l}
+			\tm{s} &
+			\begin{cases}
+				\Set & \text{if $s = \Type$}
+			\end{cases}
+			\\
+			\tm{\eapp{s}{\vec t}}
+			       &
+			\begin{cases}
+				\tm{t_1} ⤳ \ldots ⤳ \ty{t_n}
+				 &
+				\text{if $s = \prn{\mtt{->}}$,}
+				\\
+				\appldots{\bar s}{\tm{t_1}}{\tm{t_n}}
+				 &
+				\text{otherwise.}
+			\end{cases}
+		\end{array}
+	$$
+	%
+	Furthermore, let $\ty{⋅}$ be the least operator
+	such that:
+	$$
+		\begin{array}[t]{r@{\ =\ }l}
+			\ty{s} &
+			\begin{cases}
+				\Set        & \text{if $s = \mtt{Type}$,}
+				\\
+				\El{\tm{s}} & \text{otherwise.}
+			\end{cases}
+			\\[5mm]
+			\ty{\eapp{s}{\vec t}}
+			       &
+			\begin{cases}
+				\ty{t_1} → \ldots → \ty{t_n}
+				 &
+				\text{if $s = \prn{\mtt{->}}$,}
+				\\
+				\El{\tm{\eapp{s}{\vec t}}}
+				 &
+				\text{otherwise.}
+			\end{cases}
+		\end{array}
+	$$
+	%
+\end{definition}
+%
+Now, recall the abstract interface for $\eunoia$ commands
+defined in \autoref{sec:eo-judge},
+and also those of $\lambdapi$.
+%
+\begin{definition}
+	Let $\cmd{⋅}$ be the least operator such that
+	for any standard command $δ$,
+	$\cmd δ$ is a set of $\lambdapi$ commands satisfying
+	the following:
+	$$
+		\begin{array}[t]{c}
+			δ ⊢ s(\vec ρ) : t
+				{\quad{⟹}\quad}
+			\begin{cases}
+				\prn
+				{\mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t}} ≔ \tm{t'}}
+				∈ \cmd{δ} & \text{if $δ ⊢ s(\vec ρ) ≔ t'$,}
+				\\
+				\prn{\mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t}}}
+				∈ \cmd{δ}
+				          & \text{otherwise.}
+			\end{cases}
+			\\[5mm]
+			\delta = \epar{\kw{include}\ μ}
+			{\quad{⟹}\quad}
+			\cmd{δ} = \{\prn{\mtt{require}\ \mtt{open}\ {μ}}\}
+		\end{array}
+	$$
+	%
+	The translation on proof commands $\cmd{\pi}$ is defined
+	similarly, where assumptions and steps are mapped to symbol declarations
+	in $\lambdapi$ that reflect their names, conclusions, and (if applicable)
+	rules, premises, and arguments, using the judgements $\pi ⊢ s : \eapp{\mtt{Proof}}{φ}$
+	and $\pi ⊢ s ≔ \eapp{s'}{\plur t m\ \plur p n}$.
+\end{definition}
+% \subsubsection{Theory Import.}
+% %
+% $\lambdapi$ uses a lightweight module system which allows
+% users to develop formalizations across multiple files,
+% possibly making use of third-party libraries.
+% %
+% Within this document, we use the command
+% $\prn{\mtt{require}\ \mtt{open}\ {\vec μ}}$
+% where $\vec μ$ is a list of $\prn{.}$-delimited \emph{paths}.
+% This command has the effect of importing all symbol
+% declarations and rewrite rules from the specified files.
 
 % \subsubsection{Type Universes.}
 % %
