@@ -262,10 +262,10 @@ echo
 # Merge CSVs
 # ---------------------------------------------------------------------------
 
-echo "file,status,encode_time,check_time,error_category,error" > "$RESULTS_FILE"
+echo "fragment,file,status,encode_time,check_time,error_category,error" > "$RESULTS_FILE"
 for frag in "${fragments[@]}"; do
   frag_csv="$WORK_DIR/${frag}.csv"
-  [[ -f "$frag_csv" ]] && tail -n +2 "$frag_csv" >> "$RESULTS_FILE"
+  [[ -f "$frag_csv" ]] && tail -n +2 "$frag_csv" | sed "s/^/${frag},/" >> "$RESULTS_FILE"
 done
 
 # ---------------------------------------------------------------------------
@@ -281,10 +281,10 @@ fi
 read -r total pass encfail chkfail tmo <<< "$(awk -F, '
   NR > 1 {
     total++
-    if ($2 == "pass") pass++
-    else if ($2 == "fail_encode") encfail++
-    else if ($2 == "fail_check" && $5 == "timeout") tmo++
-    else if ($2 == "fail_check") chkfail++
+    if ($3 == "pass") pass++
+    else if ($3 == "fail_encode") encfail++
+    else if ($3 == "fail_check" && $6 == "timeout") tmo++
+    else if ($3 == "fail_check") chkfail++
   }
   END { printf "%d %d %d %d %d", total, pass+0, encfail+0, chkfail+0, tmo+0 }
 ' "$RESULTS_FILE")"
@@ -301,7 +301,7 @@ echo
 # Error category breakdown (if any errors)
 if [[ $(( encfail + chkfail + tmo )) -gt 0 ]]; then
   echo "${BOLD}Errors by category:${RESET}"
-  awk -F, 'NR > 1 && $5 != "" { cats[$5]++ }
+  awk -F, 'NR > 1 && $6 != "" { cats[$6]++ }
     END { for (c in cats) printf "  %-24s %d\n", c, cats[c] }' "$RESULTS_FILE" | sort -t' ' -k2 -rn
   echo
 fi

@@ -200,26 +200,22 @@ procedure of $\lambdapi$ to behave `modulo' those rule(s).
 
 
 % ----------------------------------------------------------
-\subsection{Translating Eunoia Signatures to $\lambdapi$}
+\subsection{Translating Eunoia to $\lambdapi$}
 % ----------------------------------------------------------
-We define a \emph{translation} operator below, which
-acts on the symbols, terms, parameters, and commands
-of Eunoia to produce corresponding $\lambdapi$ syntax.
+We define a family of \emph{translation operators} that act on
+the terms, types, parameters, and commands of Eunoia
+to produce corresponding $\lambdapi$ syntax.
 %
-Crucially, the translation assumes that terms have already
+Crucially, the translation assumes that all terms have already
 been processed by the $\mbf{elab}$ operator of
 \autoref{sec:eo-elab}.
 
+Some Eunoia symbols are not valid $\lambdapi$ identifiers.
+Fortunately, $\lambdapi$ provides syntax for `escaping' such
+identifiers: define $\bar s ≔ \esc s$ for any Eunoia symbol
+$s$ containing forbidden characters, and $\bar s ≔ s$ otherwise.
 
-Some symbols used in Eunoia signatures are not valid
-$\lambdapi$ identifiers. Fortunately, $\lambdapi$ has
-syntax for `escaping' such identifiers.
-%
-Define $\bar s ≔ \esc s$ for any Eunoia symbol
-$s$ containing `forbidden characters',
-and $\bar s ≔ s$ otherwise.
-
-\begin{definition}
+\begin{definition}\label{def:tm-ty}
 	%
 	Let $\tm{⋅}$ be the least operator such that:
 	%
@@ -227,123 +223,211 @@ and $\bar s ≔ s$ otherwise.
 		\begin{array}[t]{r@{\ =\ }l}
 			\tm{s} &
 			\begin{cases}
-				\Set & \text{if $s = \Type$}
+				\Set   & \text{if $s = \eotype$,} \\
+				\bar s & \text{otherwise.}
 			\end{cases}
-			\\
+			\\[4mm]
+			\tm{ℓ} &
+			\begin{cases}
+				\msf{of\_Z}\,\tm{n}
+				       &
+				\text{if $ℓ = \msf{int}(n)$,}
+				\\
+				\msf{of\_Q}\,\tm{n}\,\tm{d}
+				       &
+				\text{if $ℓ = \msf{rat}(n,d)$,}
+				\\
+				\bar ℓ & \text{if $ℓ = \msf{str}(s)$.}
+			\end{cases}
+			\\[4mm]
 			\tm{\eapp{s}{\vec t}}
 			       &
 			\begin{cases}
-				\tm{t_1} ⤳ \ldots ⤳ \ty{t_n}
+				\msf{APP}\appSym\tm{t_1}\appSym\tm{t_2}
 				 &
-				\text{if $s = \prn{\mtt{->}}$,}
+				\text{if $s = \mtt{\_}$,}
+				\\
+				\tm{t_1} ⤳ \ldots ⤳ \tm{t_n}
+				 &
+				\text{if $s = \mtt{->}$,}
 				\\
 				\appldots{\bar s}{\tm{t_1}}{\tm{t_n}}
 				 &
 				\text{otherwise.}
 			\end{cases}
-		\end{array}
-	$$
-	%
-	Furthermore, let $\ty{⋅}$ be the least operator
-	such that:
-	$$
-		\begin{array}[t]{r@{\ =\ }l}
-			\ty{s} &
-			\begin{cases}
-				\Set        & \text{if $s = \mtt{Type}$,}
-				\\
-				\El{\tm{s}} & \text{otherwise.}
-			\end{cases}
-			\\[5mm]
-			\ty{\eapp{s}{\vec t}}
+			\\[4mm]
+			\tm{\eapp{\eo{define}}{\epar{x\ t}\ t'}}
 			       &
-			\begin{cases}
-				\ty{t_1} → \ldots → \ty{t_n}
-				 &
-				\text{if $s = \prn{\mtt{->}}$,}
-				\\
-				\El{\tm{\eapp{s}{\vec t}}}
-				 &
-				\text{otherwise.}
-			\end{cases}
+			\msf{let}\ x ≔ \tm{t}\ \msf{in}\ \tm{t'}
 		\end{array}
 	$$
-	%
 \end{definition}
-%
-Now, recall the abstract interface for $\eunoia$ commands
-defined in \autoref{sec:eo-judge},
-and also those of $\lambdapi$.
-%
-\begin{definition}
-	Let $\cmd{⋅}$ be the least operator such that
-	for any standard command $δ$,
-	$\cmd δ$ is a set of $\lambdapi$ commands satisfying
-	the following:
+
+\begin{definition}\label{def:ctx}
+	For a parameter list $\vec ρ = \epar{x_1\ t_1\ \maybe{ν_1}}
+		\ldots \epar{x_n\ t_n\ \maybe{ν_n}}$,
+	define:
 	$$
-		\begin{array}[t]{c}
-			δ ⊢ s(\vec ρ) : t
-				{\quad{⟹}\quad}
-			\begin{cases}
-				\prn
-				{\mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t}} ≔ \tm{t'}}
-				∈ \cmd{δ} & \text{if $δ ⊢ s(\vec ρ) ≔ t'$,}
-				\\
-				\prn{\mtt{symbol}\ {\bar s}\ {\ctx{\vec ρ}} : {\ty{t}}}
-				∈ \cmd{δ}
-				          & \text{otherwise.}
-			\end{cases}
-			\\[5mm]
-			\delta = \epar{\kw{include}\ μ}
-			{\quad{⟹}\quad}
-			\cmd{δ} = \{\prn{\mtt{require}\ \mtt{open}\ {μ}}\}
-		\end{array}
+		\ctx{\vec ρ}\ ≔\
+		ρ_1^★\, \ldots\, ρ_n^★
+		\quad\text{where}\quad
+		ρ_i^★ =
+		\begin{cases}
+			\imp{\bar x_i : \El{\tm{t_i}}}
+			 & \text{if $ν_i = \attr{implicit}$,} \\
+			\xpl{\bar x_i : \El{\tm{t_i}}}
+			 & \text{otherwise.}
+		\end{cases}
 	$$
 	%
-	The translation on proof commands $\cmd{\pi}$ is defined
-	similarly, where assumptions and steps are mapped to symbol declarations
-	in $\lambdapi$ that reflect their names, conclusions, and (if applicable)
-	rules, premises, and arguments, using the judgements $\pi ⊢ s : \eapp{\mtt{Proof}}{φ}$
-	and $\pi ⊢ s ≔ \eapp{s'}{\plur t m\ \plur p n}$.
+	Additionally, for any $\lambdapi$ term $t$ and parameter
+	list $\vec ρ$, define $\mbf{impl}(\vec ρ, t)$ as the sublist
+	of $\ctx{\vec ρ}$ consisting of those parameters
+	$x_i$ that occur free in $t$, each marked
+	as implicit.
 \end{definition}
-% \subsubsection{Theory Import.}
-% %
-% $\lambdapi$ uses a lightweight module system which allows
-% users to develop formalizations across multiple files,
-% possibly making use of third-party libraries.
-% %
-% Within this document, we use the command
-% $\prn{\mtt{require}\ \mtt{open}\ {\vec μ}}$
-% where $\vec μ$ is a list of $\prn{.}$-delimited \emph{paths}.
-% This command has the effect of importing all symbol
-% declarations and rewrite rules from the specified files.
 
-% \subsubsection{Type Universes.}
-% %
+%
+We now define $\cmd{⋅}$ on each form of Eunoia command,
+using the notation introduced in \autoref{sec:eunoia}.
+We write $P ≔ \msf{Proof}$ throughout.
 
+\begin{definition}[Command translation]\label{def:cmd}
+	%
+	Let $δ$ be an Eunoia command. We define $\cmd{δ}$
+	by cases on the form of~$δ$.
+	%
+	\begin{enumerate}
+		\item If $δ ∈ Δ.\msf{const}$, then
+		      $δ ⊢ s(\vec ρ) : t$ for some $t$, and
+		      possibly $δ ⊢ s ⋈ α$ for some attribute $α$.
+		      %
+		      If $α$ is $\rcn{t_\nil}$ or $\lcn{t_\nil}$,
+		      then:
+		      %
+		      $$\cmd δ\ {≔}\
+			      \begin{array}{l}
+				      \mtt{symbol}\ \bar s\ \ctx{\vec ρ} : \El{\tm t}\mtt{;}
+				      \\
+				      \mtt{rule}\ \prn{\eo{nil}\ \bar s\ \ptrn T}
+				      ↪ \prn{\eo{as}\ \tm{t_\nil}\ \ptrn T}
+			      \end{array}
+		      $$
+		      %
+		      Otherwise,
+		      $\cmd δ ≔
+			      \mtt{symbol}\ \bar s\ \ctx{\vec ρ} : \El{\tm t}
+		      $.%
 
-% \subsubsection{Implicit Parameters.}
-% \label{sssec:lp-implicits}
-% %
-% As mentioned above, the presence of `implicit' bindings in
-% abstractions can enable the user to omit some terms in
-% applications, and have them automatically `inferred' by
-% $\lambdapi$.
-% %
-% % This mechanism is particularly useful for implementing
-% % \emph{type polymorphism}, where a function may have
-% % different behaviours depending on the types of its arguments.
-% %
-% To make this notion more precise, consider the following
-% symbol declaration:
-% $$\mtt{symbol}\ \msf{foo}\ [α : \msf{Set}] : \El{α ⤳ α ⤳ α};$$
-% Modulo rewriting, the type of $\msf{foo}$ is
-% $\prn{
-% 		\ppii{\imp{α : \Set}}{
-% 			\El α → \El α → \El α
-% 		}
-% 	}$.
-% %
+		\item If $δ ∈ Δ.\msf{defn}$, then
+		      $δ ⊢ s(\vec ρ) ≔ t$ and possibly
+		      $δ ⊢ s(\vec ρ) : t'$.
+		      %
+		      If the type $t'$ is supplied then $\cmd{δ}$ is
+		      defined as below, otherwise the typing is omitted.
+		      %
+		      $$\cmd{δ} ≔
+			      \mtt{symbol}\ \bar s\
+			      \ctx{\vec ρ} : \El{\tm{t'}}
+			      ≔ \tm{t}
+		      $$
+		      %
+
+		\item If $δ ∈ Δ.\msf{prog}$, then
+		      $δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}$ and
+		      cases
+		      $\ecase{l_1}{r_1}\ldots\ecase{l_m}{r_m}$.
+		      Then, define:
+		      %
+		      \begin{align*}
+			      \cmd{δ}\ ≔\  &
+			      \mtt{sequential}\ \mtt{symbol}\ \bar s\
+			      \mbf{impl}(\vec ρ, T_s) :
+			      T_s\mtt{;}
+			      \\
+			                   & \mtt{rule}\ \bar s\,\tm{l_j} ↪ \tm{r_j}
+			      \quad (j = 1 \ldots m)
+		      \end{align*}
+		      %
+		      where $T_s ≔ \El{\tm{t_1}} → \ldots → \El{\tm{t_n}} → \El{\tm{t'}}$.
+		      The $\mtt{sequential}$ modifier ensures rules are
+		      tried in order, matching the operational semantics of
+		      Eunoia programs.
+		      Parameters from $\vec ρ$ that appear free in $T_s$
+		      become implicit (via $\mbf{impl}$); the remaining
+		      parameters become pattern variables in the rewrite rules.
+
+		\item Let $δ$ be a rule declaration with
+		      $δ ⊢ s(\vec ρ) : τ^★$,
+		      where $τ^★$ is the type derived from the
+		      premises and conclusion of $δ$.
+		      Let
+		      $T ≔ P\,\tm{ψ_1}
+			      → \ldots → P\,\tm{ψ_m}
+			      → P\,\tm{φ^★}$:
+		      %
+		      $$\cmd{δ}\ ≔\ \mtt{symbol}\ \bar s\
+			      \mbf{impl}(\vec ρ, T)\ \vec ρ_{\text{xpl}} : T$$
+		      %
+		      where $\vec ρ_{\text{xpl}}$ are the explicit
+		      argument parameters.
+		      When $δ$ has $\attr{args}$ containing non-trivial
+		      patterns, an auxiliary symbol is generated whose
+		      rewrite rules compute the conclusion type by
+		      pattern matching on the supplied arguments.
+
+		\item Let $δ$ be an include with module $μ$.
+		      Then $\cmd{δ}\ ≔\ \mtt{require}\ \mtt{open}\ μ$.
+	\end{enumerate}
+\end{definition}
+
+We now define $\cmd{⋅}$ on proof commands.
+
+\begin{definition}[Proof command translation]\label{def:cmd-prf}
+	%
+	Let $π$ be a proof command. We define $\cmd{π}$
+	by cases on the form of~$π$.
+	%
+	\begin{enumerate}
+		\item Let $π$ be an assumption
+		      ($\kw{assume}$ or $\kw{assume-push}$)
+		      with $π ⊢ s : \eapp{\mtt{Proof}}{φ}$:
+		      %
+		      $$\cmd{π}\ ≔\ \mtt{symbol}\ \bar s :
+			      P\,\tm{φ}$$
+		      %
+		      The assumption is declared as an axiom (a symbol
+		      with no definition).
+		      For $\kw{assume-push}$, the formula $φ$ is
+		      additionally pushed onto an assumption stack.
+
+		\item Let $π$ be a step
+		      ($\kw{step}$ or $\kw{step-pop}$)
+		      with $π ⊢ s : \eapp{\mtt{Proof}}{φ}$
+		      and $π ⊢ s ≔ \eapp{r}{\plur t m\ \plur p n}$:
+		      %
+		      \begin{align*}
+			      \cmd{π}\ ≔\  &
+			      \mtt{symbol}\ \bar s
+			      ≔ \appldots{\bar r}{\tm{t_1}}
+			      {\tm{t_m}\ \bar p_1\ \ldots\ \bar p_n}\mtt{;}
+			      \\
+			                   & \mtt{assert}\ ⊢\ \bar s : P\,\tm{φ}
+		      \end{align*}
+		      %
+		      The step is encoded as a definition whose body
+		      applies rule $\bar r$ to its arguments then
+		      premises, matching the parameter order from
+		      the rule declaration.
+		      The type $P\,\tm{φ}$ is not given in the
+		      definition, but checked separately via
+		      $\mtt{assert}$, which invokes $\lambdapi$'s
+		      type inference to fill implicit arguments.
+		      For $\kw{step-pop}$, the most recently pushed
+		      assumption is popped and prepended to the
+		      arguments.
+	\end{enumerate}
+\end{definition}
 
 
 \end{document}

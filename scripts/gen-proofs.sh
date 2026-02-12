@@ -189,17 +189,25 @@ process_dir() {
 
     n=$((n + 1))
 
-    # Progress (only in single-dir / non-parallel mode)
+    # Progress reporting
     if [[ "$PARALLEL" != true ]]; then
       printf "\r  [%d/%d] %d unsat, %d sat, %d unknown, %d timeout, %d fail" \
         "$n" "$total" "$ok" "$sat" "$unk" "$tmout" "$fail"
+    elif [[ -n "${PROGRESS_DIR:-}" ]]; then
+      # Write progress to shared directory for the monitor to pick up
+      printf '%d %d %d %d %d %d %d' "$n" "$total" "$ok" "$sat" "$unk" "$tmout" "$fail" \
+        > "$PROGRESS_DIR/$frag"
     fi
   done < "$filelist"
 
   rm -f "$filelist"
 
   if [[ "$PARALLEL" == true ]]; then
-    printf "  %-14s %d unsat (tried %d/%d)\n" "$frag" "$ok" "$n" "$total"
+    # Mark fragment as done and write final stats
+    if [[ -n "${PROGRESS_DIR:-}" ]]; then
+      printf '%d %d %d %d %d %d %d done' "$n" "$total" "$ok" "$sat" "$unk" "$tmout" "$fail" \
+        > "$PROGRESS_DIR/$frag"
+    fi
   else
     printf "\r  [%d/%d] %d unsat, %d sat, %d unknown, %d timeout, %d fail\n" \
       "$n" "$total" "$ok" "$sat" "$unk" "$tmout" "$fail"
@@ -256,18 +264,97 @@ else
   echo "Gathering ${label} from ${#fragments[@]} fragments (timeout ${TIMEOUT}s, $JOBS jobs${limit_msg})"
   echo
 
+  # Set up shared progress directory
+  PROGRESS_DIR=$(mktemp -d)
+  export PROGRESS_DIR
+  trap 'rm -rf "$PROGRESS_DIR"' EXIT
+
   export -f process_dir
   export INPUT_DIR OUTPUT_DIR TIMEOUT MAX_FILES MAX_LINES PROOFS SHUFFLE
 
+  # Launch workers in background
   printf '%s\n' "${fragments[@]}" | xargs -P "$JOBS" -I{} \
-    bash -c 'process_dir "$INPUT_DIR/{}" "$OUTPUT_DIR/{}"' _
+    bash -c 'process_dir "$INPUT_DIR/{}" "$OUTPUT_DIR/{}"' _ &
+  XARGS_PID=$!
 
+  # Progress monitor: poll the shared directory and print a live summary
+  n_frags=${#fragments[@]}
+  completed_frags=""
+  while kill -0 "$XARGS_PID" 2>/dev/null; do
+    sleep 0.5
+    # Aggregate stats from all fragment progress files
+    tot_n=0 tot_total=0 tot_ok=0 tot_sat=0 tot_unk=0 tot_tmo=0 tot_fail=0
+    done_count=0
+    newly_done=""
+    for f in "${fragments[@]}"; do
+      [[ -f "$PROGRESS_DIR/$f" ]] || continue
+      read -r fn ftotal fok fsat funk ftmo ffail fdone < "$PROGRESS_DIR/$f" || true
+      tot_n=$((tot_n + fn))
+      tot_total=$((tot_total + ftotal))
+      tot_ok=$((tot_ok + fok))
+      tot_sat=$((tot_sat + fsat))
+      tot_unk=$((tot_unk + funk))
+      tot_tmo=$((tot_tmo + ftmo))
+      tot_fail=$((tot_fail + ffail))
+      if [[ "${fdone:-}" == "done" ]]; then
+        done_count=$((done_count + 1))
+        # Check if this fragment is newly completed
+        case ",$completed_frags," in
+          *",$f,"*) ;;
+          *)
+            newly_done="$newly_done $f"
+            completed_frags="$completed_frags,$f"
+            ;;
+        esac
+      fi
+    done
+    # Print completion lines for newly finished fragments
+    for f in $newly_done; do
+      read -r fn ftotal fok fsat funk ftmo ffail fdone < "$PROGRESS_DIR/$f" || true
+      # Clear the progress line, print the fragment result, then redraw progress
+      printf "\r\033[K  %-14s  %d unsat (tried %d/%d)\n" "$f" "$fok" "$fn" "$ftotal"
+    done
+    # Print live summary on a single overwritten line
+    if [[ "$tot_total" -gt 0 ]]; then
+      pct=$((100 * tot_n / tot_total))
+    else
+      pct=0
+    fi
+    printf "\r\033[K  [%d/%d frags] tried %d/%d (%d%%)  unsat=%d sat=%d unk=%d tmo=%d fail=%d" \
+      "$done_count" "$n_frags" "$tot_n" "$tot_total" "$pct" \
+      "$tot_ok" "$tot_sat" "$tot_unk" "$tot_tmo" "$tot_fail"
+  done
+
+  wait "$XARGS_PID" || true
+
+  # Final pass: print any fragments that completed after the last poll
+  tot_n=0 tot_total=0 tot_ok=0 tot_sat=0 tot_unk=0 tot_tmo=0 tot_fail=0
+  for f in "${fragments[@]}"; do
+    [[ -f "$PROGRESS_DIR/$f" ]] || continue
+    read -r fn ftotal fok fsat funk ftmo ffail fdone < "$PROGRESS_DIR/$f" || true
+    tot_n=$((tot_n + fn))
+    tot_total=$((tot_total + ftotal))
+    tot_ok=$((tot_ok + fok))
+    tot_sat=$((tot_sat + fsat))
+    tot_unk=$((tot_unk + funk))
+    tot_tmo=$((tot_tmo + ftmo))
+    tot_fail=$((tot_fail + ffail))
+    if [[ "${fdone:-}" == "done" ]]; then
+      case ",$completed_frags," in
+        *",$f,"*) ;;
+        *)
+          printf "\r\033[K  %-14s  %d unsat (tried %d/%d)\n" "$f" "$fok" "$fn" "$ftotal"
+          ;;
+      esac
+    fi
+  done
+
+  # Final summary
+  printf "\r\033[K"
   echo
   if [[ "$PROOFS" == true ]]; then
-    total=$(find "$OUTPUT_DIR" -name '*.eo' -type f | wc -l)
-    echo "Total: $total proofs in $OUTPUT_DIR"
+    echo "Total: $tot_ok proofs in $OUTPUT_DIR (tried $tot_n, sat=$tot_sat unk=$tot_unk tmo=$tot_tmo fail=$tot_fail)"
   else
-    total=$(find "$OUTPUT_DIR" -name '*.smt2' -type f | wc -l)
-    echo "Total: $total problems in $OUTPUT_DIR"
+    echo "Total: $tot_ok problems in $OUTPUT_DIR (tried $tot_n, sat=$tot_sat unk=$tot_unk tmo=$tot_tmo fail=$tot_fail)"
   fi
 fi
