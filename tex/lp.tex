@@ -5,6 +5,7 @@
 
 \begin{document}
 %
+\section{λΠ-calculus modulo rewriting}\label{sec:lambdapi}
 \begin{boxfigure}[t!]{fig:lpTermSyntax}
 	{Syntax and typing rules for the $λΠ$-calculus.}
 	%
@@ -30,7 +31,7 @@ Terms are identified up to $α$-conversion
 appropriate definitions for \emph{substitution} $\prn{t[x ↦ t']}$
 and \emph{$β$-reduction} $\prn{t ⇝_{β} t'}$.
 %
-Hereinafter, we write $\prn{t_1 → t_2}$ for the term
+Hereinafter, we may write $\prn{t_1 → t_2}$ for the term
 $\prn{\ppii{(x : t_1)}{t_2}}$, where $x$ is some `fresh'
 variable that does not occur free in $t_2$.
 
@@ -72,6 +73,18 @@ $\prn{⊢_{Σ}}$ between contexts and typings,
 where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
 ``$e$ has type $t$ with respect to signature $Σ$ and context $Γ$''.
 
+\begin{remark}
+	The typing rules of the $λΠ$-calculus disallow
+	abstractions on types
+	(i.e., any $\prn{\TYPE → t}$ is ill-typed in any context).
+	Instead, the types of Eunoia are identified with
+	$λΠ$-terms of type $\Set$,
+	%
+	which in turn encode $λΠ$-types with an injective symbol
+	$\msf{τ} : \Set → \TYPE$ and an (infix) function space symbol
+	$\prn{⤳}$.
+\end{remark}
+
 % -------------------------------------------------------- %
 \subsection{The \textsc{LambdaPi} Proof Assistant}
 %
@@ -83,70 +96,113 @@ where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
 	$$\lpConcreteSyntax$$
 \end{boxfigure}
 %
-\Autoref{fig:lpSyntax} gives the syntax for a fragment of
-the $\lambdapi$ proof assistant.
+\Autoref{fig:lpSyntax} defines syntax for a small fragment
+of the $\lambdapi$ proof assistant.
 %
-Each $\lambdapi$ \emph{file} is a list of \emph{commands},
-which may be seen as representing a $λΠ$-signature.
+Each \emph{file} is a list of \emph{commands}
+that (a)~specify the typings and rewrite rules
+of a particular $λΠ$-signature and (b)~provide
+information for guiding the typechecker.
 %
+% ----------------------------------
+\subsubsection{Symbol Declaration.}
+% ----------------------------------
+Each \emph{symbol declaration} provides
+a symbol $s$ and a term $t$, which alone
+corresponds to the typing $\prn{s : t}$.
 %
-
-
-
-Because the type system of $\lambdapi$ does not allow
-`quantifying' over types
-(i.e., $\prn{\TYPE → \TYPE}$ is ill-typed),
-we use a `Tarski-style' type universe to support treating
-types as `first-class citizens'.
-%
-In particular, we identify the types of Eunoia with
-$\lambdapi$ terms of type $\Set$, which encode
-$\lambdapi$ types via $\msf{τ} : \Set → \TYPE$
-and is closed under
-$\prn{⤳} : \msf{Set} → \msf{Set} →  \msf{Set}$.
-%
-$$
-	\begin{array}[t]{l@{\ {:}\ }l}
-		\mtt{symbol}\ \msf{Set} & \TYPE;             \\
-		%
-		\mtt{symbol}\ \msf{El}  & \msf{Set} → \TYPE; \\
-		%
-		\mtt{symbol}\ ;                              \\
-	\end{array}
-$$
-%
-We work `within' $\msf{Set}$ when embedding `many-sorted'
-logics in $\lambdapi$. Namely, the translation outlined
-in this document identifies Eunoia's types with terms of
-type $\msf{Set}$ and uses $\msf{El}$ to `lift' these to
-top-level $\lambdapi$ types.
-%
-Moreover, the (infix) symbol $\prn{⤳}$ is used as a
-`set-level' type constructor, where the following rewrite
-rule specifies how these sets are `lifted'.
-%
-$$
-	\mtt{rule}\ \msf{El}\,\prn{\ptrn{α} ⤳ \ptrn{β}}
-	\ {↪}\
-	\prn{{\msf{El}\,\ptrn{α}} → {\msf{El}\,\ptrn{β}}};
-$$
-
-
-
-To support \emph{implicit bindings} (which allow the user
-to omit some subterms and have them automatically `inferred'
-during typechecking), symbol declarations may have
-\emph{parameters} which are either
-\emph{explicit} or \emph{implicit}
+A list of \emph{parameters} $\vec ρ$ may also be given,
+each of which are either \emph{explicit} or \emph{implicit}
 (written $\xpl{x : t}$ and $\imp{x : t}$ resp.).
 %
-In particular, if a symbol has
+%
+Given $\vec ρ$ with $n$ leading
+implicits followed by $m$ explicits,
+$\lambdapi$ registers the following typing
+and internally records $ζ(s) ≔ n$.
+$$\prn{\xsym s : \prn{\pii{x_1 : t_1}
+			{\ldots\,\pii{x_{n+m} : t_{n+m}}{t}}}}$$
+%
+Hereinafter, the symbol $s$ is an alias
+for $\prn{\xsym{s} ⋅ \_ ⋅ \ldots ⋅ \_}$,
+where $\_$ is a \emph{placeholder}.
+%
+Terms containing placeholders can be \emph{resolved}
+with respect to a context $Γ$ and a signature $Σ$,
+which we write as $\mbf{resolve}_{\prn{Σ, Γ}}[t]$ for
+any valid\footnote{%
+%
+Internally, resolution is achieved by inserting
+fresh metavariables $\plur{\meta α}{n}$
+in place of each placeholder in a term,
+and solving via higher-order unification
+using the set of constraints produced during type-checking.
+%
+For example, given the context
+$Γ ≔ [
+	\prn{n,m : \El{\msf{Int}}},
+	\prn{x,y : \El{\msf{Real}}}
+	]$
+and some appropriate $Σ$,
+$\mbf{resolve}_{\prn{Σ, Γ}}$ is well-defined for
+$t ≔ \prn{
+		\msf{and}
+		⋅ \prn{\msf= ⋅ n ⋅ m}
+		⋅ \prn{\msf= ⋅ x ⋅ y}
+	}$
+%
+since
+$\prn{
+		\msf{and}
+		⋅ \prn{\xsym{=} ⋅ \meta α ⋅ n ⋅ m}
+		⋅ \prn{\xsym{=} ⋅ \meta β ⋅ x ⋅ y}
+	}$
+entails the (solveable) constraints
+$\{
+	\prn{\El{\meta α} ≡ \El{\msf{Int}}},
+	\prn{\El{\meta β} ≡ \El{\msf{Real}}} \}$.
+%
+} term $t$.
+
+%
+Optionally, a \emph{modifier} may be given.
+The $\mtt{constant}$ modifier forbids
+rewrite rules with $s$ at the head, and
+$\mtt{sequential}$ ensures rewrite rules with head $s$
+are `matched' in the order they are given in the file.
+%
+Finally, a \emph{definition} $\prn{{≔}\,t'}$ may be given
+when the $\mtt{constant}$ modifier is not,
+which provides the rewrite rule
+$\prn{s\,↪ t}$
+(resp. $\prn{s\,↪ \lam{\vec ρ}{t}}$ given parameters $\vec ρ$).
+% ----------------------------------
 
 
 
+
+
+
+
+
+% ---------------------
+
+% Each command is either a \emph{symbol declaration}
+% (\mtt{symbol}), \emph{rewrite rule declaration} (\mtt{rule}),
+% or an \emph{import} (\mtt{require}).
+%
+
+
+\subsubsection{Rewrite Rule Declaration.}
+%
+Rewrite rules are introduced with the $\prn{\mtt{rule}}$
+command.
+%
+For user convenience, a list of rewrite rules
+may be introduced using the keyword $\prn{\mtt{with}}$.
 
 We also introduce a syntax of \emph{patterns} used for
-declaring rewrite rules.
+declaring classes of rewrite rules.
 %
 Each pattern is either a \emph{pattern variable}
 $\prn{\ptrn{x}}$ or a \emph{pattern application}
@@ -155,43 +211,6 @@ the \emph{head} of the pattern.
 %
 Hereinafter, let $\pv(p)$ denote the set of
 pattern variables occurring in some pattern $p$.
-
-% ---------------------
-
-% Each command is either a \emph{symbol declaration}
-% (\mtt{symbol}), \emph{rewrite rule declaration} (\mtt{rule}),
-% or an \emph{import} (\mtt{require}).
-%
-The behaviour of each command is discussed in the
-following text:
-
-\subsubsection{Symbol Declaration.}
-%
-Each \emph{symbol declaration} consists of a symbol $s$,
-a list of parameters $\vec ρ$, and a term $t$.
-%
-In general, this has the effect of adding
-$\prn{s : \prn{\ppii{ρ_1}{\ldots\,\ppii{ρ_n}{t}}}}$
-to the signature.
-%
-Optionally, a \emph{modifier} may be given.
-The $\prn{\mtt{constant}}$ modifier forbids the user from later
-adding rewrite rules with $s$ at the head, and
-$\prn{\mtt{sequential}}$ alters the rewriting strategy of
-$\lambdapi$ so that rewrite rules with head $s$
-are `matched' in the order they are given in the file.
-%
-A \emph{definition} $\prn{{≔}\,t}$ may be given
-when the $\prn{\mtt{constant}}$ modifier is not present,
-which has the effect of adding the rewrite rule
-$\prn{s\,\vec{ρ} ↪ t}$ to the signature.
-
-\subsubsection{Rewrite Rule Declaration.}
-%
-Rewrite rules are introduced with the $\prn{\mtt{rule}}$
-command.
-For user convenience, a list of rewrite rules
-may be introduced using the keyword $\prn{\mtt{with}}$.
 %
 In practice, a rewrite rule $\prn{p ↪ p'}$ will only be
 accepted by $\lambdapi$ if $p$ is a pattern application
@@ -213,59 +232,32 @@ where $\vec μ$ is a list of $\prn{.}$-delimited \emph{paths}.
 This command has the effect of importing all symbol
 declarations and rewrite rules from the specified files.
 
-\subsubsection{Type Universes.}
-%
+% \subsubsection{Type Universes.}
+% %
 
 
-\subsubsection{Implicit Parameters.}
-\label{sssec:lp-implicits}
-%
-As mentioned above, the presence of `implicit' bindings in
-abstractions can enable the user to omit some terms in
-applications, and have them automatically `inferred' by
-$\lambdapi$.
-%
-% This mechanism is particularly useful for implementing
-% \emph{type polymorphism}, where a function may have
-% different behaviours depending on the types of its arguments.
-%
-To make this notion more precise, consider the following
-symbol declaration:
-$$\mtt{symbol}\ \msf{foo}\ [α : \msf{Set}] : \El{α ⤳ α ⤳ α};$$
-Modulo rewriting, the type of $\msf{foo}$ is
-$\prn{
-		\ppii{\imp{α : \Set}}{
-			\El α → \El α → \El α
-		}
-	}$.
-%
-Because this type contains implicit bindings,
-$\lambdapi$ also registers an `explicit version' of
-$\msf{foo}$ named $\xsym{\msf{foo}}$ whose type
-contains only explicit bindings.
-%
-Hereinafter, an application like
-$\prn{\msf{foo}\,x\,y}$ generates a `schematic term'
-$\prn{\xsym{\msf{foo}}\,\meta{α}\,x\,y}$
-with constraints
-$\{ \meta{α} : \Set,\, x : \El{\meta α},\, y : \El{\meta α} \}$.
-%
-Given a suitable context, $\lambdapi$ is able to `solve'
-these constraints to infer a `concrete' value for $\meta α$.
-%
-% For example, given a context with
-% $\prn{ℕ : \Set}$ and
-% $\prn{x,y : \El ℕ}$ present,
-% the term $\prn{\msf{foo}\,{x}\,{y}}$
-% can be seen as `syntactic sugar'
-% for $\prn{\xsym{\msf{foo}}\,ℕ\,x\,y}$.
-%
-Alternatively, a user can `force' values that would
-otherwise be automatically inferred by using explicated
-terms
-(e.g.,
-$\prn{\msf{foo}\,[ℕ]\,x\,y}$
-is equivalent to
-$\prn{\xsym{\msf{foo}}\,ℕ\,x\,y}$).
+% \subsubsection{Implicit Parameters.}
+% \label{sssec:lp-implicits}
+% %
+% As mentioned above, the presence of `implicit' bindings in
+% abstractions can enable the user to omit some terms in
+% applications, and have them automatically `inferred' by
+% $\lambdapi$.
+% %
+% % This mechanism is particularly useful for implementing
+% % \emph{type polymorphism}, where a function may have
+% % different behaviours depending on the types of its arguments.
+% %
+% To make this notion more precise, consider the following
+% symbol declaration:
+% $$\mtt{symbol}\ \msf{foo}\ [α : \msf{Set}] : \El{α ⤳ α ⤳ α};$$
+% Modulo rewriting, the type of $\msf{foo}$ is
+% $\prn{
+% 		\ppii{\imp{α : \Set}}{
+% 			\El α → \El α → \El α
+% 		}
+% 	}$.
+% %
+
 
 \end{document}
