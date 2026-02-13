@@ -210,61 +210,72 @@ Crucially, the translation assumes that all terms have already
 been processed by the $\mbf{elab}$ operator of
 \autoref{sec:eo-elab}.
 
-Some Eunoia symbols are not valid $\lambdapi$ identifiers.
-Fortunately, $\lambdapi$ provides syntax for `escaping' such
-identifiers: define $\bar s ≔ \esc s$ for any Eunoia symbol
-$s$ containing forbidden characters, and $\bar s ≔ s$ otherwise.
+Because some Eunoia symbols are not valid $\lambdapi$
+identifiers, the translations on symbols uses
+$\lambdapi$ syntax for `escaped' identifiers:
+define $\bar s ≔ \esc s$
+for any Eunoia symbol $s$ containing forbidden characters,
+and $\bar s ≔ s$ otherwise.
 
 \begin{definition}\label{def:tm-ty}
 	%
 	Let $\tm{⋅}$ be the least operator such that:
 	%
 	$$
-		\begin{array}[t]{r@{\ =\ }l}
-			\tm{s} &
-			\begin{cases}
-				\Set   & \text{if $s = \eotype$,} \\
-				\bar s & \text{otherwise.}
-			\end{cases}
-			\\[4mm]
-			\tm{ℓ} &
-			\begin{cases}
-				\msf{of\_Z}\,\tm{n}
-				       &
-				\text{if $ℓ = \msf{int}(n)$,}
-				\\
-				\msf{of\_Q}\,\tm{n}\,\tm{d}
-				       &
-				\text{if $ℓ = \msf{rat}(n,d)$,}
-				\\
-				\bar ℓ & \text{if $ℓ = \msf{str}(s)$.}
-			\end{cases}
-			\\[4mm]
-			\tm{\eapp{s}{\vec t}}
+		\tm{s} =
+		\begin{cases}
+			\Set   & \text{if $s = \eotype$,} \\
+			\bar s & \text{otherwise.}
+		\end{cases}
+		\quad
+		\tm{ℓ} =
+		\begin{cases}
+			\msf{ofZ}\,\tm{n}
 			       &
-			\begin{cases}
-				\msf{APP}\appSym\tm{t_1}\appSym\tm{t_2}
-				 &
-				\text{if $s = \mtt{\_}$,}
-				\\
-				\tm{t_1} ⤳ \ldots ⤳ \tm{t_n}
-				 &
-				\text{if $s = \mtt{->}$,}
-				\\
-				\appldots{\bar s}{\tm{t_1}}{\tm{t_n}}
-				 &
-				\text{otherwise.}
-			\end{cases}
-			\\[4mm]
-			\tm{\eapp{\eo{define}}{\epar{x\ t}\ t'}}
+			\text{if $ℓ ∈ ℕ$,}
+			\\
+			\msf{of\_Q}\,\tm{n}\,\tm{d}
 			       &
-			\msf{let}\ x ≔ \tm{t}\ \msf{in}\ \tm{t'}
-		\end{array}
+			\text{if $ℓ ∈ ℚ$,}
+			\\
+			\bar ℓ & \text{if $ℓ ∈ \msf{String}$.}
+		\end{cases}
 	$$
+	$$
+		\tm{\eapp{s}{\vec t}}
+		=
+		\begin{cases}
+			\msf{APP}\appSym\tm{t_1}\appSym\tm{t_2}
+			 &
+			\text{if $s = \mtt{\_}$,}
+			\\
+			\tm{t_1} ⤳ \ldots ⤳ \tm{t_n}
+			 &
+			\text{if $s = \mtt{->}$,}
+			\\
+			\appldots{\bar s}{\tm{t_1}}{\tm{t_n}}
+			 &
+			\text{otherwise.}
+		\end{cases}
+	$$
+	$$
+		\tm{\eapp{\eo{define}}{
+				\epar{\vec v}
+				\ t'
+			}
+		}
+		=
+		\prn{
+			\msf{let}\ \vec {w}
+			\ \msf{in}\ \tm{t'}
+		}
+	$$
+	where $w_i = \prn{{\bar x}_i ≔ \tm{t_i}}$
+	for each $v_i = \epar{x_i\ t_i}$.
 \end{definition}
 
 \begin{definition}\label{def:ctx}
-	For a parameter list $\vec ρ = \epar{x_1\ t_1\ \maybe{ν_1}}
+	Given $\vec ρ = \epar{x_1\ t_1\ \maybe{ν_1}}
 		\ldots \epar{x_n\ t_n\ \maybe{ν_n}}$,
 	define:
 	$$
@@ -288,14 +299,12 @@ $s$ containing forbidden characters, and $\bar s ≔ s$ otherwise.
 \end{definition}
 
 %
-We now define $\cmd{⋅}$ on each form of Eunoia command,
-using the notation introduced in \autoref{sec:eunoia}.
-We write $P ≔ \msf{Proof}$ throughout.
-
-\begin{definition}[Command translation]\label{def:cmd}
+The translation operator is defined on Eunoia
+commands thus:
+\begin{definition}\label{def:cmd}
 	%
-	Let $δ$ be an Eunoia command. We define $\cmd{δ}$
-	by cases on the form of~$δ$.
+	Let $δ$ be an Eunoia command. Then $\cmd{δ}$
+	is the list of $\lambdapi$ commands such that:
 	%
 	\begin{enumerate}
 		\item If $δ ∈ Δ.\msf{const}$, then
@@ -331,53 +340,101 @@ We write $P ≔ \msf{Proof}$ throughout.
 			      \ctx{\vec ρ} : \El{\tm{t'}}
 			      ≔ \tm{t}
 		      $$
-		      %
+		      %Ok
 
 		\item If $δ ∈ Δ.\msf{prog}$, then
-		      $δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}$ and
-		      cases
+		      $δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}$
+		      with cases
 		      $\ecase{l_1}{r_1}\ldots\ecase{l_m}{r_m}$.
-		      Then, define:
+		      Then, let
+		      $T_s ≔ \El{\tm{\earr{\plur t n\, t'}}}$
+		      in:
 		      %
 		      \begin{align*}
-			      \cmd{δ}\ ≔\  &
+			      \cmd{δ}\ {≔}\
+			       &
 			      \mtt{sequential}\ \mtt{symbol}\ \bar s\
 			      \mbf{impl}(\vec ρ, T_s) :
 			      T_s\mtt{;}
 			      \\
-			                   & \mtt{rule}\ \bar s\,\tm{l_j} ↪ \tm{r_j}
-			      \quad (j = 1 \ldots m)
+			       &
+			      \mtt{rule}\
+			      \bar s\,\tm{l_1} ↪ \tm{r_1}\mtt{;}
+			      \\
+			       & \mtt{with}\ \ldots\,\mtt{;}
+			      \\
+			       & \mtt{with}\
+			      \bar s\,\tm{l_m} ↪ \tm{r_m}
+			      % \quad (j = 1 \ldots m)
 		      \end{align*}
 		      %
-		      where $T_s ≔ \El{\tm{t_1}} → \ldots → \El{\tm{t_n}} → \El{\tm{t'}}$.
-		      The $\mtt{sequential}$ modifier ensures rules are
-		      tried in order, matching the operational semantics of
-		      Eunoia programs.
-		      Parameters from $\vec ρ$ that appear free in $T_s$
-		      become implicit (via $\mbf{impl}$); the remaining
-		      parameters become pattern variables in the rewrite rules.
+		      The use of the $\mtt{sequential}$ modifier
+		      aligns with the operational semantics of Eunoia,
+		      %
+		      and the parameters from $\vec ρ$ that appear free
+		      in $T_s$ are bound as implicits (via $\mbf{impl}$).
+
 
 		\item Let $δ$ be a rule declaration with
 		      $δ ⊢ s(\vec ρ) : τ^★$,
 		      where $τ^★$ is the type derived from the
 		      premises and conclusion of $δ$.
+		      %
 		      Let
 		      $T ≔ P\,\tm{ψ_1}
 			      → \ldots → P\,\tm{ψ_m}
-			      → P\,\tm{φ^★}$:
+			      → P\,\tm{φ^★}$.
+
+		      If $δ$ provides no $\attr{args}$, then:
 		      %
 		      $$\cmd{δ}\ ≔\ \mtt{symbol}\ \bar s\
 			      \mbf{impl}(\vec ρ, T)\ \vec ρ_{\text{xpl}} : T$$
 		      %
 		      where $\vec ρ_{\text{xpl}}$ are the explicit
 		      argument parameters.
-		      When $δ$ has $\attr{args}$ containing non-trivial
-		      patterns, an auxiliary symbol is generated whose
-		      rewrite rules compute the conclusion type by
-		      pattern matching on the supplied arguments.
 
-		\item Let $δ$ be an include with module $μ$.
-		      Then $\cmd{δ}\ ≔\ \mtt{require}\ \mtt{open}\ μ$.
+		      Otherwise, $δ$ provides
+		      $\attr{args}\ \epar{\plur t n}$
+		      where each $t_i$ has type
+		      $\eoquote{τ_i}$ in $\prn{Δ, \vec ρ}$.
+		      %
+		      Because $\eo{quote}$ types have no
+		      $\lambdapi$ counterpart, they are eliminated
+		      via an auxiliary symbol $\bar s^★$ whose
+		      rewrite rule computes $T$ by pattern matching
+		      on the supplied arguments:
+		      %
+		      \begin{align*}
+			      \cmd{δ}\ {≔}\
+			       &
+			      \mtt{sequential}\ \mtt{symbol}\ \bar s^★\
+			      \mbf{impl}(\vec ρ, T^★) :
+			      T^★\mtt{;}
+			      \\
+			       &
+			      \mtt{rule}\
+			      \bar s^★\,\tm{t_1}\,\ldots\,\tm{t_n}
+			      ↪ T\mtt{;}
+			      \\[2mm]
+			       &
+			      \mtt{constant}\ \mtt{symbol}\ \bar s\
+			      \mbf{impl}(\vec ρ, T')\ \vec ρ_{\text{xpl}} : T'
+		      \end{align*}
+		      %
+		      where
+		      $T^★ ≔ \El{\tm{τ_1}} → \ldots → \El{\tm{τ_n}} → \TYPE$
+		      and
+		      $T' ≔ \bar s^★\,\bar x_1\,\ldots\,\bar x_n$
+		      with $\vec ρ_{\text{xpl}} =
+			      \xpl{\bar x_1 : \El{\tm{τ_1}}} \ldots
+			      \xpl{\bar x_n : \El{\tm{τ_n}}}$.
+		      %
+		      The return type of $\bar s$ reduces to $T$
+		      only when the arguments match the patterns
+		      $\tm{t_1}, \ldots, \tm{t_n}$.
+
+		      % \item Let $δ$ be an include with module $μ$.
+		      %       Then $\cmd{δ}\ ≔\ \mtt{require}\ \mtt{open}\ μ$.
 	\end{enumerate}
 \end{definition}
 
