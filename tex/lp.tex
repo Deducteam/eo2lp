@@ -244,6 +244,21 @@ and $\bar s ≔ s$ otherwise.
 				      \bar ℓ & \text{if $ℓ ∈ \msf{String}$.}
 			      \end{scases}
 		      $$
+		\item For arrow types, the following hold,
+		      where $\epar{x\ T} ∈ \vec ρ$:
+		      $$
+			      \begin{array}[t]{r@{\ {=}\ }l}
+				      \tm{\earr{\eoquote{x}\ {\vec t}}}
+				                    &
+				      \tm{T} ⤳^{\msf d} \lam{x}{\tm{\earr{\vec t}}}
+				      \\[1mm]
+				      \tm{\earr{t'\ {\vec t}}}
+				                    &
+				      \tm{t'} ⤳ \tm{\earr{\vec t}}
+				      \\[1mm]
+				      \tm{\earr{t}} & \tm t
+			      \end{array}
+		      $$
 		\item For binary and $n$-ary applications,
 		      the following hold:
 		      $$
@@ -251,17 +266,12 @@ and $\bar s ≔ s$ otherwise.
 				      \tm{\eapp{\mtt{\_}}{t_1\ t_2}}
 				       & \eo{app}\appSym\tm{t_1}\appSym\tm{t_2}
 				      \\[2mm]
+				      \tm{\eprf{t}}
+				       & \eo{Proof} ⋅ {\tm {t}}
+				      \\[2mm]
 				      \tm{\eapp{s}{\vec t}}
 				       &
-				      \begin{scases}
-					      \tm{t_1} ⤳ \ldots ⤳ \tm{t_n}
-					      &
-					      \text{if $s = \mtt{->}$,}
-					      \\
-					      \bar s ⋅ \tm{t_1} ⋅ \ldots ⋅ \tm{t_n}
-					      &
-					      \text{otherwise.}
-				      \end{scases}
+				      \bar s ⋅ \tm{t_1} ⋅ \ldots ⋅ \tm{t_n}
 			      \end{array}
 		      $$
 		\item The only normal-form binder application is $\eo{define}$,
@@ -309,81 +319,65 @@ The translation operator is defined on Eunoia
 commands thus:
 \begin{definition}\label{def:cmd}
 	%
-	Let $δ$ be an Eunoia command. Then $\cmd{δ}$
+	Let $δ$ be a standard Eunoia command. Then $\cmd{δ}$
 	is the list of $\lambdapi$ commands such that:
 	%
 	\begin{enumerate}\itemsep6pt
-		\item If $δ ∈ Δ.\msf{const}$, then
-		      $δ ⊢ s(\vec ρ) : t$ for some $t$, and
-		      possibly $δ ⊢ s ⋈ α$ for some attribute $α$.
+		\item If $δ$ is a constant declaration,
+		      then $δ ⊢ s(\vec ρ) : t$ and
+		      the head of $\cmd δ$ is:
 		      %
-		      If $α$ is $\rcn{t_\nil}$ or $\lcn{t_\nil}$,
-		      then:
-		      %
-		      $$\cmd δ\ {≔}\
-			      \begin{array}{l}
-				      \mtt{symbol}\ \bar s\ \ctx{\vec ρ} : \El{\tm t}\mtt{;}
-				      \\
-				      \mtt{rule}\ \prn{\eo{nil}\ \bar s\ \ptrn T}
-				      ↪ \prn{\eo{as}\ \tm{t_\nil}\ \ptrn T}
-			      \end{array}
+		      $$  \mtt{symbol}\ \bar s\ \ctx{\vec ρ}
+			      : \El{\tm t}\mtt{;}
 		      $$
 		      %
-		      Otherwise,
-		      $\cmd δ ≔
-			      \mtt{symbol}\ \bar s\ \ctx{\vec ρ} : \El{\tm t}
-		      $.%
+		      If $δ ⊢ s ∷ α$ and $α$ is
+		      $\rcn{t_\nil}$ or $\lcn{t_\nil}$,
+		      then $\cmd δ$ also contains the
+		      following rewrite rule:
+		      $$
+			      \mtt{rule}\ \prn{\eo{nil}\ \bar s\ \ptrn T}
+			      ↪ \prn{\eo{as}\ \tm{t_\nil}\ \ptrn T}
+		      $$
 
-		\item If $δ ∈ Δ.\msf{defn}$, then
-		      $δ ⊢ s(\vec ρ) ≔ t$ and possibly
-		      $δ ⊢ s(\vec ρ) : t'$.
+		\item If $δ$ is a macro declaration,
+		      then $δ ⊢ s(\vec ρ) ≔ t$.
 		      %
 		      If the type $t'$ is supplied then $\cmd{δ}$ is
 		      defined as below, otherwise the typing is omitted.
 		      %
-		      $$\cmd{δ} ≔
+		      $$
 			      \mtt{symbol}\ \bar s\
 			      \ctx{\vec ρ} : \El{\tm{t'}}
 			      ≔ \tm{t}
 		      $$
 		      %Ok
 
-		\item If $δ ∈ Δ.\msf{prog}$, then
+		\item If $δ$ is a program declaration with
 		      $δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}$
-		      with cases
-		      $\ecase{l_1}{r_1}\ldots\ecase{l_m}{r_m}$.
-		      Then, let
-		      $T_s ≔ \El{\tm{\earr{\plur t n\, t'}}}$
-		      in:
+		      and cases $\ecase{l_1}{r_1}\ldots\ecase{l_m}{r_m}$,
+		      then $\cmd{δ}$ declares $\bar s$,
+		      where $T ≔ \El{\tm{ \earr{\plur t n\, t'}}}$:
 		      %
-		      \begin{align*}
-			      \cmd{δ}\ {≔}\
-			       &
-			      \mtt{sequential}\ \mtt{symbol}\ \bar s\
-			      \mbf{impl}(\vec ρ, T_s) :
-			      T_s\mtt{;}
-			      \\
-			       &
-			      \mtt{rule}\
-			      \bar s\,\tm{l_1} ↪ \tm{r_1}\mtt{;}
-			      \\
-			       & \mtt{with}\ \ldots\,\mtt{;}
-			      \\
-			       & \mtt{with}\
-			      \bar s\,\tm{l_m} ↪ \tm{r_m}
-			      % \quad (j = 1 \ldots m)
-		      \end{align*}
+		      $$\begin{array}[t]{l}
+				      \mtt{sequential}\ \mtt{symbol}\ \bar s\
+				      \vec ρ^★ : T
+				      \mtt{;}
+				      \\[1mm]
+				      \begin{array}[t]{@{}l@{\ }l@{\ {↪}\ }l}
+					      \mtt{rule} & \tm{l_1}^{\ptrn{}} & \tm{r_1}^{\ptrn{}}
+					      \\ \cdots \\
+					      \mtt{with} & \tm{l_m}^{\ptrn{}} & \tm{r_m}^{\ptrn{}}\mtt{;}
+				      \end{array}
+				      % \quad (j = 1 \ldots m)
+			      \end{array}$$
 		      %
-		      The use of the $\mtt{sequential}$ modifier
-		      aligns with the operational semantics of Eunoia,
-		      %
-		      and the parameters from $\vec ρ$ that appear free
-		      in $T_s$ are bound as implicits (via $\mbf{impl}$).
+		      where $\vec ρ^★ ≔ \mbf{impl}(\vec ρ, T)$ binds
+		      all of the free parameters in $T$ as implicits.
 
-
-		\item If $δ ∈ Δ.\msf{rule}$ has
+		\item If $δ$ is a rule declaration with
 		      $\attr{args}\ \epar{\plur t n}$
-		      with types $\plur τ n$, then:
+		      of type $\plur τ n$, then:
 		      $$δ ⊢ s(\vec ρ) :
 			      \earr{
 				      \eoquote{t_1}\,\ldots\,\eoquote{t_n}
@@ -392,18 +386,19 @@ commands thus:
 		      where $τ^★$ encodes the premises and conclusion
 		      of the rule, as per \autoref{sec:eo-sig}.
 		      %
-		      The $\eo{quote}$ types are eliminated by declaring
-		      an auxiliary symbol $s^★$ that rewrites to
-		      $\tm{τ^★}$ when applied to terms matching
-		      the patterns given by $\tm{t_1}\ldots\tm{t_n}$:
+		      The $\eo{quote}$ types are eliminated by
+		      declaring an auxiliary symbol $s^★$ that
+		      rewrites to $\tm{τ^★}$ when applied to
+		      terms matching the argument patterns given by
+		      $\tm{t_1}^{\ptrn{}}\ldots\tm{t_n}^{\ptrn{}}$:
 		      $$
 			      \begin{array}[t]{l}
 				      \mtt{sequential}\ \mtt{symbol}\ \bar{s}^★\
 				      \vec σ : \tm{τ_1} → \ldots → \tm{τ_n} → \TYPE \mtt{;}
-				      \\
+				      \\[1mm]
 				      \mtt{rule}\
-				      \bar s^★\,\tm{t_1}\,\ldots\,\tm{t_n}
-				      ↪ \tm{τ^★}
+				      \bar s^★\,\tm{t_1}^{\ptrn{}}\,\ldots\,\tm{t_n}^{\ptrn{}}
+				      ↪ \tm{τ^★}^{\ptrn{}}
 			      \end{array}
 		      $$
 		      %
