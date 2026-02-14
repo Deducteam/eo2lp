@@ -1,3 +1,10 @@
+% small cases environment (brace + contents scaled to \small)
+\newenvironment{scases}{%
+	\left\{\,\small\begin{array}{@{}l@{\quad}l@{}}%
+		}{%
+	\end{array}\right.%
+}
+
 % font faces
 \newcommand{\msf}{\mathsf}
 \newcommand{\mbf}{\mathbf}
@@ -43,7 +50,7 @@
 \newcommand{\apptwo}[3]{#1\,#2\,#3}
 \newcommand{\appthree}[4]{#1\,#2\,#3\,#4}
 \newcommand{\appfour}[5]{#1\,#2\,#3\,#4\,#5}
-\newcommand{\appldots}[3]{((\app{#1}{#2})\,\ldots\,⋅\,{#3})}
+\newcommand{\appldots}[3]{\prn{\prn{\app{#1}{#2}}\,\ldots\,⋅\,{#3}}}
 
 % universes
 \newcommand{\PROP}{\mtt{PROP}}

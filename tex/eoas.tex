@@ -4,17 +4,16 @@
 \input{macros.tex}
 
 \begin{document}
+\section{Eunoia}\label{sec:eunoia}
 % ---------------------------------------------------------
 \begin{boxfigure}[t!]{fig:eo-syntax}
-	{Syntax for Eunoia: terms, attributes, and commands.}
+	{Syntax for Eunoia: terms, attributes, and built-in operators.}
 	%
 	$$ \eoTermSyntax $$
 	\hrule
 	$$ \eoAttrSyntax $$
 	\hrule
-	$$ \eoCommandSyntax $$
-	\hrule
-	$$ \eoPrfCommandSyntax $$
+	$$ \eoBuiltinFig $$
 \end{boxfigure}
 % ---------------------------------------------------------
 \Autoref{fig:eo-syntax} defines syntax for the
@@ -32,6 +31,46 @@ Each \emph{parameter} $ρ$ consists of a symbol $s$, a term
 $t$ (the type of the parameter), and possibly a
 \emph{parameter attribute} $ν$.
 %
+
+\subsection{Built-in Operators.}
+%
+Eunoia has a fixed set of \emph{built-in symbols}
+(\autoref{fig:eo-syntax}) that allow manipulating the
+syntactic structure of terms.
+%
+In particular, Ethos will eagerly evaluate
+applications of some built-in symbols to perform efficient
+computations on (integer, rational, string, bit-vector)
+literals during proof-checking.
+%%
+
+A distinctive feature of Eunoia is its treatment of
+$n$-ary operators (see \autoref{sec:eo-elab}):
+given a right-associative operator $f$ with nil terminator
+$t_\nil$, the \emph{$f$-list} with elements $\plur t n$
+is the nested application $\eapp{f}{t_1\ \eapp{f}{\ldots\ \eapp{f}{t_n\ t_\nil}}}$.
+%
+The built-in symbols for lists operate generically on
+these term structures.
+
+Eunoia also provides the heterogeneous list type $\eo{List}$
+(with constructors $\eo{List::cons}$ and $\eo{List::nil}$),
+and the $\eo{var}$ operator (which constructs a `variable'
+from a string literal and a type).
+%
+Together these operators are used to encode variable
+lists in quantifiers and binders.
+
+\subsection{Signatures and Proof Scripts.}\label{sec:eo-sig}
+% ---------------------------------------------------------
+\begin{boxfigure}[t!]{fig:eo-commands}
+	{Eunoia commands: standard commands and proof commands.}
+	%
+	$$ \eoCommandSyntax $$
+	\hrule
+	$$ \eoPrfCommandSyntax $$
+\end{boxfigure}
+% ---------------------------------------------------------
 
 The commands of Eunoia are divided into
 \emph{standard commands} and \emph{proof commands}.
@@ -115,9 +154,6 @@ $s$ the \emph{name} of $π$ and $φ$ the \emph{conclusion},
 written:
 $$π ⊢ s : \eapp{\mtt{Proof}}{φ}$$
 %
-% TODO. what about:
-% no args :args` or `:premises`?
-% only one of `:args`, `:premises`?
 When $π$ is a step with
 $\attr{rule}\ r$,
 the definiens of $s$ is the result of
@@ -198,53 +234,6 @@ can be derived as follows:
 % 	      `logical part' (i.e., the premises and conclusion)
 % 	      of the rule may be obtained iff the given
 % 	      arguments match the `patterns' specified by each $t_i$.
-
-\subsection{Built-in Operators.}
-% ---------------------------------------------------------
-\begin{boxfigure}[t!]{fig:eo-builtins}
-	{Built-in operators of Eunoia (excerpt).}
-	$$ \eoBuiltinFig $$
-\end{boxfigure}
-% ---------------------------------------------------------
-%
-In addition to those provided by the signature, Eunoia has
-a fixed set of \emph{built-in symbols} (\autoref{fig:eo-builtins})
-that allow manipulating the syntactic structure of terms.
-%
-In particular, Ethos will eagerly evaluate
-applications of some built-in symbols to perform efficient
-computations on (integer, rational, string, bit-vector)
-literals during proof-checking.
-%%
-
-A distinctive feature of Eunoia is its treatment of
-$n$-ary operators (see \autoref{sec:eo-elab}):
-given a right-associative operator $f$ with nil terminator
-$t_\nil$, the \emph{$f$-list} with elements $\plur t n$
-is the nested application $\eapp{f}{t_1\ \eapp{f}{\ldots\ \eapp{f}{t_n\ t_\nil}}}$.
-%
-The built-in symbols for lists operate generically on
-these term structures.
-
-
-Eunoia also provides the heterogeneous list type $\eo{List}$
-(with constructors $\eo{List::cons}$ and $\eo{List::nil}$),
-and the $\eo{var}$ operator (which constructs a `variable'
-from a string literal and a type).
-%
-Together these operators are used to encode variable
-lists in quantifiers and binders.
-
-
-
-
-
-
-
-
-
-%
-% GOOD TEXT BUT NOT NEEDED YET
 
 \subsection{Elaboration of Terms}\label{sec:eo-elab}
 %
@@ -336,102 +325,159 @@ of supporting the elaboration strategies
 corresponding to the constant attributes of
 \autoref{fig:eo-syntax}.
 %
+\newcommand{\body}{\text{body}}
+\newcommand{\vars}{\text{vars}}
 \begin{definition}
-	For any signature $Δ$, let $\elab{Δ,\vec ρ}$
-	be the least (unary) operator such that:
+	For any $Δ$ and $\vec ρ$, let $\elab{Δ,\vec ρ}$
+	be the least operator such that:
 	\begin{enumerate}
 		\item For any symbol $s$, $\elab{Δ,\vec ρ}[s] = s$.
 		      %
-		\item Let $s$ be a symbol with $Δ ⊢ s ∷ \bd t_\cons$
-		      (for some term $t_\cons$), and
-		      let $\vec v = \epar{x_1\ t_1}\ldots\epar{x_n\ t_n}$.
-		      Then for any term $t$, we have:
+		\item For any binder application
+		      $\eapp{s}{\epar{\vec v}\ t}$
+		      where
+		      $Δ ⊢ s ∷ \bd t_\cons$,
 		      $$ \elab{Δ,\vec ρ}[\eapp{s}{\epar{\vec v}\ t}]
 			      =
-			      \eapp{s}{t_{\text{vars}}\ t_{\text{body}}}
+			      \eapp{s}{t_\vars\ t_\body}
 		      $$
-		      where
-		      $t_{\text{vars}} ≔ \elab{Δ, \vec ρ}
-			      [
-				      \eapp{t_\cons}{
-					      \eovar{\estr{x_1}}{t_1}
-					      \ldots
-					      \eovar{\estr{x_n}}{τ_n}
-				      }
-			      ]
-		      $
-		      encodes $\vec v$ as a list of $\eo{var}$ terms,
-		      and $t_{\text{body}} ≔ \elab{Δ, \vec ρ}[t']$
-		      where $t'$ is the result of replacing each
-		      symbol $x_i$ in $t$ with its $\eo{var}$ encoding.
+		      where $t_\vars$ encodes
+		      $\vec v = \epar{x_1\ t_1}\ldots\epar{x_n\ t_n}$
+		      as a $t_\cons$-list of $\eo{var}$ terms,
+		      and $t_\body$ is the result of substituting each
+		      $x_i$ in $t$ for its $\eo{var}$ counterpart:
 		      %
-		\item For any symbol $s$ and list of terms $\vec t$:
 		      $$
-			      \begin{array}[t]{l}
-				      \elab{Δ,\vec ρ}[\eapp{s}{\vec t}]\ {=}\
-				      \\[2mm]
-				      \quad
-				      \begin{cases}
-					      \foldr(G, t_\nil, \vec t')
-					       & \tsm{if $Δ ⊢ s ∷ \rcn{t_\nil}$, }
-					      \\
-					      \foldl(G', t_\nil, \vec t')
-					       & \tsm{if $Δ ⊢ s ∷ \lcn{t_\nil}$,}
-					      \\
-					      \foldr(G, t'_n, t'_1\ldots t'_{n-1})
-					       &
-					      \tsm{if $Δ ⊢ s ∷ \rc$,}
-					      \\
-					      \foldl(G', t'_1, t'_2\ldots t'_{n})
-					       &
-					      \tsm{if $Δ ⊢ s ∷ \lc$,}
-					      \\
-					      \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{chain}(s, \vec t')}]
-					       &
-					      \tsm{if $Δ ⊢ s ∷ \ch {t_\cons}$,}
-					      \\
-					      \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{pairs}(s, \vec t')}]
-					       &
-					      \tsm{if $Δ ⊢ s ∷ \pw {t_\cons}$,}
-					      \\
-					      \eapp{s}{{t_1'}\ldots{t_n'}}
-					       &
-					      \tsm{otherwise.}
-				      \end{cases}
-				      \\[3mm]
+			      \begin{array}{l@{\ {≔}\ }l}
+				      t_\vars &
+				      \elab{Δ, \vec ρ}[\eapp{t_\cons}{\plur X n}]
+				      \\
+				      t_\body &
+				      \elab{Δ, \vec ρ}
+				      [\,
+				      \mbf{subst}_{\prn{\vec x, \vec X}}[t]
+				      \,]
 			      \end{array}
+			      \qquad
+			      {\small\text{where}\
+				      X_i ≔ \epar{\eo{var}\ \estr{x_i}\ t_i}}
 		      $$
-		      where\footnote{%
-			      $\foldl(G, a, l)$ (resp.\ $\foldr(G, a, l)$) is
-			      the standard left fold (resp.\ right fold) using
-			      combining function $G$ and accumulator $a$ on list $l$.
-		      } $G ≔ \glue{\vec ρ, f}[x,y]$,
-		      $G'(x,y) ≔ G(y,x)$,
-		      and $t_i' ≔ \elab{Δ, \vec ρ}[t_i]$, and:
 
-		      $$
-			      \begin{array}[t]{r@{\ ≔\ }l}
-				      % \glue{\vec ρ,f}[t_1,t_2] &
-				      % \begin{cases}
-				      %  \econcat{f}{t_1}{t_2} & \text{if $\vec ρ ⊢ t_1 ∷ \mtt{:list}$,}
-				      %  \\
-				      %  \econs{f}{t_1}{t_2}   & \text{otherwise.}
-				      % \end{cases}
-				      \mbf{chain}(f,\, t_1\ldots t_n)
-				       & \eapp{f}{t_1\ t_2}\,
-				      \eapp{f}{t_2\ t_3}
-				      \,\ldots\,
-				      \eapp{f}{t_{n-1}\ t_n}
-				      \\[1mm]
-				      \mbf{pairs}(f,\, t_1\ldots t_n)
-				       & \eapp{f}{t_1\ t_2}
-				      \,\ldots\,
-				      \eapp{f}{t_1\ t_n}\,
-				      \eapp{f}{t_2\ t_3}
-				      \,\ldots\,
-				      \eapp{f}{t_{n-1}\ t_n}
-			      \end{array}
-		      $$
+		      %
+		\item For any application $\eapp s {\vec t}$,
+		      let $t_i' ≔ \elab{Δ, \vec ρ}[t_i]$ in:
+		      \begin{enumerate}
+			      \item If $s$ is a built-in or $s ∈ Δ.\msf{prog}$, then
+			            $\elab{Δ, \vec ρ}[\eapp{s}{\vec t}] =
+				            \eapp{s}{\vec t'}$.
+			      \item If $s ∈ \vec ρ$, then
+			            $\elab{Δ, \vec ρ}[\eapp{s}{\vec t}] =
+				            \eapp{\mtt{\_}}{\ldots
+				            \eapp{\mtt{\_}}{s\ {t_1'}}\ \ldots\ {t_n'}
+				            }
+			            $.
+
+			      \item If $Δ ⊢ s ∷ α$ for some associative
+			            attribute $α$, then:
+			            $$
+				            \elab{Δ,\vec ρ}[\eapp{s}{\vec t}]\ {=}\
+				            \begin{scases}
+					            \foldr(G, t_\nil, \vec t')
+					            & \tsm{$\prn{α = \rcn{t_\nil}}$}
+					            \\
+					            \foldl(G, t_\nil, \vec t')
+					            & \tsm{$\prn{α = \lcn{t_\nil}}$}
+					            \\
+					            \foldr(G, t'_n, t'_1\ldots t'_{n-1})
+					            & \tsm{$\prn{α = \rc}$}
+					            \\
+					            \foldl(G, t'_1, t'_2\ldots t'_{n})
+					            & \tsm{$\prn{α = \lc}$}
+					            % \\
+					            % \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{chain}(s, \vec t')}]
+					            %  &
+					            % \tsm{if $Δ ⊢ s ∷ \ch {t_\cons}$,}
+					            % \\
+					            % \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{pairs}(s, \vec t')}]
+					            %  &
+					            % \tsm{if $Δ ⊢ s ∷ \pw {t_\cons}$,}
+					            % \\
+					            % \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\vec t'}]
+					            %  &
+					            % \tsm{if $Δ ⊢ s ∷ \al {t_\cons}$,}
+					            % \\[1mm]
+					            %
+					            %  &
+					            % \tsm{otherwise.}
+				            \end{scases}
+			            $$
+			            where\footnote{%
+				            $\foldl(G, a, l)$ and $\foldr(G, a, l)$ are the
+				            standard left and right folds using combining
+				            function $G$ and accumulator $a$ on list $l$.
+			            }%
+			            $G(x,y) ≔ \glue{\vec ρ, s}[x,y]$ is defined as
+			            follows:
+			            $$
+				            \begin{array}[t]{r@{\ ≔\ }l}
+					            \glue{\vec ρ, s}[x,y]
+					             &
+					            \begin{scases}
+						            \econcat{s}{x}{y} & \tsm{$\prn{\vec ρ ⊢ x ∷ \attr{list}}$}
+						            \\
+						            \eapp{\mtt{\_}}{\eapp{\mtt{\_}}{s\ x}\ y}
+						            & \tsm{otherwise.}
+					            \end{scases}
+				            \end{array}
+			            $$
+
+			      \item If $Δ ⊢ s ∷ α$ for some non-associative
+			            attribute $α$, then:
+			            $$
+				            \elab{Δ,\vec ρ}[\eapp{s}{\vec t}]\ {=}\
+				            \elab{Δ,\vec ρ}[T]
+			            $$
+			            where $T$ is defined using
+			            $\mbf{chain}$ and $\mbf{pairs}$
+			            thus:
+			            $$
+				            T ≔
+				            \begin{scases}
+					            \eapp{t_\cons}{\mbf{chain}(s, \vec t)}
+					            &
+					            \tsm{$\prn{α = \ch {t_\cons}}$}
+					            \\
+					            \eapp{t_\cons}{\mbf{pairs}(s, \vec t)}
+					            &
+					            \tsm{$\prn{α = \pw {t_\cons}}$}
+					            \\
+					            \eapp{t_\cons}{\vec t}
+					            &
+					            \tsm{$\prn{α = \al {t_\cons}}$}
+				            \end{scases}
+			            $$
+			            $$
+				            \begin{array}[t]{r@{\ {≔}\ }l}
+					            \mbf{chain}(s,\, t_1\ldots t_n)
+					             & \eapp{s}{t_1\ t_2}\,
+					            \eapp{s}{t_2\ t_3}
+					            \,\ldots\,
+					            \eapp{s}{t_{n-1}\ t_n}
+					            \\[1mm]
+					            \mbf{pairs}(s,\, t_1\ldots t_n)
+					             & \eapp{s}{t_1\ t_2}
+					            \,\ldots\,
+					            \eapp{s}{t_1\ t_n}\,
+					            \eapp{s}{t_2\ t_3}
+					            \,\ldots\,
+					            \eapp{s}{t_{n-1}\ t_n}
+				            \end{array}
+			            $$
+
+		      \end{enumerate}
+
+		      %
+
 	\end{enumerate}
 
 	%

@@ -48,7 +48,7 @@ $\prn{t ↪ t'}$, where $t$ has the form
 $\prn{\app{\prn{\app{κ}{t_1}} ⋅ \ldots}{t_n}}$.
 %
 A \emph{signature} is a list of typings and rewrite
-rules, where each typing has the form $\prn{κ : t}$ for
+rules, where each typing has the form $\prn{κ : t}$
 where $t$ has no free variables.
 %
 For any signature $Σ$, let $R_{Σ}$ be the smallest
@@ -63,7 +63,7 @@ binary relation such that:
 %, abstraction and substitution.  $R$
 Then, \emph{equality modulo rewriting} $\prn{{≡_{βΣ}}}$ is
 defined as the least equivalence relation containing
-$R_Σ$ and the $β$-reduction relation.
+$R_{Σ}$ and the $β$-reduction relation.
 %
 The rules in \autoref{fig:lpTermSyntax}
 provide a (mutually inductive) definition of a
@@ -220,58 +220,65 @@ and $\bar s ≔ s$ otherwise.
 \begin{definition}\label{def:tm-ty}
 	%
 	Let $\tm{⋅}$ be the least operator such that:
+
+	\begin{enumerate}
+		\item For any symbol $s$ or literal $ℓ$, the following hold:
+		      $$\tm{s} =
+			      \begin{scases}
+				      \eo{Type}   & \text{if $s = \eotype$,} \\
+				      \bar s & \text{otherwise.}
+			      \end{scases}
+			      %
+			      \quad
+			      %
+			      \tm{ℓ} =
+			      \begin{scases}
+				      \ev{of\_Z} ⋅ \tm{n}
+				      &
+				      \text{if $ℓ = \msf{int}(n)$,}
+				      \\
+				      \ev{of\_Q} ⋅ \tm{x} ⋅ \tm{y}
+				      &
+				      \text{if $ℓ = \msf{rat}(x,y)$}
+				      \\
+				      \bar ℓ & \text{if $ℓ ∈ \msf{String}$.}
+			      \end{scases}
+		      $$
+		\item For binary and $n$-ary applications,
+		      the following hold:
+		      $$
+			      \begin{array}[t]{l@{\ {=}\ }l}
+				      \tm{\eapp{\mtt{\_}}{t_1\ t_2}}
+				       & \eo{app}\appSym\tm{t_1}\appSym\tm{t_2}
+				      \\[2mm]
+				      \tm{\eapp{s}{\vec t}}
+				       &
+				      \begin{scases}
+					      \tm{t_1} ⤳ \ldots ⤳ \tm{t_n}
+					      &
+					      \text{if $s = \mtt{->}$,}
+					      \\
+					      \bar s ⋅ \tm{t_1} ⋅ \ldots ⋅ \tm{t_n}
+					      &
+					      \text{otherwise.}
+				      \end{scases}
+			      \end{array}
+		      $$
+		\item The only normal-form binder application is $\eo{define}$,
+		      so:
+		      $$\tm{\eapp{\eo{define}}{
+					      \epar{\vec v}
+					      \ t'
+				      }
+			      }
+			      = \prn{
+				      \msf{let}\ \vec {w}
+				      \ \msf{in}\ \tm{t'}
+			      }$$
+		      where $w_i = \prn{{\bar x}_i ≔ \tm{t_i}}$
+		      for each $v_i = \epar{x_i\ t_i}$.
+	\end{enumerate}
 	%
-	$$
-		\tm{s} =
-		\begin{cases}
-			\Set   & \text{if $s = \eotype$,} \\
-			\bar s & \text{otherwise.}
-		\end{cases}
-		\quad
-		\tm{ℓ} =
-		\begin{cases}
-			\msf{ofZ}\,\tm{n}
-			       &
-			\text{if $ℓ ∈ ℕ$,}
-			\\
-			\msf{of\_Q}\,\tm{n}\,\tm{d}
-			       &
-			\text{if $ℓ ∈ ℚ$,}
-			\\
-			\bar ℓ & \text{if $ℓ ∈ \msf{String}$.}
-		\end{cases}
-	$$
-	$$
-		\tm{\eapp{s}{\vec t}}
-		=
-		\begin{cases}
-			\msf{APP}\appSym\tm{t_1}\appSym\tm{t_2}
-			 &
-			\text{if $s = \mtt{\_}$,}
-			\\
-			\tm{t_1} ⤳ \ldots ⤳ \tm{t_n}
-			 &
-			\text{if $s = \mtt{->}$,}
-			\\
-			\appldots{\bar s}{\tm{t_1}}{\tm{t_n}}
-			 &
-			\text{otherwise.}
-		\end{cases}
-	$$
-	$$
-		\tm{\eapp{\eo{define}}{
-				\epar{\vec v}
-				\ t'
-			}
-		}
-		=
-		\prn{
-			\msf{let}\ \vec {w}
-			\ \msf{in}\ \tm{t'}
-		}
-	$$
-	where $w_i = \prn{{\bar x}_i ≔ \tm{t_i}}$
-	for each $v_i = \epar{x_i\ t_i}$.
 \end{definition}
 
 \begin{definition}\label{def:ctx}
@@ -283,19 +290,18 @@ and $\bar s ≔ s$ otherwise.
 		ρ_1^★\, \ldots\, ρ_n^★
 		\quad\text{where}\quad
 		ρ_i^★ =
-		\begin{cases}
+		\begin{scases}
 			\imp{\bar x_i : \El{\tm{t_i}}}
-			 & \text{if $ν_i = \attr{implicit}$,} \\
+			& \text{if $ν_i = \attr{implicit}$,} \\
 			\xpl{\bar x_i : \El{\tm{t_i}}}
-			 & \text{otherwise.}
-		\end{cases}
+			& \text{otherwise.}
+		\end{scases}
 	$$
 	%
 	Additionally, for any $\lambdapi$ term $t$ and parameter
-	list $\vec ρ$, define $\mbf{impl}(\vec ρ, t)$ as the sublist
-	of $\ctx{\vec ρ}$ consisting of those parameters
-	$x_i$ that occur free in $t$, each marked
-	as implicit.
+	list $\vec ρ$, define $\mbf{impl}(\vec ρ, t)$ as
+	the sublist of $\ctx{\vec ρ}$ containing each
+	$x_i ∈ \vec ρ$ occuring free in $t$, each marked as implicit.
 \end{definition}
 
 %
@@ -306,7 +312,7 @@ commands thus:
 	Let $δ$ be an Eunoia command. Then $\cmd{δ}$
 	is the list of $\lambdapi$ commands such that:
 	%
-	\begin{enumerate}
+	\begin{enumerate}\itemsep6pt
 		\item If $δ ∈ Δ.\msf{const}$, then
 		      $δ ⊢ s(\vec ρ) : t$ for some $t$, and
 		      possibly $δ ⊢ s ⋈ α$ for some attribute $α$.
@@ -375,69 +381,43 @@ commands thus:
 		      in $T_s$ are bound as implicits (via $\mbf{impl}$).
 
 
-		\item Let $δ$ be a rule declaration with
-		      $δ ⊢ s(\vec ρ) : τ^★$,
-		      where $τ^★$ is the type derived from the
-		      premises and conclusion of $δ$.
-		      %
-		      Let
-		      $T ≔ P\,\tm{ψ_1}
-			      → \ldots → P\,\tm{ψ_m}
-			      → P\,\tm{φ^★}$.
-
-		      If $δ$ provides no $\attr{args}$, then:
-		      %
-		      $$\cmd{δ}\ ≔\ \mtt{symbol}\ \bar s\
-			      \mbf{impl}(\vec ρ, T)\ \vec ρ_{\text{xpl}} : T$$
-		      %
-		      where $\vec ρ_{\text{xpl}}$ are the explicit
-		      argument parameters.
-
-		      Otherwise, $δ$ provides
+		\item If $δ ∈ Δ.\msf{rule}$ has
 		      $\attr{args}\ \epar{\plur t n}$
-		      where each $t_i$ has type
-		      $\eoquote{τ_i}$ in $\prn{Δ, \vec ρ}$.
+		      with types $\plur τ n$, then:
+		      $$δ ⊢ s(\vec ρ) :
+			      \earr{
+				      \eoquote{t_1}\,\ldots\,\eoquote{t_n}
+				      \ τ^★}
+		      $$
+		      where $τ^★$ encodes the premises and conclusion
+		      of the rule, as per \autoref{sec:eo-sig}.
 		      %
-		      Because $\eo{quote}$ types have no
-		      $\lambdapi$ counterpart, they are eliminated
-		      via an auxiliary symbol $\bar s^★$ whose
-		      rewrite rule computes $T$ by pattern matching
-		      on the supplied arguments:
+		      The $\eo{quote}$ types are eliminated by declaring
+		      an auxiliary symbol $s^★$ that rewrites to
+		      $\tm{τ^★}$ when applied to terms matching
+		      the patterns given by $\tm{t_1}\ldots\tm{t_n}$:
+		      $$
+			      \begin{array}[t]{l}
+				      \mtt{sequential}\ \mtt{symbol}\ \bar{s}^★\
+				      \vec σ : \tm{τ_1} → \ldots → \tm{τ_n} → \TYPE \mtt{;}
+				      \\
+				      \mtt{rule}\
+				      \bar s^★\,\tm{t_1}\,\ldots\,\tm{t_n}
+				      ↪ \tm{τ^★}
+			      \end{array}
+		      $$
 		      %
-		      \begin{align*}
-			      \cmd{δ}\ {≔}\
-			       &
-			      \mtt{sequential}\ \mtt{symbol}\ \bar s^★\
-			      \mbf{impl}(\vec ρ, T^★) :
-			      T^★\mtt{;}
-			      \\
-			       &
-			      \mtt{rule}\
-			      \bar s^★\,\tm{t_1}\,\ldots\,\tm{t_n}
-			      ↪ T\mtt{;}
-			      \\[2mm]
-			       &
+		      Finally, $s$ is declared as follows:
+		      $$
 			      \mtt{constant}\ \mtt{symbol}\ \bar s\
-			      \mbf{impl}(\vec ρ, T')\ \vec ρ_{\text{xpl}} : T'
-		      \end{align*}
-		      %
-		      where
-		      $T^★ ≔ \El{\tm{τ_1}} → \ldots → \El{\tm{τ_n}} → \TYPE$
-		      and
-		      $T' ≔ \bar s^★\,\bar x_1\,\ldots\,\bar x_n$
-		      with $\vec ρ_{\text{xpl}} =
-			      \xpl{\bar x_1 : \El{\tm{τ_1}}} \ldots
-			      \xpl{\bar x_n : \El{\tm{τ_n}}}$.
-		      %
-		      The return type of $\bar s$ reduces to $T$
-		      only when the arguments match the patterns
-		      $\tm{t_1}, \ldots, \tm{t_n}$.
-
-		      % \item Let $δ$ be an include with module $μ$.
-		      %       Then $\cmd{δ}\ ≔\ \mtt{require}\ \mtt{open}\ μ$.
+			      (α_1 : \tm{τ_1})
+			      \ldots
+			      (α_n : \tm{τ_n})\, :
+			      \prn{\app{\app{{\app{\bar s^★}{α_1}}}{\ldots}}{α_n}}
+		      $$
 	\end{enumerate}
 \end{definition}
-
+%
 We now define $\cmd{⋅}$ on proof commands.
 
 \begin{definition}[Proof command translation]\label{def:cmd-prf}
@@ -445,7 +425,7 @@ We now define $\cmd{⋅}$ on proof commands.
 	Let $π$ be a proof command. We define $\cmd{π}$
 	by cases on the form of~$π$.
 	%
-	\begin{enumerate}
+	\begin{enumerate}\itemsep6pt
 		\item Let $π$ be an assumption
 		      ($\kw{assume}$ or $\kw{assume-push}$)
 		      with $π ⊢ s : \eapp{\mtt{Proof}}{φ}$:
@@ -453,8 +433,6 @@ We now define $\cmd{⋅}$ on proof commands.
 		      $$\cmd{π}\ ≔\ \mtt{symbol}\ \bar s :
 			      P\,\tm{φ}$$
 		      %
-		      The assumption is declared as an axiom (a symbol
-		      with no definition).
 		      For $\kw{assume-push}$, the formula $φ$ is
 		      additionally pushed onto an assumption stack.
 
@@ -472,14 +450,13 @@ We now define $\cmd{⋅}$ on proof commands.
 			                   & \mtt{assert}\ ⊢\ \bar s : P\,\tm{φ}
 		      \end{align*}
 		      %
-		      The step is encoded as a definition whose body
-		      applies rule $\bar r$ to its arguments then
-		      premises, matching the parameter order from
-		      the rule declaration.
-		      The type $P\,\tm{φ}$ is not given in the
-		      definition, but checked separately via
-		      $\mtt{assert}$, which invokes $\lambdapi$'s
+		      The body applies rule $\bar r$ to its
+		      arguments then premises.
+		      %
+		      The type is checked separately via
+		      $\mtt{assert}$, which uses $\lambdapi$'s
 		      type inference to fill implicit arguments.
+		      %
 		      For $\kw{step-pop}$, the most recently pushed
 		      assumption is popped and prepended to the
 		      arguments.
