@@ -145,33 +145,4 @@ The remaining failures
 isolated, with at most 2~per fragment.
 
 
-\subsubsection{Comparison with Related Work.}
-%
-Coltellacci et
-al.~\cite{coltellacciReconstructionSMTProofs2024a}
-translate Alethe proofs into $\lambdapi$ by
-extending the Carcara proof checker with a
-$\lambdapi$ back-end.
-%
-In their approach, each Alethe inference rule
-corresponds to a fixed lemma in $\lambdapi$,
-and proofs are reconstructed by composing these
-lemmas.
-%
-By contrast, our translation targets Eunoia, which
-is a \emph{logical framework}: the inference rules
-themselves are defined within the language, not
-hard-coded in the translator.
-%
-Consequently, \texttt{eo2lp} translates both the
-proof system (CPC-MINI) and individual proof scripts,
-and any extension of the rule set in CPC requires
-no modification of the tool.
-%
-Furthermore, the side-condition programs of CPC are
-encoded as $\lambdapi$ rewrite rules, so that the
-computational content of rule applications is
-verified by $\lambdapi$'s rewriting engine
-rather than trusted.
-
 \end{document}

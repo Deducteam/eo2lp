@@ -417,23 +417,23 @@ We now define $\cmd{⋅}$ on proof commands.
 
 \begin{definition}[Proof command translation]\label{def:cmd-prf}
 	%
-	Let $π$ be a proof command. We define $\cmd{π}$
-	by cases on the form of~$π$.
+	Let $π$ be a proof command. Then $\cmd{π}$
+	is the list of $\lambdapi$ commands such that:
 	%
 	\begin{enumerate}\itemsep6pt
-		\item Let $π$ be an assumption
-		      ($\kw{assume}$ or $\kw{assume-push}$)
-		      with $π ⊢ s : \eapp{\mtt{Proof}}{φ}$:
+		\item If $π$ is an assumption
+		      ($\kw{assume}$ or $\kw{assume-push}$),
+		      then $π ⊢ s : \eapp{\mtt{Proof}}{φ}$ and:
 		      %
 		      $$\cmd{π}\ ≔\ \mtt{symbol}\ \bar s :
-			      P\,\tm{φ}$$
+			      \eo{Proof}\,⋅\,\tm{φ}\mtt{;}$$
 		      %
 		      For $\kw{assume-push}$, the formula $φ$ is
 		      additionally pushed onto an assumption stack.
 
-		\item Let $π$ be a step
-		      ($\kw{step}$ or $\kw{step-pop}$)
-		      with $π ⊢ s : \eapp{\mtt{Proof}}{φ}$
+		\item If $π$ is a step
+		      ($\kw{step}$ or $\kw{step-pop}$),
+		      then $π ⊢ s : \eapp{\mtt{Proof}}{φ}$
 		      and $π ⊢ s ≔ \eapp{r}{\plur t m\ \plur p n}$:
 		      %
 		      \begin{align*}
@@ -442,7 +442,8 @@ We now define $\cmd{⋅}$ on proof commands.
 			      ≔ \appldots{\bar r}{\tm{t_1}}
 			      {\tm{t_m}\ \bar p_1\ \ldots\ \bar p_n}\mtt{;}
 			      \\
-			                   & \mtt{assert}\ ⊢\ \bar s : P\,\tm{φ}
+			                   & \mtt{assert}\ ⊢\ \bar s :
+			      \eo{Proof}\,⋅\,\tm{φ}\mtt{;}
 		      \end{align*}
 		      %
 		      The body applies rule $\bar r$ to its

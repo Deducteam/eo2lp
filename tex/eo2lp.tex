@@ -23,7 +23,7 @@
 	\noindent
 	Eunoia is an emerging logical framework designed for
 	specifying the proofs and proof systems of SMT solvers,
-	namely \texttt{cvc5}.
+	namely \cvc{5}.
 	%
 	We present a translation from Eunoia to the
 	\emph{$λΠ$-calculus modulo rewriting} as implemented
@@ -32,106 +32,12 @@
 	The translation is implemented by our tool \texttt{eo2lp},
 	which we use for generating $\lambdapi$ encodings of
 	%
-	(a)~a large fragment of \texttt{cvc5}'s
+	(a)~a large fragment of \cvc{5}'s
 	\textit{Cooperating Proof Calculus} (CPC), and
 	%
-	(b)~proofs produced by \texttt{cvc5} on \texttt{unsat}
+	(b)~proofs produced by \cvc{5} on \texttt{unsat}
 	problems from various fragments of SMT-LIB.
 \end{abstract}
-%
-The area of automated reasoning known as
-\emph{satisfiability modulo theories} (SMT)
-focuses on the development of tools for
-checking the satisfiability of first-order
-formulas over combinations of mathematical
-theories~\cite{Barrett2021}.
-%
-% Whilst many  accomplish this task
-% with similar strategies, the approach employed by
-% a solver can vary, meaning that different solvers
-% will excel in different theories.
-%
-Such tools (known as SMT \emph{solvers}) are
-increasingly used as back-ends for various tasks:
-hardware~\cite{DBLP:conf/fmcad/MattareiMBDHH18} and
-software verification~\cite{barnett06boogie,riant23debugging,kosmatov16frama-c},
-%
-model checking \cite{DBLP:conf/cav/ChampionMST16},
-cyber-security \cite{Backes2018},
-and to improve automation in proof
-assistants~\cite{DBLP:conf/cpp/ArmandFGKTW11,DBLP:journals/jar/BlanchetteBP13}.
-%
-Because these applications demand a high level
-of confidence in the results produced by the solver,
-many solvers are capable of generating
-\emph{proof certificates}
-that demonstrate the absurdity of specifications
-deemed unsatisfiable by the solver.
-%
-
-
-Towards the aim of standardizing and benchmarking solvers,
-the \emph{SMT library initiative} oversee the development of
-the \emph{SMT-LIB standard} \cite{Barrett2015-standard},
-which specifies the syntax and semantics of a
-common language used for interacting with solvers.
-%%
-Proof generation is however not covered by the standard,
-which has led to the development of various proof formats,
-namely LFSC, Alethe, and recently Eunoia.
-%
-Eunoia is a proof output language and a logical framework:
-it allows formalizing the constants, side-condition programs
-and inference rules used by
-% the proof generation facilities of
-an SMT solver.
-%
-In particular, the proof system of $\texttt{cvc5}$ is
-formalized as a Eunoia signature,
-allowing its proofs to be checked by the C++ tool
-Ethos~\cite{EthosUser_manualmdMain}.
-%
-%
-
-% The LFSC format encodes inference rules in the
-% Edinburgh Logical Framework (LF) extended with
-% side-conditions,
-% thereby reducing proof-checking to type-checking.
-% % (i.e., executable programs that
-% % may restrict applications of some inference rules),
-% %
-% In contrast, Alethe draws from a fixed set of
-% inference rules that are designed to reflect
-% the reasoning mechanisms of SMT solvers,
-% %
-% and proofs are checked by the standalone tool
-% Carcara~\cite{andreottiCarcaraEfficientProof2023}.
-% %
-
-% Eunoia shares aspects with the speculative proposal
-% for SMT-LIB 3~\cite{smt3-proposal}:
-% it uses e.g.\ dependent types and binders.
-% %
-The $\lambda\Pi$-calculus modulo rewriting~\cite{CousineauDowek}
-and its implementations in the tools Dedukti~\cite{assaf2023dedukti}
-and LambdaPi~\cite{hondet:hal-02981561} are designed to
-offer a trustworthy proof checker with an emphasis on
-interoperability of proof systems.
-%
-This paper presents a translation from Eunoia to LambdaPi
-and an OCaml tool $\texttt{eo2lp}$ that implements the
-translation.
-%
-We used our tool to translate a large portion of
-$\texttt{cvc5}$'s proof system to LambdaPi,
-allowing us to further translate and typecheck
-thousands of proof scripts produced by running $\texttt{cvc5}$
-on $\texttt{unsat}$ problems from the SMT-LIB fragments for logic,
-linear integer arithmetic, arrays, and sets.
-
-
-%
-
 % Coltellacci~\cite{coltellacciReconstructionSMTProofs2024a} developed a
 % translation of Alethe proofs into LambdaPi, by adding a new back-end
 % in the Carcara tool. Roughly, to each inference rule of the Alethe
