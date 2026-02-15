@@ -93,8 +93,6 @@ module Builtin = struct
   let eo_list_concat = "eo::List::concat"
   let eo_list_concat_old = "eo::list_concat"
   let eo_nil            = "eo::nil"
-  let eo_nil_assumption = "eo::nil_assumption"
-  let eo_premise_list   = "eo::premise_list"
   let eo_int  = "eo::Int"
   let eo_real = "eo::Real"
 end
@@ -207,11 +205,6 @@ type sig_graph = sig_node PathMap.t
 
 let path_str : path -> string = String.concat "."
 
-(* Core prelude - symbols available in all modules *)
-let core_prelude : signature ref = ref []
-
-let set_core_prelude sig_ = core_prelude := sig_
-
 (* Get full signature at a path by collecting transitive includes *)
 let full_sig_at graph path =
   let visited = Hashtbl.create 16 in
@@ -229,7 +222,7 @@ let full_sig_at graph path =
         List.fold_left (fun acc sym -> sym :: acc) acc node.node_sig
     end
   in
-  !core_prelude @ List.rev (collect_rev path [])
+  List.rev (collect_rev path [])
 
 (* Topological sort of modules in the graph *)
 let topo_sort_graph (graph : sig_graph) : path list =
@@ -254,20 +247,6 @@ let topo_sort_graph (graph : sig_graph) : path list =
   in
   PathMap.iter (fun path _ -> visit path) graph;
   List.rev !result
-
-(* ============================================================
-   Job files for proof processing
-   ============================================================ *)
-
-type proof_source =
-  | ProofDir of string
-  | ProofFiles of string list
-
-type job = {
-  job_name   : string;
-  job_logic  : string;
-  job_proofs : proof_source;
-}
 
 (* ============================================================
    Symbol dependency analysis for minimal CPC generation

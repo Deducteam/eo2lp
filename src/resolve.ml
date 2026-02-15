@@ -115,14 +115,6 @@ let infer_type ctx term =
   | Some (_, ty) -> Some ty
   | None -> None
 
-(* Check if a term type-checks against an expected type.
-   Returns true if check succeeds and unification solves. *)
-let check_types ctx term expected_ty =
-  let prob = Term.new_problem () in
-  match Core.Infer.check_noexn prob ctx term expected_ty with
-  | Some _ -> Core.Unif.solve_noexn prob
-  | None -> false
-
 (* Coerce a term of type τ int to τ T by wrapping with of_Z T.
    This is needed because Eunoia builtins like eo::len return raw integers
    (τ int = ℤ), but their results may be used where the declared numeral

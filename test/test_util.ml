@@ -6,7 +6,6 @@ let fail_count = ref 0
 let green s = "\027[32m" ^ s ^ "\027[0m"
 let red s = "\027[31m" ^ s ^ "\027[0m"
 let bold s = "\027[1m" ^ s ^ "\027[0m"
-let _dim s = "\027[2m" ^ s ^ "\027[0m"
 
 let check_eq pp name ~input ~expected ~actual =
   if expected = actual then begin

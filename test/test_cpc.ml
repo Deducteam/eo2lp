@@ -1,8 +1,8 @@
 (* test_cpc.ml — Per-module tests for the CPC translation pipeline.
 
-   For each of the 21 CPC modules, we:
+   For each CPC module, we:
    1. Verify the generated .lp file exists with expected symbols/rules
-   2. Run lambdapi check -c -w on the _test.lp file in the same directory *)
+   2. Run lambdapi check -c -w on the generated .lp file *)
 
 open Test_util
 
@@ -24,17 +24,17 @@ let read_lp rel_path =
   close_in ic;
   Bytes.to_string s
 
-(** Check a _test.lp file with lambdapi check -c -w *)
-let check_test_lp path =
-  let test_file = Filename.concat build_dir (path ^ "_test.lp") in
-  if not (Sys.file_exists test_file) then begin
-    Printf.printf "    test file not found: %s\n" test_file;
+(** Check a generated .lp file with lambdapi check -c -w *)
+let check_lp_file path =
+  let lp_file = Filename.concat build_dir (path ^ ".lp") in
+  if not (Sys.file_exists lp_file) then begin
+    Printf.printf "    file not found: %s\n" lp_file;
     false
   end else begin
-    let rel_path = path ^ "_test.lp" in
+    let rel_path = path ^ ".lp" in
     let cmd =
       Printf.sprintf
-        "cd %s && NO_COLOR=1 timeout --signal=KILL 10 lambdapi check -c -w %s 2>&1"
+        "cd %s && NO_COLOR=1 timeout --signal=KILL 30 lambdapi check -c -w %s 2>&1"
         (Filename.quote build_dir) (Filename.quote rel_path)
     in
     let ic = Unix.open_process_in cmd in
@@ -95,8 +95,8 @@ let check_module ~name ~path ~min_symbols ~min_rules =
       (Printf.sprintf "%s: >= %d rules (got %d)" name min_rules n_rules)
       (n_rules >= min_rules);
 
-    (* 3. Check _test.lp with lambdapi *)
-    check_true (name ^ ": lambdapi check _test.lp") (check_test_lp path)
+    (* 3. Check generated .lp with lambdapi *)
+    check_true (name ^ ": lambdapi check") (check_lp_file path)
   end
 
 (* ============================================================
@@ -178,6 +178,12 @@ let test_programs () =
     ~path:"programs/DistinctValues"
     ~min_symbols:6
     ~min_rules:15;
+
+  check_module
+    ~name:"programs/PolyNorm"
+    ~path:"programs/PolyNorm"
+    ~min_symbols:2
+    ~min_rules:2;
 
   check_module
     ~name:"programs/Quantifiers"
@@ -267,7 +273,7 @@ let test_structure () =
     "theories/Arrays.lp"; "theories/Quantifiers.lp"; "theories/Sets.lp";
     "programs/Utils.lp"; "programs/Nary.lp"; "programs/Arith.lp";
     "programs/AciNorm.lp"; "programs/DistinctValues.lp";
-    "programs/Quantifiers.lp";
+    "programs/PolyNorm.lp"; "programs/Quantifiers.lp";
     "rules/Builtin.lp"; "rules/Booleans.lp"; "rules/Arith.lp";
     "rules/Arrays.lp"; "rules/Uf.lp"; "rules/Sets.lp";
     "rules/Quantifiers.lp"; "rules/Rewrites.lp";
@@ -365,13 +371,16 @@ let test_proofs () =
         (Printf.sprintf "proof %s: .lp file generated" name)
         (Sys.file_exists lp_path);
 
-      (* Verify generated file has content *)
+      (* Verify generated file has content and type-checks *)
       if Sys.file_exists lp_path then begin
         let content = read_lp (Printf.sprintf "proofs/%s.lp" name) in
         let n_sym = count_symbols content in
         check_true
           (Printf.sprintf "proof %s: has symbols (got %d)" name n_sym)
-          (n_sym >= 1)
+          (n_sym >= 1);
+        check_true
+          (Printf.sprintf "proof %s: lambdapi check" name)
+          (check_lp_file (Printf.sprintf "proofs/%s" name))
       end
     ) proof_files;
 

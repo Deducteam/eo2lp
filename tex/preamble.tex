@@ -6,8 +6,8 @@
 \usepackage{xcolor-material}
 % Show text area frame — comment out these 3 lines for submission
 \usepackage{showframe}
-\renewcommand\ShowFrameLinethickness{0.2pt}
-\renewcommand*\ShowFrameColor{\color{MaterialGrey300}}
+% \renewcommand\ShowFrameLinethickness{0.2pt}
+% \renewcommand*\ShowFrameColor{\color{MaterialGrey300}}
 \usepackage{hyperref}
 \usepackage{ebproof}
 \usepackage{array}
@@ -16,8 +16,8 @@
 \usepackage{jbw-fix-hyperref-autoref}
 
 \usepackage{listings}
-\usepackage[most]{tcolorbox}
-\tcbuselibrary{listings}
+% \usepackage[most]{tcolorbox}
+% \tcbuselibrary{listings}
 
 % Eunoia syntax colours (xcolor-material palette)
 % Zedokai Light palette (Monokai Pro adapted for light backgrounds)
@@ -72,30 +72,30 @@ belowskip=0.5\medskipamount,
 }
 
 % tcolorbox style for Eunoia code blocks (rounded corners)
-\newtcblisting{eolisting}{
-	listing only,
-	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
-	colback=MaterialGrey50,
-	colframe=MaterialGrey300,
-	arc=3pt,
-	boxrule=0.4pt,
-	left=2pt, right=2pt, top=0pt, bottom=0pt,
-	before skip=\medskipamount,
-	after skip=\medskipamount,
-}
+% \newtcblisting{eolisting}{
+% 	listing only,
+% 	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
+% 	colback=MaterialGrey50,
+% 	colframe=MaterialGrey300,
+% 	arc=3pt,
+% 	boxrule=0.4pt,
+% 	left=2pt, right=2pt, top=0pt, bottom=0pt,
+% 	before skip=\medskipamount,
+% 	after skip=\medskipamount,
+% }
 % Input listing from file (immune to editor reformatting)
-\newtcbinputlisting{\eofile}[1]{
-	listing only,
-	listing file={#1},
-	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
-	colback=MaterialGrey50,
-	colframe=MaterialGrey300,
-	arc=3pt,
-	boxrule=0.4pt,
-	left=2pt, right=2pt, top=0pt, bottom=0pt,
-	before skip=\medskipamount,
-	after skip=\medskipamount,
-}
+% \newtcbinputlisting{\eofile}[1]{
+% 	listing only,
+% 	listing file={#1},
+% 	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
+% 	colback=MaterialGrey50,
+% 	colframe=MaterialGrey300,
+% 	arc=3pt,
+% 	boxrule=0.4pt,
+% 	left=2pt, right=2pt, top=0pt, bottom=0pt,
+% 	before skip=\medskipamount,
+% 	after skip=\medskipamount,
+% }
 \lstset{defaultdialect=[]{eunoia}}
 
 % Redefine example and definition to use italic headings
@@ -109,10 +109,14 @@ belowskip=0.5\medskipamount,
 \usepackage[backend=biber]{biblatex}
 \addbibresource{inria.bib}
 
+% sepia mode
 % \definecolor{myBGcolor}{HTML}{F5EFE0}
 % \definecolor{myTextcolor}{HTML}{2e2922}
-% \pagecolor{myBGcolor}
-% \color{myTextcolor}
+% dark mode
+\definecolor{myBGcolor}{HTML}{1e1e24}
+\definecolor{myTextcolor}{HTML}{e8ecf5}
+\pagecolor{myBGcolor}
+\color{myTextcolor}
 
 % \let\definition\relax
 % \spnewtheorem{definition}{Definition}{\bfseries}{}

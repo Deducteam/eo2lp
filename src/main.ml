@@ -156,10 +156,8 @@ let fmt_time dt =
 
 let clean_output_dir output_dir =
   if Sys.file_exists output_dir then begin
-    (* Remove generated files (.lp, .lpo, .pkg) but preserve _test.lp files *)
     let cmd = Printf.sprintf
-      "find %s \\( -name '*.lpo' -o -name '*.lp' -o -name 'lambdapi.pkg' \\) \
-       ! -name '*_test.lp' -delete"
+      "find %s \\( -name '*.lpo' -o -name '*.lp' -o -name 'lambdapi.pkg' \\) -delete"
       (Filename.quote output_dir) in
     ignore (Sys.command cmd)
   end

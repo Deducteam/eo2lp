@@ -53,12 +53,6 @@ let check_lp_eq lhs rhs =
     "require open test_lp.Prelude;\nassert ⊢ %s ≡ %s;" lhs rhs in
   check_lp name content
 
-let _check_lp_neq lhs rhs =
-  let name = Printf.sprintf "%s ≢ %s" lhs rhs in
-  let content = Printf.sprintf
-    "require open test_lp.Prelude;\nassertNot ⊢ %s ≡ %s;" lhs rhs in
-  check_lp name content
-
 (* ============================================================
    Boolean Operations
    ============================================================ *)
@@ -157,6 +151,100 @@ let test_as () =
   check_lp_eq "{|eo::as|} Bool false" "false"
 
 (* ============================================================
+   Integer Encoding
+   ============================================================ *)
+
+(* Test that enc_int produces terms that print as valid LP integer literals.
+   We initialize LP + encode the CPC signature (which creates of_Z),
+   then call enc_int and print the resulting term, and check that the
+   printed output can be parsed back by lambdapi. *)
+
+let cpc_test_dir = "_build/test_int"
+
+let ensure_cpc_test () =
+  (* Run eo2lp to generate the CPC output for testing *)
+  if not (Sys.file_exists cpc_test_dir) then begin
+    let cmd =
+      Printf.sprintf
+        "dune exec eo2lp -- -d ./cpc -o %s -v error 2>&1"
+        cpc_test_dir
+    in
+    let _ = Sys.command cmd in
+    ()
+  end
+
+let check_cpc_lp name content =
+  ensure_cpc_test ();
+  let test_file = Filename.concat cpc_test_dir "int_test.lp" in
+  let oc = open_out test_file in
+  output_string oc content; close_out oc;
+  let cmd =
+    Printf.sprintf "cd %s && lambdapi check int_test.lp 2>&1" cpc_test_dir
+  in
+  let ic = Unix.open_process_in cmd in
+  let buf = Buffer.create 256 in
+  (try while true do Buffer.add_channel buf ic 1 done with End_of_file -> ());
+  let status = Unix.close_process_in ic in
+  let output = Buffer.contents buf |> String.trim in
+  match status with
+  | Unix.WEXITED 0 ->
+    incr pass_count;
+    Printf.printf "%s %s\n" (green "PASS") name
+  | _ ->
+    incr fail_count;
+    Printf.printf "%s %s\n    lambdapi: %s\n" (red "FAIL") name output
+
+let test_integers () =
+  section "Integer Encoding";
+
+  (* Test that of_Z with various integer literals type-checks.
+     These exercise the same code path as enc_int in proof encoding. *)
+  let test_of_z n =
+    let name = Printf.sprintf "of_Z %d : τ Int" n in
+    let content =
+      Printf.sprintf
+        "require open %s.Cpc;\nsymbol test_%s ≔ of_Z %d;\nassert ⊢ test_%s : τ Int;"
+        (Filename.basename cpc_test_dir)
+        (if n >= 0 then string_of_int n else "neg" ^ string_of_int (-n))
+        n
+        (if n >= 0 then string_of_int n else "neg" ^ string_of_int (-n))
+    in
+    check_cpc_lp name content
+  in
+  (* Single digit *)
+  test_of_z 0;
+  test_of_z 1;
+  test_of_z 2;
+  test_of_z 3;
+  test_of_z 9;
+  (* Multi-digit *)
+  test_of_z 10;
+  test_of_z 42;
+  test_of_z 100;
+  test_of_z 255;
+  test_of_z 1000;
+  (* Negative *)
+  test_of_z (-1);
+  test_of_z (-42);
+
+  (* Test integer arithmetic rules *)
+  subsection "arithmetic";
+  let arith lhs rhs =
+    let name = Printf.sprintf "%s ≡ %s" lhs rhs in
+    let content =
+      Printf.sprintf
+        "require open %s.Cpc;\nassert ⊢ %s ≡ %s;"
+        (Filename.basename cpc_test_dir) lhs rhs
+    in
+    check_cpc_lp name content
+  in
+  arith "{|eo::add|} (of_Z 1) (of_Z 2)" "of_Z 3";
+  arith "{|eo::add|} (of_Z 10) (of_Z 32)" "of_Z 42";
+  arith "{|eo::mul|} (of_Z 6) (of_Z 7)" "of_Z 42";
+  arith "{|eo::neg|} (of_Z 5)" "of_Z (-5)";
+  arith "{|eo::neg|} (of_Z (-3))" "of_Z 3"
+
+(* ============================================================
    Main
    ============================================================ *)
 
@@ -167,4 +255,5 @@ let () =
   test_var ();
   test_cond_type ();
   test_as ();
+  test_integers ();
   summary ()

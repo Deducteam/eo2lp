@@ -14,7 +14,7 @@
    syntax_eo pp_eo parse_eo
    api_lp resolve lp_builders elaborate enc_numerals encode main
  )
- (flags :standard -w -26 -w -27)
+ (flags :standard -w -27)
  (libraries str unix fpath lambdapi.core lambdapi.common lambdapi.handle lambdapi.parsing)
 )
 

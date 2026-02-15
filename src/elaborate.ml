@@ -75,8 +75,6 @@ let set_signature_overlay (proof_sig : EO.signature) =
     Hashtbl.replace sig_index name (prev @ [(name, sym)])
   ) proof_sig
 
-let get_signature () = !global_sig
-
 let lookup_eo_symbol name : EO.symbol option =
   Hashtbl.find_opt sig_single name
 

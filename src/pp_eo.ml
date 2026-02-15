@@ -6,10 +6,6 @@ open Literal
 
 (* Helpers *)
 
-let opt_newline f = function
-  | Some x -> Printf.sprintf "  %s\n" (f x)
-  | None   -> ""
-
 let opt_str f = Option.fold ~none:"" ~some:f
 
 let opt_suffix_str f =
@@ -171,22 +167,3 @@ let symbol_str = function
 
 let sig_str sgn =
   String.concat "\n" (List.map symbol_str sgn)
-
-(* Datatype printers *)
-
-let sort_dec_str = function
-  | SortDec (s, n) -> Printf.sprintf "(%s %d)" s n
-
-let sel_dec_str = function
-  | SelDec (s, t) ->
-    Printf.sprintf "(%s %s)" s (term_str t)
-
-let cons_dec_str = function
-  | ConsDec (s, xs) ->
-    Printf.sprintf "(%s %s)"
-      s (String.concat " " (List.map sel_dec_str xs))
-
-let dt_dec_str = function
-  | DatatypeDec xs ->
-    Printf.sprintf "(%s)"
-      (String.concat " " (List.map cons_dec_str xs))

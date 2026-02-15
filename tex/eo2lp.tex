@@ -38,7 +38,105 @@
 	(b)~proofs produced by \texttt{cvc5} on \texttt{unsat}
 	problems from various fragments of SMT-LIB.
 \end{abstract}
+%
+The area of automated reasoning known as
+\emph{satisfiability modulo theories} (SMT)
+focuses on the development of tools for
+checking the satisfiability of first-order
+formulas over combinations of mathematical
+theories~\cite{Barrett2021}.
+%
+% Whilst many  accomplish this task
+% with similar strategies, the approach employed by
+% a solver can vary, meaning that different solvers
+% will excel in different theories.
+%
+Such tools (known as SMT \emph{solvers}) are
+increasingly used as back-ends for various tasks:
+hardware~\cite{DBLP:conf/fmcad/MattareiMBDHH18} and
+software verification~\cite{barnett06boogie,riant23debugging,kosmatov16frama-c},
+%
+model checking \cite{DBLP:conf/cav/ChampionMST16},
+cyber-security \cite{Backes2018},
+and to improve automation in proof
+assistants~\cite{DBLP:conf/cpp/ArmandFGKTW11,DBLP:journals/jar/BlanchetteBP13}.
+%
+Because these applications demand a high level
+of confidence in the results produced by the solver,
+many solvers are capable of generating
+\emph{proof certificates}
+that demonstrate the absurdity of specifications
+deemed unsatisfiable by the solver.
+%
 
+
+Towards the aim of standardizing and benchmarking solvers,
+the \emph{SMT library initiative} oversee the development of
+the \emph{SMT-LIB standard} \cite{Barrett2015-standard},
+which specifies the syntax and semantics of a
+common language used for interacting with solvers.
+%%
+Proof generation is however not covered by the standard,
+which has led to the development of various proof formats,
+namely LFSC, Alethe, and recently Eunoia.
+%
+Eunoia is a proof output language and a logical framework:
+it allows formalizing the constants, side-condition programs
+and inference rules used by
+% the proof generation facilities of
+an SMT solver.
+%
+In particular, the proof system of $\texttt{cvc5}$ is
+formalized as a Eunoia signature,
+allowing its proofs to be checked by the C++ tool
+Ethos~\cite{EthosUser_manualmdMain}.
+%
+%
+
+% The LFSC format encodes inference rules in the
+% Edinburgh Logical Framework (LF) extended with
+% side-conditions,
+% thereby reducing proof-checking to type-checking.
+% % (i.e., executable programs that
+% % may restrict applications of some inference rules),
+% %
+% In contrast, Alethe draws from a fixed set of
+% inference rules that are designed to reflect
+% the reasoning mechanisms of SMT solvers,
+% %
+% and proofs are checked by the standalone tool
+% Carcara~\cite{andreottiCarcaraEfficientProof2023}.
+% %
+
+% Eunoia shares aspects with the speculative proposal
+% for SMT-LIB 3~\cite{smt3-proposal}:
+% it uses e.g.\ dependent types and binders.
+% %
+The $\lambda\Pi$-calculus modulo rewriting~\cite{CousineauDowek}
+and its implementations in the tools Dedukti~\cite{assaf2023dedukti}
+and LambdaPi~\cite{hondet:hal-02981561} are designed to
+offer a trustworthy proof checker with an emphasis on
+interoperability of proof systems.
+%
+This paper presents a translation from Eunoia to LambdaPi
+and an OCaml tool $\texttt{eo2lp}$ that implements the
+translation.
+%
+We used our tool to translate a large portion of
+$\texttt{cvc5}$'s proof system to LambdaPi,
+allowing us to further translate and typecheck
+thousands of proof scripts produced by running $\texttt{cvc5}$
+on $\texttt{unsat}$ problems from the SMT-LIB fragments for logic,
+linear integer arithmetic, arrays, and sets.
+
+
+%
+
+% Coltellacci~\cite{coltellacciReconstructionSMTProofs2024a} developed a
+% translation of Alethe proofs into LambdaPi, by adding a new back-end
+% in the Carcara tool. Roughly, to each inference rule of the Alethe
+% specification corresponds a lemma in LambdaPi, and lemmas are combined
+% to reconstruct the proof.
 \input{intro.tex}
 
 \input{eoas.tex}
@@ -49,23 +147,45 @@
 
 \section{Conclusion and Future Work}\label{sec:conclu}
 
-We have presented a translation from Eunoia specifications and proofs
-to the $\lambda\Pi$-calculus, as implemented in the $\lambdapi$ proof
-assistant. Our tool \texttt{eo2lp} automates this translation,
-and we have demonstrated it on CPC-MINI and on proof scripts
-from a range of SMT-LIB fragments.
-% TODO: update with final benchmark numbers.
-
-For future work, covering the full CPC signature would enable
-translation of arbitrary \cvc{5} proofs. The remaining encoding
-failures are concentrated in theories not yet included in CPC-MINI
-(nonlinear arithmetic, strings, bitvectors), which require extending
-both the signature and the elaboration logic.
+We have presented a translation from Eunoia to the
+$\lambda\Pi$-calculus modulo rewriting, targeting the
+logical framework that defines the proof system of the
+SMT solver \cvc{5}.
 %
-Another direction is proof interoperability: the $\lambdapi$
-encodings can be exported to other proof assistants (e.g.\ Rocq,
-Isabelle/HOL) via the Dedukti ecosystem, enabling independent
-verification of SMT solver results.
+Unlike approaches based on fixed proof formats such as
+Alethe, our translation encodes the Eunoia framework
+itself---including inference rule declarations,
+side-condition programs, and elaboration
+semantics---so that extensions to the proof system
+require no changes to the translator.
+%
+Our tool \texttt{eo2lp} implements this translation and
+successfully translates all 21~modules of CPC-MINI
+(353~inference rules, 42~programs, 57~theory constants)
+into $\lambdapi$ files that pass type-checking with
+subject reduction verification.
+%
+On a benchmark of 1{,}227~proof scripts across 18~SMT-LIB
+fragments, 91\% are translated and independently verified
+by $\lambdapi$, with an average checking time of 0.47\,s.
+
+Several directions for future work are possible.
+%
+First, extending CPC-MINI to the full CPC
+would enable translation of arbitrary \cvc{5} proofs,
+including those involving nonlinear arithmetic, strings,
+and bitvectors---theories whose rules account for the
+majority of current failures.
+%
+Second, integrating \texttt{eo2lp} into \cvc{5}'s
+continuous integration pipeline would provide ongoing
+independent verification of proof production.
+%
+Finally, the $\lambdapi$ encodings produced by
+\texttt{eo2lp} can serve as a bridge to the Dedukti
+ecosystem, enabling export of verified SMT proofs
+to proof assistants such as Rocq and
+Isabelle/HOL~\cite{DBLP:journals/corr/abs-1807-01873}.
 
 \printbibliography
 

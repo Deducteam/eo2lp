@@ -44,7 +44,7 @@ let unique_name name =
         let inner = String.sub escaped 2 (String.length escaped - 4) in
         Printf.sprintf "{|%s_%d|}" inner n
       else
-        Printf.sprintf "%s_%d" escaped n
+        esc (Printf.sprintf "%s_%d" escaped n)
     in
     (* Record alias so references to the original resolve to the latest *)
     Hashtbl.replace name_aliases escaped new_name;
@@ -622,7 +622,6 @@ let enc_prog str ps doms ran cases =
   in
   (* Compute expected type for RHS: τ(range) *)
   let rhs_expected_ty = tau_of (enc_term ps ctx ran) in
-  let _n_cases = List.length cases in
   let rules =
     List.map (fun (lhs, rhs) ->
       enc_case ps ctx impl_ctx sym ~wildcard_impl_vars ~expected_ty:rhs_expected_ty (lhs, rhs))

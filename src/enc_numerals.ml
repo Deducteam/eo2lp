@@ -15,25 +15,35 @@ type enc_result = {
 
 let empty_result = { syms = []; rules = [] }
 
-(* Integer encoding *)
-let z0 ()    = find "Z0"
-let zpos ()  = find "Zpos"
-let zneg ()  = find "Zneg"
-let pos_h () = find "H"
-let pos_i () = find "I"
-let pos_o () = find "O"
+(* Integer encoding — builds binary positive integers using Stdlib.Pos/Z
+   symbols (H, O, I, Z0, Zpos, Zneg) so the LP printer recognizes them
+   as integer literals via the int_of_term / pos_of_term builtins.
 
-let rec enc_positive n =
-  assert (n > 0);
-  if n = 1 then mk_Symb (pos_h ())
-  else
-    let sym = if n mod 2 = 0 then pos_o () else pos_i () in
-    mk_Appl (mk_Symb sym, enc_positive (n / 2))
+   Positive binary encoding (Stdlib.Pos):
+     H       = 1
+     O(p)    = 2*p
+     I(p)    = 2*p + 1
+
+   Integer encoding (Stdlib.Z):
+     Z0      = 0
+     Zpos(p) = +p
+     Zneg(p) = -p  *)
+let enc_pos n =
+  assert (n >= 1);
+  let sym_H = mk_Symb (get_sym "H") in
+  let sym_O = get_sym "O" in
+  let sym_I = get_sym "I" in
+  let rec go n =
+    if n = 1 then sym_H
+    else if n mod 2 = 0 then mk_Appl (mk_Symb sym_O, go (n / 2))
+    else mk_Appl (mk_Symb sym_I, go (n / 2))
+  in
+  go n
 
 let enc_int n =
-  if n = 0 then mk_Symb (z0 ())
-  else if n > 0 then mk_Appl (mk_Symb (zpos ()), enc_positive n)
-  else mk_Appl (mk_Symb (zneg ()), enc_positive (-n))
+  if n = 0 then mk_Symb (get_sym "Z0")
+  else if n > 0 then mk_Appl (mk_Symb (get_sym "Zpos"), enc_pos n)
+  else mk_Appl (mk_Symb (get_sym "Zneg"), enc_pos (-n))
 
 (* Rational encoding: Frac numerator denominator *)
 let enc_rational n d =

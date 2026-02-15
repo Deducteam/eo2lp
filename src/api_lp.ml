@@ -550,12 +550,18 @@ module SSet = Set.Make(String)
 let lp_keyword_set = SSet.of_list lp_keywords
 let lp_reserved_set = SSet.of_list lp_reserved
 
+let starts_with_sign s =
+  String.length s >= 2
+  && (s.[0] = '+' || s.[0] = '-')
+  && match s.[1] with 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' -> true | _ -> false
+
 let esc s =
   (* Reserved names must be prefixed to avoid clash with LambdaPi builtins *)
   if SSet.mem s lp_reserved_set then "{|eo::" ^ s ^ "|}"
   else if String.exists is_invalid_char s
      || SSet.mem s lp_keyword_set
      || Option.is_some (int_of_string_opt s)
+     || starts_with_sign s
   then "{|" ^ s ^ "|}"
   else s
 
