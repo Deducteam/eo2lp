@@ -11,9 +11,8 @@ admin/
 hs/
 notes/
 
-# CPC sources (fetched via scripts/setup-cpc.sh)
-cpc-source/
-cpc-upstream
+# CPC upstream (fetched via scripts/diff-cpc.sh)
+cpc-upstream-repo/
 proofs/*
 proofs_remaining/*
 *.csv

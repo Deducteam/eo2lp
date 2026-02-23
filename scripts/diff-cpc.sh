@@ -1,6 +1,6 @@
 #!/bin/bash
 # diff-cpc.sh
-# Shows differences between cpc-mini (local modifications) and upstream CPC
+# Shows differences between cpc/ (local submodule) and upstream CPC from cvc5
 #
 # Usage:
 #   ./scripts/diff-cpc.sh              # Show diff summary
@@ -11,41 +11,48 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-CPC_MINI="$PROJECT_ROOT/cpc-mini"
-CPC_UPSTREAM="$PROJECT_ROOT/cpc-upstream"
+CPC_LOCAL="$PROJECT_ROOT/cpc"
+CPC_UPSTREAM_REPO="$PROJECT_ROOT/cpc-upstream-repo"
+CPC_UPSTREAM="$CPC_UPSTREAM_REPO/proofs/eo/cpc"
 
+if [ ! -d "$CPC_LOCAL" ]; then
+    echo "ERROR: cpc/ submodule not found. Run 'git submodule update --init'."
+    exit 1
+fi
+
+# Fetch upstream if not present
 if [ ! -d "$CPC_UPSTREAM" ]; then
-    echo "ERROR: cpc-upstream not found. Run ./scripts/setup-cpc.sh first."
-    exit 1
+    echo "Fetching upstream CPC from cvc5..."
+    git clone --filter=blob:none --sparse \
+        https://github.com/cvc5/cvc5.git "$CPC_UPSTREAM_REPO"
+    cd "$CPC_UPSTREAM_REPO"
+    git sparse-checkout set proofs/eo/cpc
+    cd "$PROJECT_ROOT"
+    echo ""
 fi
 
-if [ ! -d "$CPC_MINI" ]; then
-    echo "ERROR: cpc-mini not found."
-    exit 1
-fi
-
-echo "Comparing cpc-mini (local) with cpc-upstream..."
+echo "Comparing cpc/ (local) with upstream cvc5 CPC..."
 echo ""
 
 # Directories to compare
 DIRS="programs rules theories"
 
 for dir in $DIRS; do
-    MINI_DIR="$CPC_MINI/$dir"
+    LOCAL_DIR="$CPC_LOCAL/$dir"
     UPSTREAM_DIR="$CPC_UPSTREAM/$dir"
 
-    if [ ! -d "$MINI_DIR" ]; then
-        echo "[$dir] Not in cpc-mini"
+    if [ ! -d "$LOCAL_DIR" ]; then
+        echo "[$dir] Not in cpc/"
         continue
     fi
 
     if [ ! -d "$UPSTREAM_DIR" ]; then
-        echo "[$dir] Not in cpc-upstream"
+        echo "[$dir] Not in upstream"
         continue
     fi
 
-    # Find files only in mini
-    for f in "$MINI_DIR"/*.eo; do
+    # Find files only in local
+    for f in "$LOCAL_DIR"/*.eo; do
         [ -f "$f" ] || continue
         basename=$(basename "$f")
         if [ ! -f "$UPSTREAM_DIR/$basename" ]; then
@@ -57,13 +64,13 @@ for dir in $DIRS; do
     for f in "$UPSTREAM_DIR"/*.eo; do
         [ -f "$f" ] || continue
         basename=$(basename "$f")
-        if [ ! -f "$MINI_DIR/$basename" ]; then
+        if [ ! -f "$LOCAL_DIR/$basename" ]; then
             echo "[$dir/$basename] UPSTREAM ONLY"
         fi
     done
 
     # Find modified files
-    for f in "$MINI_DIR"/*.eo; do
+    for f in "$LOCAL_DIR"/*.eo; do
         [ -f "$f" ] || continue
         basename=$(basename "$f")
         if [ -f "$UPSTREAM_DIR/$basename" ]; then
@@ -80,9 +87,9 @@ for dir in $DIRS; do
 done
 
 # Check Cpc.eo
-if [ -f "$CPC_MINI/Cpc.eo" ]; then
+if [ -f "$CPC_LOCAL/Cpc.eo" ]; then
     if [ -f "$CPC_UPSTREAM/Cpc.eo" ]; then
-        if ! diff -q "$CPC_MINI/Cpc.eo" "$CPC_UPSTREAM/Cpc.eo" > /dev/null 2>&1; then
+        if ! diff -q "$CPC_LOCAL/Cpc.eo" "$CPC_UPSTREAM/Cpc.eo" > /dev/null 2>&1; then
             echo "[Cpc.eo] MODIFIED"
         fi
     else
