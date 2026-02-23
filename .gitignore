@@ -3,6 +3,7 @@
 .vscode/
 .merlin
 .ocamlinit
+CLAUDE.md
 
 # Old/temporary directories
 .old/
