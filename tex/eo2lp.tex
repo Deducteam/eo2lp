@@ -16,21 +16,20 @@
 
 \begin{document}
 \maketitle
-% we're not just translating proofs, but also the proof
-% systems embedded in Eunoia.
+
 
 \begin{abstract}
 	\noindent
-	Eunoia is an emerging logical framework designed for
+	Eunoia is an emerging logical framework for
 	specifying the proofs and proof systems of SMT solvers,
 	namely \cvc{5}.
 	%
 	We present a translation from Eunoia to the
 	\emph{$λΠ$-calculus modulo rewriting} as implemented
-	by the $\lambdapi$ proof assistant.
+	by the LambdaPi proof assistant.
 	%
 	The translation is implemented by our tool \texttt{eo2lp},
-	which we use for generating $\lambdapi$ encodings of
+	which we use for generating LambdaPi encodings of
 	%
 	(a)~a large fragment of \cvc{5}'s
 	\textit{Cooperating Proof Calculus} (CPC), and
@@ -38,11 +37,7 @@
 	(b)~proofs produced by \cvc{5} on \texttt{unsat}
 	problems from various fragments of SMT-LIB.
 \end{abstract}
-% Coltellacci~\cite{coltellacciReconstructionSMTProofs2024a} developed a
-% translation of Alethe proofs into LambdaPi, by adding a new back-end
-% in the Carcara tool. Roughly, to each inference rule of the Alethe
-% specification corresponds a lemma in LambdaPi, and lemmas are combined
-% to reconstruct the proof.
+
 \input{intro.tex}
 
 \input{eoas.tex}
@@ -54,44 +49,35 @@
 \section{Conclusion and Future Work}\label{sec:conclu}
 
 We have presented a translation from Eunoia to the
-$\lambda\Pi$-calculus modulo rewriting, targeting the
-logical framework that defines the proof system of the
-SMT solver \cvc{5}.
+$\lambda\Pi$-calculus modulo rewriting that encodes
+\cvc{5}'s proof system---including inference rules,
+side-condition programs, and elaboration semantics---automatically,
+unlike approaches that hand-write lemmas for each
+rule~\cite{coltellacciReconstructionSMTProofs2024a,mohamed25leansmt}.
 %
-Unlike approaches based on fixed proof formats such as
-Alethe, our translation encodes the Eunoia framework
-itself---including inference rule declarations,
-side-condition programs, and elaboration
-semantics---so that extensions to the proof system
-require no changes to the translator.
+The trade-off is that the translated rules are taken
+as axioms rather than independently proved sound.
 %
-Our tool \texttt{eo2lp} implements this translation and
-successfully translates all 21~modules of CPC-MINI
-(353~inference rules, 42~programs, 57~theory constants)
-into $\lambdapi$ files that pass type-checking with
-subject reduction verification.
-%
-On a benchmark of 1{,}227~proof scripts across 18~SMT-LIB
-fragments, 91\% are translated and independently verified
-by $\lambdapi$, with an average checking time of 0.47\,s.
+Our tool \texttt{eo2lp} translates all 22~modules of
+CPC-MINI (359~rules, 96~programs, 57~constants) and
+independently verifies 97\% of 1{,}036~proof scripts
+across 14~SMT-LIB fragments.
 
-Several directions for future work are possible.
+The most direct future work is extending CPC-MINI
+to the full CPC (bitvectors, strings, datatypes, reals).
 %
-First, extending CPC-MINI to the full CPC
-would enable translation of arbitrary \cvc{5} proofs,
-including those involving nonlinear arithmetic, strings,
-and bitvectors---theories whose rules account for the
-majority of current failures.
+Because the encoding lives in LambdaPi, it can serve
+as a basis for proving the soundness of individual
+rules directly, or---via the Dedukti ecosystem---for
+exporting the CPC representation to proof assistants
+such as Rocq or Isabelle/HOL, analogously to
+IsaRare~\cite{lachnitt24isarare}.
 %
-Second, integrating \texttt{eo2lp} into \cvc{5}'s
-continuous integration pipeline would provide ongoing
-independent verification of proof production.
-%
-Finally, the $\lambdapi$ encodings produced by
-\texttt{eo2lp} can serve as a bridge to the Dedukti
-ecosystem, enabling export of verified SMT proofs
-to proof assistants such as Rocq and
-Isabelle/HOL~\cite{DBLP:journals/corr/abs-1807-01873}.
+With the full CPC translated, LambdaPi could serve
+as a robust independent proof checker for \cvc{5},
+and a thorough comparison with Ethos---in terms of
+coverage, performance, and error detection---would
+help evaluate the practical benefits of this redundancy.
 
 \printbibliography
 

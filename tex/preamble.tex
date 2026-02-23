@@ -1,16 +1,43 @@
 \usepackage{unicode-math}
 \usepackage{newcomputermodern}
 \usepackage{microtype}
+\usepackage{newunicodechar}
+\newunicodechar{⤳}{\ensuremath{⤳}}
+\newunicodechar{↪}{\ensuremath{↪}}
+\newunicodechar{≔}{\ensuremath{≔}}
+\newunicodechar{⊢}{\ensuremath{⊢}}
 
 % \usepackage{amsthm}
 \usepackage{xcolor-material}
-% Show text area frame — comment out these 3 lines for submission
-% \usepackage{showframe}
-% \renewcommand\ShowFrameLinethickness{0.2pt}
-% \renewcommand*\ShowFrameColor{\color{MaterialGrey300}}
+\usepackage{etoolbox}
+
+%% ── Draft toggle ─────────────────────────────────────────────────
+%% Comment out the next line for submission.
+% \newcommand{\darkmode}{}
+
+\ifdefined\darkmode
+	\usepackage{showframe}
+	\renewcommand\ShowFrameLinethickness{0.2pt}
+	\renewcommand*\ShowFrameColor{\color{MaterialGrey600}}
+	\usepackage{pagecolor}
+	\pagecolor{MaterialGrey900}
+	\color{MaterialGrey100}
+\fi
+
 \usepackage{tikz}
 \usetikzlibrary{fit}
 \usepackage{hyperref}
+\ifdefined\darkmode
+	\hypersetup{colorlinks=true,
+		linkcolor=MaterialLightBlue300,
+		citecolor=MaterialTeal300,
+		urlcolor=MaterialLightBlue200}
+\else
+	\hypersetup{colorlinks=true,
+		linkcolor=eoComment,
+		citecolor=eoComment,
+		urlcolor=eoComment}
+\fi
 \usepackage{ebproof}
 \usepackage{array}
 
@@ -18,20 +45,31 @@
 \usepackage{jbw-fix-hyperref-autoref}
 
 \usepackage{listings}
-% \usepackage[most]{tcolorbox}
-% \tcbuselibrary{listings}
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{listings}
 
-% Eunoia syntax colours (xcolor-material palette)
-% Zedokai Light palette (Monokai Pro adapted for light backgrounds)
-\definecolor{eoKeyword}{HTML}{e14775}%         commands   (pink)
-\definecolor{eoAttr}{HTML}{4a7fb5}%            attributes (muted blue)
-\definecolor{eoBuiltin}{HTML}{1c8ca8}%         builtins   (teal-cyan)
-\definecolor{eoConst}{HTML}{7058be}%           types      (purple)
-\definecolor{eoComment}{HTML}{a59fa0}%         comments   (warm grey)
-\definecolor{eoString}{HTML}{cc7a0a}%          strings    (amber)
-\definecolor{eoPunct}{HTML}{918c8e}%           punctuation (grey)
-\definecolor{eoFg}{HTML}{29242a}%              foreground  (warm black)
-\definecolor{eoFgMath}{HTML}{3a3338}%          math foreground (softer)
+%% ── Syntax colours ───────────────────────────────────────────────
+\ifdefined\darkmode
+	% Dark mode
+	\definecolor{eoKeyword}{HTML}{f06292}%       commands   (pink)
+	\definecolor{eoAttr}{HTML}{64b5f6}%          attributes (light blue)
+	\definecolor{eoBuiltin}{HTML}{4dd0e1}%       builtins   (cyan)
+	\definecolor{eoConst}{HTML}{b39ddb}%         types      (light purple)
+	\definecolor{eoComment}{HTML}{9e9e9e}%       comments   (grey)
+	\definecolor{eoString}{HTML}{ffb74d}%        strings    (light amber)
+	\definecolor{eoPunct}{HTML}{bdbdbd}%         punctuation (light grey)
+	\definecolor{eoFgMath}{HTML}{c8c0c8}%        foreground (softer)
+\else
+	% Light mode
+	\definecolor{eoKeyword}{HTML}{e14775}%       commands   (pink)
+	\definecolor{eoAttr}{HTML}{4a7fb5}%          attributes (muted blue)
+	\definecolor{eoBuiltin}{HTML}{1c8ca8}%       builtins   (teal-cyan)
+	\definecolor{eoConst}{HTML}{7058be}%         types      (purple)
+	\definecolor{eoComment}{HTML}{3b5998}%       comments   (dark blue)
+	\definecolor{eoString}{HTML}{cc7a0a}%        strings    (amber)
+	\definecolor{eoPunct}{HTML}{918c8e}%         punctuation (grey)
+	\definecolor{eoFgMath}{HTML}{3a3338}%        foreground (softer)
+\fi
 
 % Eunoia language definition for listings
 \lstdefinelanguage{eunoia}{
@@ -66,59 +104,179 @@ showstringspaces=false,
 columns=flexible,
 keepspaces=true,
 frame=none,
-literate={(}{{{\color{eoPunct}(}}}1
-		{)}{{{\color{eoPunct})}}}1
-{eo::}{{{\color{eoBuiltin}eo}{\color{eoPunct}{::}}}}4,
+numbers=left,
+numberstyle=\tiny\ttfamily\color{lineNoColor},
+numbersep=6pt,
+literate={(}{{\textcolor{eoPunct}{(}}}1
+{)}{{\textcolor{eoPunct}{)}}}1
+{[}{{\textcolor{eoPunct}{[}}}1
+{]}{{\textcolor{eoPunct}{]}}}1
+{eo::}{{\textcolor{eoBuiltin}{eo}\textcolor{eoPunct}{::}}}4
+{$}{{\textcolor{eoConst}{\$}}}1,
+	aboveskip=0.5\medskipamount,
+	belowskip=0.5\medskipamount,
+	}
+
+	%% ── tcolorbox backgrounds ────────────────────────────────────────
+	\ifdefined\darkmode
+		\definecolor{eoBoxBg}{HTML}{2e3040}
+		\definecolor{eoBoxFr}{HTML}{424454}
+		\definecolor{lpBoxBg}{HTML}{2e3040}
+		\definecolor{lpBoxFr}{HTML}{424454}
+	\else
+		\definecolor{eoBoxBg}{HTML}{fbfaf9}
+		\definecolor{eoBoxFr}{HTML}{c5c1bf}
+		\definecolor{lpBoxBg}{HTML}{fbfaf9}
+		\definecolor{lpBoxFr}{HTML}{c5c1bf}
+		\definecolor{lineNoColor}{HTML}{bfb9ba}
+	\fi
+
+	% tcolorbox style for Eunoia code blocks
+	\newtcblisting{eolisting}{
+		enhanced,
+		listing only,
+		listing options={style=eo, aboveskip=0pt, belowskip=0pt},
+		colback=eoBoxBg,
+		colframe=eoBoxFr,
+		arc=0pt,
+		boxrule=0.4pt,
+		borderline west={1pt}{0pt}{eoBuiltin},
+		left=14pt, right=2pt, top=2pt, bottom=2pt,
+		before skip=\medskipamount,
+		after skip=\medskipamount,
+	}
+	\newtcbinputlisting{\eofile}[1]{
+		enhanced,
+		listing only,
+		listing file={#1},
+		listing options={style=eo, aboveskip=0pt, belowskip=0pt},
+		colback=eoBoxBg,
+		colframe=eoBoxFr,
+		arc=0pt,
+		boxrule=0.4pt,
+		borderline west={1pt}{0pt}{eoBuiltin},
+		left=14pt, right=2pt, top=2pt, bottom=2pt,
+		before skip=\medskipamount,
+		after skip=\medskipamount,
+		before upper=\listboxsetup,
+	}
+
+	% LambdaPi language definition and style
+	\lstdefinelanguage{lambdapi}{
+		comment=[l]{//},
+		alsoletter={_},
+		alsoother={@:$},
+		keywords={symbol, rule, with, assert,
+				require, open, type},
+		keywords=[2]{constant, sequential, opaque, injective},
+		keywords=[3]{TYPE},
+		sensitive=true,
+		mathescape=false,
+		texcl=false,
+	}
+
+	\lstdefinestyle{lp}{
+	language=lambdapi,
+	basicstyle=\small\ttfamily\color{eoFgMath},
+	keywordstyle=\color{eoKeyword}\bfseries,
+	keywordstyle=[2]\color{eoAttr},
+	keywordstyle=[3]\color{eoConst},
+	commentstyle=\color{eoComment}\itshape,
+	showstringspaces=false,
+	columns=flexible,
+	keepspaces=true,
+	frame=none,
+	numbers=left,
+	numberstyle=\tiny\ttfamily\color{lineNoColor},
+	numbersep=6pt,
+	literate=
+		{eo.Proof}{{\textcolor{eoBuiltin}{eo}\textcolor{eoPunct}{.}\textcolor{eoConst}{Proof}}}8
+	{eo.app}{{\textcolor{eoBuiltin}{eo}\textcolor{eoPunct}{.}app}}6
+	{eo.nil}{{\textcolor{eoBuiltin}{eo}\textcolor{eoPunct}{.}nil}}6
+	{eo.}{{\textcolor{eoBuiltin}{eo}\textcolor{eoPunct}{.}}}3
+	{eo::}{{\textcolor{eoBuiltin}{eo}\textcolor{eoPunct}{::}}}4
+	{(}{{\textcolor{eoPunct}{(}}}1
+	{)}{{\textcolor{eoPunct}{)}}}1
+	{[}{{\textcolor{eoPunct}{[}}}1
+	{]}{{\textcolor{eoPunct}{]}}}1
+	{;}{{\textcolor{eoPunct}{;}}}1
+	{:}{{\textcolor{eoPunct}{:}}}1
+	{\{|}{{\textcolor{eoPunct}{\{|}}}2
+	{|\}}{{\textcolor{eoPunct}{|\}}}}2
+	{$}{{\textcolor{eoConst}{\$}}}1
+{φ}{{$\varphi$}}1,
 aboveskip=0.5\medskipamount,
 belowskip=0.5\medskipamount,
 }
 
-% tcolorbox style for Eunoia code blocks (rounded corners)
-% \newtcblisting{eolisting}{
-% 	listing only,
-% 	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
-% 	colback=MaterialGrey50,
-% 	colframe=MaterialGrey300,
-% 	arc=3pt,
-% 	boxrule=0.4pt,
-% 	left=2pt, right=2pt, top=0pt, bottom=0pt,
-% 	before skip=\medskipamount,
-% 	after skip=\medskipamount,
-% }
-% Input listing from file (immune to editor reformatting)
-% \newtcbinputlisting{\eofile}[1]{
-% 	listing only,
-% 	listing file={#1},
-% 	listing options={style=eo, aboveskip=0pt, belowskip=0pt},
-% 	colback=MaterialGrey50,
-% 	colframe=MaterialGrey300,
-% 	arc=3pt,
-% 	boxrule=0.4pt,
-% 	left=2pt, right=2pt, top=0pt, bottom=0pt,
-% 	before skip=\medskipamount,
-% 	after skip=\medskipamount,
-% }
+% tcolorbox style for LambdaPi code blocks
+\newtcblisting{lplisting}{
+	enhanced,
+	listing only,
+	listing options={style=lp, aboveskip=0pt, belowskip=0pt},
+	colback=lpBoxBg,
+	colframe=lpBoxFr,
+	arc=0pt,
+	boxrule=0.4pt,
+	borderline west={1pt}{0pt}{eoConst},
+	left=14pt, right=2pt, top=2pt, bottom=2pt,
+	before skip=\medskipamount,
+	after skip=\medskipamount,
+}
+\newtcbinputlisting{\lpfile}[1]{
+	enhanced,
+	listing only,
+	listing file={#1},
+	listing options={style=lp, aboveskip=0pt, belowskip=0pt},
+	colback=lpBoxBg,
+	colframe=lpBoxFr,
+	arc=0pt,
+	boxrule=0.4pt,
+	borderline west={1pt}{0pt}{eoConst},
+	left=14pt, right=2pt, top=2pt, bottom=2pt,
+	before skip=\medskipamount,
+	after skip=\medskipamount,
+	before upper=\listboxsetup,
+}
+% Thin separator line for use inside multi-part listing boxes
+\newcommand{\listsep}{%
+	\vspace{-\baselineskip}\vspace{7pt}%
+	\noindent\kern-14pt\textcolor{eoBoxFr}{\rule{\dimexpr\linewidth+14pt+2pt}{0.3pt}}\par%
+	\vspace{2pt}%
+}
+% Helper: zero out trivlist glue that listings inserts
+\newcommand{\listboxsetup}{\topsep=0pt \partopsep=0pt \parsep=0pt \parskip=0pt}
+% Multi-part listing boxes: use \listsep between \lstinputlisting calls
+\newenvironment{eobox}{%
+	\begin{tcolorbox}[
+			enhanced, listing only,
+			colback=eoBoxBg, colframe=eoBoxFr,
+			arc=0pt, boxrule=0.4pt,
+			borderline west={1pt}{0pt}{eoBuiltin},
+			left=14pt, right=2pt, top=2pt, bottom=2pt,
+			before skip=\medskipamount, after skip=\medskipamount,
+		]\listboxsetup
+		}{\end{tcolorbox}}
+\newenvironment{lpbox}{%
+	\begin{tcolorbox}[
+			enhanced, listing only,
+			colback=lpBoxBg, colframe=lpBoxFr,
+			arc=0pt, boxrule=0.4pt,
+			borderline west={1pt}{0pt}{eoConst},
+			left=14pt, right=2pt, top=2pt, bottom=2pt,
+			before skip=\medskipamount, after skip=\medskipamount,
+		]\listboxsetup
+		}{\end{tcolorbox}}
 \lstset{defaultdialect=[]{eunoia}}
 
 % Redefine example and definition to use italic headings
 \let\example\relax
 \let\endexample\relax
 \spnewtheorem{example}{Example}{\itshape}{\rmfamily}
+\def\exampleautorefname{example}
 \let\definition\relax
 \let\enddefinition\relax
 \spnewtheorem{definition}{Definition}{\itshape}{\rmfamily}
 
 \usepackage[backend=biber]{biblatex}
 \addbibresource{inria.bib}
-
-% sepia mode
-% \definecolor{myBGcolor}{HTML}{F5EFE0}
-% \definecolor{myTextcolor}{HTML}{2e2922}
-% dark mode
-\definecolor{myBGcolor}{HTML}{1e1e24}
-\definecolor{myTextcolor}{HTML}{e8ecf5}
-\pagecolor{myBGcolor}
-\color{myTextcolor}
-
-% \let\definition\relax
-% \spnewtheorem{definition}{Definition}{\bfseries}{}

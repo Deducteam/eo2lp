@@ -5,14 +5,13 @@
 
 \begin{document}
 %
-\section{λΠ-calculus modulo rewriting}\label{sec:lambdapi}
+\newpage
+\section{Encoding Eunoia in the λΠ-calculus}\label{sec:lambdapi}
 \begin{boxfigure}[t!]{fig:lpTermSyntax}
-	{Syntax and typing rules for the $λΠ$-calculus.}
-	%
-	$$\lpTermSyntax$$
-	\hrule
-	$$\lpTypingRules$$
-	%
+	{Syntax and typing rules for the $λΠ$-calculus modulo rewriting.}
+	\vspace{4pt}\centerline{$\lpTermSyntax$}
+	\boxfigurehline
+	\centerline{$\lpTypingRules$}\vspace{4pt}
 \end{boxfigure}
 %
 \Autoref{fig:lpTermSyntax} provides syntax and typing rules
@@ -45,7 +44,7 @@ form $\prn{x : t}$.
 %
 A \emph{rewrite rule} is an expression of the form
 $\prn{t ↪ t'}$, where $t$ has the form
-$\prn{\app{\prn{\app{κ}{t_1}} ⋅ \ldots}{t_n}}$.
+$\prn{\app{\prn{\app{κ}{t_1}}\ \ldots}{t_n}}$.
 %
 A \emph{signature} is a list of typings and rewrite
 rules, where each typing has the form $\prn{κ : t}$
@@ -81,23 +80,30 @@ where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
 	$λΠ$-terms of type $\Set$,
 	%
 	which in turn encode $λΠ$-types with an injective symbol
-	$\msf{τ} : \Set → \TYPE$ and an (infix) function space symbol
-	$\prn{⤳}$.
+	$\msf{τ} : \Set → \TYPE$ and an (infix) function space
+	symbol $\prn{⤳} : \Set → \Set → \Set$
+	with the rewrite rule
+	$\msf{τ}\,\prn{A ⤳ B} ↪ \msf{τ}\,A → \msf{τ}\,B$.
+	%
+	For dependent types arising from $\lpo{quote}$
+	arguments, we use a dependent function space
+	$\prn{⤳^{\msf d}} : \pii{T : \Set}{\prn{{\msf{τ}\,T → \Set}} → \Set}$
+	with the rule
+	$\msf{τ}\,\prn{T ⤳^{\msf d} F} ↪ \pii{x : \msf{τ}\,T}{\msf{τ}\,\prn{\app F x}}$.
 \end{remark}
 
 % -------------------------------------------------------- %
-\subsection{The \textsc{LambdaPi} Proof Assistant}
+\subsection{The LambdaPi Proof Assistant}
 %
 \begin{boxfigure}[t!]{fig:lpSyntax}
-	{Syntax for the \textsc{LambdaPi} proof assistant.}
-	%
-	$$\lpPatternSyntax$$
-	\hrule
-	$$\lpConcreteSyntax$$
+	{Syntax for the LambdaPi proof assistant.}
+	\vspace{4pt}\centerline{$\lpPatternSyntax$}
+	\boxfigurehline
+	\centerline{$\lpConcreteSyntax$}\vspace{4pt}
 \end{boxfigure}
 %
 \Autoref{fig:lpSyntax} defines syntax for a small fragment
-of the $\lambdapi$ proof assistant.
+of the LambdaPi proof assistant.
 %
 Each \emph{file} is a list of \emph{commands}
 that (a)~specify the typings and rewrite rules
@@ -118,13 +124,13 @@ each of which are either \emph{explicit} or \emph{implicit}
 %
 Given $\vec ρ$ with $n$ leading
 implicits followed by $m$ explicits,
-$\lambdapi$ registers the following typing
+LambdaPi registers the following typing
 and internally records $ζ(s) ≔ n$.
 $$\prn{\xsym s : \prn{\pii{x_1 : t_1}
 			{\ldots\,\pii{x_{n+m} : t_{n+m}}{t}}}}$$
 %
 Hereinafter, the symbol $s$ is an alias
-for $\prn{\xsym{s} ⋅ \_ ⋅ \ldots ⋅ \_}$,
+for $\prn{\xsym{s}\ \_\ \ldots\ \_}$,
 where $\_$ is a \emph{placeholder}.
 %
 Terms containing placeholders can be \emph{resolved}
@@ -146,16 +152,16 @@ $Γ ≔ [
 and some appropriate $Σ$,
 $\mbf{resolve}_{\prn{Σ, Γ}}$ is well-defined for
 $t ≔ \prn{
-		\msf{and}
-		⋅ \prn{\msf= ⋅ n ⋅ m}
-		⋅ \prn{\msf= ⋅ x ⋅ y}
+		\msf{and}\
+		\prn{\msf=\ n\ m}\
+		\prn{\msf=\ x\ y}
 	}$
 %
 since
 $\prn{
-		\msf{and}
-		⋅ \prn{\xsym{=} ⋅ \meta α ⋅ n ⋅ m}
-		⋅ \prn{\xsym{=} ⋅ \meta β ⋅ x ⋅ y}
+		\msf{and}\
+		\prn{\xsym{=}\ \meta α\ n\ m}\
+		\prn{\xsym{=}\ \meta β\ x\ y}
 	}$
 entails the (solveable) constraints
 $\{
@@ -166,13 +172,13 @@ $\{
 
 %
 Optionally, a \emph{modifier} may be given.
-The $\mtt{constant}$ modifier forbids
+The $\md{constant}$ modifier forbids
 rewrite rules with $s$ at the head, and
-$\mtt{sequential}$ ensures rewrite rules with head $s$
+$\md{sequential}$ ensures rewrite rules with head $s$
 are `matched' in the order they are given in the file.
 %
 Finally, a \emph{definition} $\prn{{≔}\,t'}$ may be given
-when the $\mtt{constant}$ modifier is not,
+when the $\md{constant}$ modifier is not,
 which provides the rewrite rule
 $\prn{s\,↪ t}$
 (resp. $\prn{s\,↪ \lam{\vec ρ}{t}}$ given parameters $\vec ρ$).
@@ -187,36 +193,50 @@ The left and right sides of each rewrite rule are
 \emph{pattern variable} $\prn{\ptrn{x}}$
 or a \emph{pattern application} $\prn{{s}\,{\any{θ}}}$,
 where $s$ is called the \emph{head} of the pattern.
-
-Hereinafter, let $\pv(θ)$ denote the set of
-pattern variables occurring in some pattern $θ$.
 %
-In practice, a rewrite rule $\prn{θ ↪ θ'}$ is only valid
-when $θ$ is a pattern application and $\pv(θ') ⊆ \pv(θ)$.
+A rewrite rule $\prn{θ ↪ θ'}$ is valid when $θ$ is a
+pattern application and every pattern variable in $θ'$
+also occurs in~$θ$.
 %
 The rewrite rule(s) given by the declaration are added to
 the signature, effectively augmenting the typechecking
-procedure of $\lambdapi$ to behave `modulo' those rule(s).
+procedure of LambdaPi to behave `modulo' those rule(s).
 
+% ---------------------------------------
+\subsubsection{Assertion.}
+% ---------------------------------------
+An \emph{assertion} $\kw{assert}\ ⊢\ t : t'$
+checks that $t$ has type $t'$ in the current
+signature, resolving any placeholders via type inference.
+Unlike a symbol declaration, an assertion does not
+extend the signature.
 
 % ----------------------------------------------------------
-\subsection{Translating Eunoia to $\lambdapi$}
+\subsection{Translating Eunoia to LambdaPi}
 % ----------------------------------------------------------
 We define a family of \emph{translation operators} that act on
 the terms, types, parameters, and commands of Eunoia
-to produce corresponding $\lambdapi$ syntax.
+to produce corresponding LambdaPi syntax.
 %
 Crucially, the translation assumes that all terms have already
 been processed by the $\mbf{elab}$ operator of
 \autoref{sec:eo-elab}.
 
-Because some Eunoia symbols are not valid $\lambdapi$
-identifiers, the translations on symbols uses
-$\lambdapi$ syntax for `escaped' identifiers:
-define $\bar s ≔ \esc s$
-for any Eunoia symbol $s$ containing forbidden characters,
-and $\bar s ≔ s$ otherwise.
 
+% ----------------------------------------------------------
+\subsubsection{Translating Terms.}
+% ----------------------------------------------------------
+%
+Because some Eunoia symbols are not valid LambdaPi
+identifiers, the translation on symbols uses LambdaPi
+syntax for escaping identifiers.
+%
+That is, $\bar s ≔ \esc s$ iff $s$ contains
+forbidden characters, and $\bar s ≔ s$ otherwise.
+%
+% The translation operation is defined on terms below
+% by considering the cases of terms post-elaboration.
+%
 \begin{definition}\label{def:tm-ty}
 	%
 	Let $\tm{⋅}$ be the least operator such that:
@@ -225,7 +245,7 @@ and $\bar s ≔ s$ otherwise.
 		\item For any symbol $s$ or literal $ℓ$, the following hold:
 		      $$\tm{s} =
 			      \begin{scases}
-				      \eo{Type}   & \text{if $s = \eotype$,} \\
+				      \lpo{Type}   & \text{if $s = \eotype$,} \\
 				      \bar s & \text{otherwise.}
 			      \end{scases}
 			      %
@@ -233,11 +253,11 @@ and $\bar s ≔ s$ otherwise.
 			      %
 			      \tm{ℓ} =
 			      \begin{scases}
-				      \ev{of\_Z} ⋅ \tm{n}
+				      \ev{of\_Z}\ \tm{n}
 				      &
 				      \text{if $ℓ = \msf{int}(n)$,}
 				      \\
-				      \ev{of\_Q} ⋅ \tm{x} ⋅ \tm{y}
+				      \ev{of\_Q}\ \tm{x}\ \tm{y}
 				      &
 				      \text{if $ℓ = \msf{rat}(x,y)$}
 				      \\
@@ -264,14 +284,14 @@ and $\bar s ≔ s$ otherwise.
 		      $$
 			      \begin{array}[t]{l@{\ {=}\ }l}
 				      \tm{\eapp{\mtt{\_}}{t_1\ t_2}}
-				       & \eo{app}\appSym\tm{t_1}\appSym\tm{t_2}
+				       & \lpo{app}\ \tm{t_1}\ \tm{t_2}
 				      \\[2mm]
 				      \tm{\eprf{t}}
-				       & \eo{Proof} ⋅ {\tm {t}}
+				       & \lpo{Proof}\ {\tm {t}}
 				      \\[2mm]
 				      \tm{\eapp{s}{\vec t}}
 				       &
-				      \bar s ⋅ \tm{t_1} ⋅ \ldots ⋅ \tm{t_n}
+				      \bar s\ \tm{t_1}\ \ldots\ \tm{t_n}
 			      \end{array}
 		      $$
 		\item The only normal-form binder application is $\eo{define}$,
@@ -308,36 +328,42 @@ and $\bar s ≔ s$ otherwise.
 		\end{scases}
 	$$
 	%
-	Additionally, for any $\lambdapi$ term $t$ and parameter
-	list $\vec ρ$, define $\mbf{impl}(\vec ρ, t)$ as
-	the sublist of $\ctx{\vec ρ}$ containing each
-	$x_i ∈ \vec ρ$ occuring free in $t$, each marked as implicit.
 \end{definition}
 
+% ----------------------------------------------------------
+\subsubsection{Translating Commands.}
+% ----------------------------------------------------------
+In the following text, we write $\tm{t}^{\ptrn{}}$
+for the result of applying $\tm{⋅}$ to $t$ and
+replacing each free variable $x$ with the pattern variable
+$\ptrn{x}$.
 %
-The translation operator is defined on Eunoia
-commands thus:
+Also, we write $\mbf{impl}(\vec ρ, t)$ for
+the sublist of $\ctx{\vec ρ}$ containing each
+$x_i ∈ \vec ρ$ occurring free in $t$,
+each marked as implicit.
+%
 \begin{definition}\label{def:cmd}
 	%
 	Let $δ$ be a standard Eunoia command. Then $\cmd{δ}$
-	is the list of $\lambdapi$ commands such that:
+	is the list of LambdaPi commands described as follows:
 	%
 	\begin{enumerate}\itemsep6pt
 		\item If $δ$ is a constant declaration,
 		      then $δ ⊢ s(\vec ρ) : t$ and
 		      the head of $\cmd δ$ is:
 		      %
-		      $$  \mtt{symbol}\ \bar s\ \ctx{\vec ρ}
+		      $$  \kw{symbol}\ \bar s\ \ctx{\vec ρ}
 			      : \El{\tm t}\mtt{;}
 		      $$
 		      %
 		      If $δ ⊢ s ∷ α$ and $α$ is
 		      $\rcn{t_\nil}$ or $\lcn{t_\nil}$,
-		      then $\cmd δ$ also contains the
-		      following rewrite rule:
+		      then the following rewrite rule
+		      is also produced:
 		      $$
-			      \mtt{rule}\ \prn{\eo{nil}\ \bar s\ \ptrn T}
-			      ↪ \prn{\eo{as}\ \tm{t_\nil}\ \ptrn T}
+			      \kw{rule}\ \prn{\lpo{nil}\ \bar s\ \ptrn T}
+			      ↪ \prn{\lpo{as}\ \tm{t_\nil}\ \ptrn T}
 		      $$
 
 		\item If $δ$ is a macro declaration,
@@ -347,7 +373,7 @@ commands thus:
 		      defined as below, otherwise the typing is omitted.
 		      %
 		      $$
-			      \mtt{symbol}\ \bar s\
+			      \kw{symbol}\ \bar s\
 			      \ctx{\vec ρ} : \El{\tm{t'}}
 			      ≔ \tm{t}
 		      $$
@@ -360,14 +386,14 @@ commands thus:
 		      where $T ≔ \El{\tm{ \earr{\plur t n\, t'}}}$:
 		      %
 		      $$\begin{array}[t]{l}
-				      \mtt{sequential}\ \mtt{symbol}\ \bar s\
+				      \md{sequential}\ \kw{symbol}\ \bar s\
 				      \vec ρ^★ : T
 				      \mtt{;}
 				      \\[1mm]
 				      \begin{array}[t]{@{}l@{\ }l@{\ {↪}\ }l}
-					      \mtt{rule} & \tm{l_1}^{\ptrn{}} & \tm{r_1}^{\ptrn{}}
+					      \kw{rule} & \tm{l_1}^{\ptrn{}} & \tm{r_1}^{\ptrn{}}
 					      \\ \cdots \\
-					      \mtt{with} & \tm{l_m}^{\ptrn{}} & \tm{r_m}^{\ptrn{}}\mtt{;}
+					      \kw{with} & \tm{l_m}^{\ptrn{}} & \tm{r_m}^{\ptrn{}}\mtt{;}
 				      \end{array}
 				      % \quad (j = 1 \ldots m)
 			      \end{array}$$
@@ -386,17 +412,17 @@ commands thus:
 		      where $τ^★$ encodes the premises and conclusion
 		      of the rule, as per \autoref{sec:eo-sig}.
 		      %
-		      The $\eo{quote}$ types are eliminated by
+		      The $\lpo{quote}$ types are eliminated by
 		      declaring an auxiliary symbol $s^★$ that
 		      rewrites to $\tm{τ^★}$ when applied to
 		      terms matching the argument patterns given by
 		      $\tm{t_1}^{\ptrn{}}\ldots\tm{t_n}^{\ptrn{}}$:
 		      $$
 			      \begin{array}[t]{l}
-				      \mtt{sequential}\ \mtt{symbol}\ \bar{s}^★\
+				      \kw{symbol}\ \bar{s}^★\
 				      \vec σ : \tm{τ_1} → \ldots → \tm{τ_n} → \TYPE \mtt{;}
 				      \\[1mm]
-				      \mtt{rule}\
+				      \kw{rule}\
 				      \bar s^★\,\tm{t_1}^{\ptrn{}}\,\ldots\,\tm{t_n}^{\ptrn{}}
 				      ↪ \tm{τ^★}^{\ptrn{}}
 			      \end{array}
@@ -404,7 +430,7 @@ commands thus:
 		      %
 		      Finally, $s$ is declared as follows:
 		      $$
-			      \mtt{constant}\ \mtt{symbol}\ \bar s\
+			      \md{constant}\ \kw{symbol}\ \bar s\
 			      (α_1 : \tm{τ_1})
 			      \ldots
 			      (α_n : \tm{τ_n})\, :
@@ -412,52 +438,127 @@ commands thus:
 		      $$
 	\end{enumerate}
 \end{definition}
-%
-We now define $\cmd{⋅}$ on proof commands.
 
-\begin{definition}[Proof command translation]\label{def:cmd-prf}
+\begin{figure}[t!]
+	\begin{lpbox}
+		\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-constants.lp}%
+		\listsep
+		\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-modus-ponens.lp}%
+		\listsep
+		\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-rule-aux.lp}%
+	\end{lpbox}
+	\caption{LambdaPi output for the declarations
+		in \autoref{fig:cpc-rules}.
+		See \autoref{ex:cmd}.}
+	\label{fig:lp-cmd}
+\end{figure}
+
+\begin{example}\label{ex:cmd}
+	\Autoref{fig:lp-cmd} shows $\cmd{δ}$ applied
+	to the declarations in \autoref{fig:cpc-rules}.
+	%
+	The polymorphic equality $\ev{=}$ translates
+	by case~1: its implicit parameter becomes
+	an implicit LambdaPi binder (top).
+	%
+	Since $\ev{or}$ has attribute
+	$\rcn{\false}$ (\autoref{ex:elab}),
+	case~1 also produces a rewrite rule
+	for the nil terminator.
+	%
+	The $\ev{modus\_ponens}$ rule has no $\attr{args}$,
+	so case~1 applies directly:
+	its derived type (\autoref{ex:eo-rules}) translates
+	to the declaration in the middle section.
+	%
+	The $\ev{cnf\_implies\_pos}$ rule has
+	$\attr{args}\epar{\eapp{\ev{=>}}{\ev{F1}\ \ev{F2}}}$,
+	a compound argument pattern.
+	By case~4, an auxiliary symbol
+	is declared whose rewrite rule matches
+	the argument pattern
+	and rewrites to $\lpo{Proof}\ φ$
+	where $φ ≔ \tm{\eapp{\ev{or}}
+			{\eapp{\ev{not}}{\eapp{\ev{=>}}{\ev{F1}\ \ev{F2}}}
+				\ \eapp{\ev{not}}{\ev{F1}}\ \ev{F2}}}$;
+	the rule itself takes the argument
+	as an explicit parameter
+	whose type is given by the auxiliary (bottom).
+\end{example}
+
+% ----------------------------------------------------------
+\subsubsection{Translating Proofs.}
+% ----------------------------------------------------------
+
+\begin{definition}\label{def:cmd-prf}
 	%
 	Let $π$ be a proof command. Then $\cmd{π}$
-	is the list of $\lambdapi$ commands such that:
+	is the list of LambdaPi commands such that:
 	%
 	\begin{enumerate}\itemsep6pt
-		\item If $π$ is an assumption
-		      ($\kw{assume}$ or $\kw{assume-push}$),
-		      then $π ⊢ s : \eapp{\mtt{Proof}}{φ}$ and:
+		\item If $π$ is an assumption,
+		      then $π ⊢ s : \eapp{\mtt{Proof}}{φ}$:
 		      %
-		      $$\cmd{π}\ ≔\ \mtt{symbol}\ \bar s :
-			      \eo{Proof}\,⋅\,\tm{φ}\mtt{;}$$
-		      %
-		      For $\kw{assume-push}$, the formula $φ$ is
-		      additionally pushed onto an assumption stack.
+		      $$\md{constant}\ \kw{symbol}\ \bar s :
+			      \lpo{Proof}\ \tm{φ}\mtt{;}$$
 
-		\item If $π$ is a step
-		      ($\kw{step}$ or $\kw{step-pop}$),
+		\item If $π$ is a step,
 		      then $π ⊢ s : \eapp{\mtt{Proof}}{φ}$
 		      and $π ⊢ s ≔ \eapp{r}{\plur t m\ \plur p n}$:
 		      %
 		      \begin{align*}
-			      \cmd{π}\ ≔\  &
-			      \mtt{symbol}\ \bar s
-			      ≔ \appldots{\bar r}{\tm{t_1}}
-			      {\tm{t_m}\ \bar p_1\ \ldots\ \bar p_n}\mtt{;}
+			       & \kw{symbol}\ \bar s
+			      ≔ \bar r\ \tm{t_1}\ \ldots\ \tm{t_m}\
+			      \bar p_1\ \ldots\ \bar p_n\mtt{;}
 			      \\
-			                   & \mtt{assert}\ ⊢\ \bar s :
-			      \eo{Proof}\,⋅\,\tm{φ}\mtt{;}
+			       & \kw{assert}\ ⊢\ \bar s :
+			      \lpo{Proof}\ \tm{φ}\mtt{;}
 		      \end{align*}
 		      %
 		      The body applies rule $\bar r$ to its
 		      arguments then premises.
 		      %
 		      The type is checked separately via
-		      $\mtt{assert}$, which uses $\lambdapi$'s
+		      $\kw{assert}$, which uses LambdaPi's
 		      type inference to fill implicit arguments.
-		      %
-		      For $\kw{step-pop}$, the most recently pushed
-		      assumption is popped and prepended to the
-		      arguments.
 	\end{enumerate}
 \end{definition}
 
+\begin{figure}[t!]
+	\eofile{listings/proof.eo}%
+	\vspace{-\medskipamount}%
+	\lpfile{listings/proof.lp}%
+	\caption{Eunoia proof script (top)
+		and LambdaPi output (bottom).
+		See \autoref{ex:proof}.}
+	\label{fig:proof}
+\end{figure}
+
+\begin{example}\label{ex:proof}
+	\Autoref{fig:proof} shows an excerpt of a
+	proof script from \texttt{QF\_UF}
+	that derives $\false$ by showing
+	$\eapp{\ev =}{\ev{x0}\ \ev{x0}}$
+	is trivially true (\ev{eq-refl}),
+	then propagating this through
+	negation to reach a contradiction
+	(\ev{eq\_resolve}).
+	%
+	The preamble declarations translate
+	by \autoref{def:cmd}: $\ev{U}$ and $\ev{x0}$
+	become constants (case~1), while the
+	$\kw{define}$s $\ev{@t1}$ and $\ev{@t2}$
+	become symbol definitions (case~2).
+	%
+	By case~1 of \autoref{def:cmd-prf},
+	the assumption $\ev{@p1}$
+	becomes a $\md{constant}$
+	symbol of type $\lpo{Proof}\ \tm{φ}$.
+	%
+	By case~2, each step is defined
+	by applying the rule to its arguments
+	and premises; the $\kw{assert}$ that follows
+	uses type inference to verify the conclusion.
+\end{example}
 
 \end{document}

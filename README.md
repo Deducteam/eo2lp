@@ -2,7 +2,7 @@
 
 Translate proof signatures and scripts from [Eunoia](https://github.com/cvc5/ethos/blob/main/user_manual.md) (cvc5's proof language) to [LambdaPi](https://github.com/Deducteam/lambdapi).
 
-Translates CPC-MINI (a subset of cvc5's Cooperating Proof Calculus covering theories, inference rules, and side-condition programs) with all generated files passing LambdaPi type checking including subject reduction verification. Also translates cvc5 proof scripts from multiple SMT-LIB fragments.
+Translates CPC-MINI (a subset of cvc5's Cooperating Proof Calculus covering 22 modules of theories, inference rules, and side-condition programs) with all generated files passing LambdaPi type checking including subject reduction verification. Also translates cvc5 proof scripts, with 1,002 of 1,036 proofs (97%) across 14 SMT-LIB fragments passing LambdaPi type checking.
 
 ## Building
 
@@ -66,7 +66,7 @@ cd _build/cpc && lambdapi check Cpc.lp
 dune test
 ```
 
-The test suite covers parsing, Prelude.lp rewrite rule verification, and signature graph construction.
+The test suite covers parsing, Prelude.lp rewrite rule verification, signature graph construction, and full CPC module translation with LambdaPi type checking.
 
 ## How It Works
 
@@ -100,6 +100,21 @@ CPC-MINI is a subset of cvc5's Cooperating Proof Calculus. eo2lp translates:
 
 All modules pass `lambdapi check` with full subject reduction verification.
 
+An optional `expert/` directory (enabled with `--expert`) contains additional theory and rule modules for advanced fragments (separation logic, bags, floating points, strings, sequences, datatypes, finite fields, bitvectors). These are not yet fully supported by eo2lp.
+
+## Benchmarks
+
+Proof benchmarks sample up to 100 unsat problems per SMT-LIB fragment, translated with eo2lp and verified with `lambdapi check` (including subject reduction). Results across 14 fragments:
+
+| Theory Group | Fragments | Pass Rate |
+|-------------|-----------|-----------|
+| **Equality** | QF_UF (99%), UF (100%) | 99--100% |
+| **Arrays** | QF_AX, QF_ALIA, QF_AUFLIA, ALIA, AUFLIA | 100% |
+| **Linear Integer Arithmetic** | QF_IDL, QF_LIA, LIA, QF_UFIDL, QF_UFLIA, UFIDL, UFLIA | 75--100% |
+| **Overall** | 1,036 proofs | **97%** (1,002 pass) |
+
+Average checking time: 0.47s per proof.
+
 ## Project Structure
 
 ```
@@ -123,6 +138,7 @@ eo2lp/
     test_parsing.ml            Parser unit tests
     test_encoding.ml           Prelude rewrite rule verification
     test_sig_graph.ml          Dependency graph tests
+    test_cpc.ml                Full CPC module translation + lambdapi check
     test_util.ml               Shared test infrastructure
   scripts/
     bench.sh                   Parallel benchmark across fragments
@@ -131,11 +147,13 @@ eo2lp/
     diag.sh                    Diagnose a single proof
     gen-results-table.sh       Generate LaTeX table from CSV
     gen-proofs.sh              Generate proofs from SMT2 benchmarks
+    gather-round2.sh           Gather additional proofs for second round
     setup-cpc.sh               Fetch CPC source from cvc5 fork
     diff-cpc.sh                Compare local CPC with upstream
   cpc/                         CPC-MINI source files (.eo)
+    expert/                    Optional expert modules (--expert flag)
   proofs/                      Proof benchmarks by SMT-LIB fragment
-  tex/                         IJCAR paper sources
+  tex/                         IJCAR 2026 paper sources
   _build/cpc/                  Generated LambdaPi package (.lp)
 ```
 

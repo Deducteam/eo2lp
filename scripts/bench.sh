@@ -18,6 +18,7 @@ export LC_NUMERIC=C
 PROOFS_DIR=""
 RESULTS_FILE="bench_results.csv"
 TIMEOUT=5
+CHECK_TIMEOUT=0
 JOBS=0  # 0 = nproc
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +39,8 @@ Arguments:
 
 Options:
   --results FILE           Output CSV file (default: $RESULTS_FILE)
-  --timeout N              Per-proof timeout in seconds (default: $TIMEOUT)
+  --timeout N              Encoding timeout per proof in seconds (default: $TIMEOUT)
+  --check-timeout N        Lambdapi check timeout per proof in seconds (default: same as --timeout)
   --jobs N                 Parallel jobs, 0=nproc (default: $JOBS)
   -h, --help               Show this help
 EOF
@@ -48,6 +50,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --results)  RESULTS_FILE="$2"; shift 2 ;;
     --timeout)  TIMEOUT="$2"; shift 2 ;;
+    --check-timeout) CHECK_TIMEOUT="$2"; shift 2 ;;
     --jobs)     JOBS="$2"; shift 2 ;;
     -h|--help)  print_usage; exit 0 ;;
     -*)         echo "Unknown option: $1" >&2; print_usage; exit 1 ;;
@@ -153,6 +156,7 @@ run_one() {
     --check \
     --bench \
     --timeout "$TIMEOUT" \
+    $([ "$CHECK_TIMEOUT" -gt 0 ] && echo "--check-timeout $CHECK_TIMEOUT") \
     --results "$frag_csv" \
     --no-color \
     -v error \
@@ -189,7 +193,7 @@ run_one() {
   echo "$line" > "$WORK_DIR/${frag}.summary"
 }
 export -f run_one
-export PROOFS_DIR WORK_DIR PROJECT_DIR TIMEOUT EO2LP
+export PROOFS_DIR WORK_DIR PROJECT_DIR TIMEOUT CHECK_TIMEOUT EO2LP
 export RED GREEN YELLOW DIM BOLD RESET
 
 # ---------------------------------------------------------------------------

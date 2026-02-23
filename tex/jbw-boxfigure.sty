@@ -12,50 +12,54 @@
 %   \usepackage{boxfigure}
 %   \renewcommand{\boxfigurebegincmd}{...}
 
-\newcommand{\boxfigurebegincmd}{\small}
+\newcommand{\boxfigurebegincmd}{%
+	\small
+	\abovedisplayskip=0pt \abovedisplayshortskip=0pt
+	\belowdisplayskip=0pt \belowdisplayshortskip=0pt
+}
 
 \newenvironment{pagewideframe}
-  {%
-   \hbox\bgroup
-     \newdimen{\pagewideframewidth}%
-     \setlength{\pagewideframewidth}{\hsize}%
-     \addtolength{\pagewideframewidth}{-2\fboxsep}%
-     \addtolength{\pagewideframewidth}{-2\fboxrule}%
-     \setbox0=\hbox\bgroup
-       \begin{minipage}[t]{\pagewideframewidth}%
-          \setlength{\parindent}{0pt}%
-          \setlength{\parskip}{4pt plus 2pt minus 1pt}%
-          \ignorespaces
-  }{%
-          % Without the following \hrule, if there are not any
-          % paragraph lines (e.g., it is a single displayed equation),
-          % then the minipage vbox will have the width of the widest
-          % thing which may cause the boxed figure to look funny.  The
-          % \hrule must be at the end rather than the beginning of the
-          % minipage because otherwise extra \parskip glue will be
-          % inserted before the first real paragraph.
-          \hrule width \hsize height 0pt depth 0pt%
-       \end{minipage}%
-     \egroup
-     %\showboxdepth=9999\relax
-     %\showboxbreadth=9999\relax
-     %\showbox0\relax
-     \fbox{\unhbox0}%
-   \egroup
-  }
+{%
+	\hbox\bgroup
+	\newdimen{\pagewideframewidth}%
+	\setlength{\pagewideframewidth}{\hsize}%
+	\addtolength{\pagewideframewidth}{-2\fboxsep}%
+	\addtolength{\pagewideframewidth}{-2\fboxrule}%
+	\setbox0=\hbox\bgroup
+	\begin{minipage}[t]{\pagewideframewidth}%
+		\setlength{\parindent}{0pt}%
+		\setlength{\parskip}{4pt plus 2pt minus 1pt}%
+		\ignorespaces
+		}{%
+		% Without the following \hrule, if there are not any
+		% paragraph lines (e.g., it is a single displayed equation),
+		% then the minipage vbox will have the width of the widest
+		% thing which may cause the boxed figure to look funny.  The
+		% \hrule must be at the end rather than the beginning of the
+		% minipage because otherwise extra \parskip glue will be
+		% inserted before the first real paragraph.
+		\hrule width \hsize height 0pt depth 0pt%
+	\end{minipage}%
+	\egroup
+	%\showboxdepth=9999\relax
+	%\showboxbreadth=9999\relax
+	%\showbox0\relax
+	\fcolorbox{eoBoxFr}{eoBoxBg}{\unhbox0}%
+	\egroup
+}
 
 \newenvironment*{boxfigure}[3][htbp]%
-  {%
-    \begin{figure*}[#1]%
-      \newcommand{\boxfigurelabel}{#2}%
-      \newcommand{\boxfigurecaption}{#3}%
-      \begin{pagewideframe}%
-        \boxfigurebegincmd
-  }{%
-      \end{pagewideframe}%
-      \caption{\boxfigurecaption}\label{\boxfigurelabel}%
-    \end{figure*}%
-  }%
+{%
+	\begin{figure*}[#1]%
+		\newcommand{\boxfigurelabel}{#2}%
+		\newcommand{\boxfigurecaption}{#3}%
+		\begin{pagewideframe}%
+			\boxfigurebegincmd
+			}{%
+		\end{pagewideframe}%
+		\caption{\boxfigurecaption}\label{\boxfigurelabel}%
+	\end{figure*}%
+}%
 
 %\newenvironment*{boxfigure}[3][htbp]%
 %  {%
@@ -89,13 +93,13 @@
 \newcommand{\boxfigurefudgefactor}[1]{\ \par\vskip-#1}
 
 \newcommand{\pagewideframehline}
-  {\break
-   \hbox
-     {\setlength{\dimen0}{\hsize}%
-      \addtolength{\dimen0}{2\fboxsep}%
-      \kern-\fboxsep
-      \vrule width \dimen0 height \fboxrule depth 0pt%
-      \kern-\fboxsep}%
-   \break}%
+{\par\vspace{4pt}%
+	\hbox
+	{\setlength{\dimen0}{\hsize}%
+		\addtolength{\dimen0}{2\fboxsep}%
+		\kern-\fboxsep
+		{\color{eoBoxFr}\vrule width \dimen0 height \fboxrule depth 0pt}%
+		\kern-\fboxsep}%
+	\vspace{4pt}\par}%
 
 \let\boxfigurehline=\pagewideframehline

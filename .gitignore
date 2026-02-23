@@ -16,7 +16,8 @@ cpc-source/
 cpc-upstream
 cpc-mini/
 proofs/*
-
+proofs-remaining/*
+*.csv
 # Generated output directories
 output.lp/
 test.lp/

@@ -11,6 +11,7 @@
 \newcommand{\mscr}{\mathscr}
 \newcommand{\mtt}[1]{{\color{eoConst}{\texttt{#1}}}}% types/constants: Type, Bool, true, false, Proof
 \newcommand{\kw}[1]{{\color{eoKeyword}{\texttt{\textbf{#1}}}}}% commands: declare-const, define, program, ...
+\newcommand{\md}[1]{{\color{eoAttr}{\texttt{#1}}}}% modifiers: constant, sequential, opaque, injective
 \newcommand{\ev}[1]{{\color{eoFgMath}{\texttt{#1}}}}
 \newcommand{\equo}{{\color{eoString}{\texttt{"}}}}% string quote
 \newcommand{\estr}[1]{\equo{#1}\equo}% string literals
@@ -18,23 +19,24 @@
 \newcommand{\cpc}{\msf{CPC}}
 \newcommand{\tsm}[1]{{\small\text{#1}}}
 
-\newcommand{\ptn}[1]{{\color{MaterialPurple500}{\texttt{#1}}}}
-\newcommand{\mcomment}[1]{{\color{MaterialIndigo500}{\text{#1}}}}
+\newcommand{\ptn}[1]{{\color{eoConst}{\texttt{#1}}}}
+\newcommand{\mcomment}[1]{{\color{eoComment}{\text{#1}}}}
 \newcommand{\wrapp}[4]{{\color{#1}{#2}}{#4}{\color{#1}{#3}}}
-\newcommand{\prn}[1]{\wrapp{MaterialGrey600}{\lparen}{\rparen}{#1}}
+\newcommand{\prn}[1]{\wrapp{eoPunct}{\lparen}{\rparen}{#1}}
 
 \newcommand{\cvc}[1]{\textsc{cvc{#1}}}
 \newcommand{\verit}{\textsc{veriT}}
 \newcommand{\eunoia}{\textsc{Eunoia}}
 \newcommand{\smtlib}{\textsc{smt-lib}}
+\newcommand{\pnc}{{\color{eoPunct}}}
 % ----- abstract syntax ----------
 % plurality, binding
 \newcommand{\plur}[2]{{#1}_{1}\ldots{#1}_{#2}}
 \newcommand{\plurcomma}[2]{{#1}_{1}, \ldots, {#1}_{#2}}
-\newcommand{\maybe}[1]{\wrapp{MaterialGrey600}{\langle}{\rangle_?}{#1}}
-\newcommand{\many}[1]{\wrapp{MaterialGrey600}{\langle}{\rangle_+}{#1}}
-\newcommand{\any}[1]{\wrapp{MaterialGrey600}{\langle}{\rangle_∗}{#1}}
-\newcommand{\some}[1]{\wrapp{MaterialGrey600}{\langle}{\rangle}{#1}}
+\newcommand{\maybe}[1]{\wrapp{eoPunct}{\langle}{\rangle_?}{#1}}
+\newcommand{\many}[1]{\wrapp{eoPunct}{\langle}{\rangle_+}{#1}}
+\newcommand{\any}[1]{\wrapp{eoPunct}{\langle}{\rangle_∗}{#1}}
+\newcommand{\some}[1]{\wrapp{eoPunct}{\langle}{\rangle}{#1}}
 \newcommand{\binddot}[3]{{#1\,#2.\,#3}}
 
 % binders
@@ -45,12 +47,10 @@
 \newcommand{\lett}[2]{\msf{let}\ \prn{#1}\,\msf{in}\ #2}
 
 % applications
-\newcommand{\appSym}{\cdot}
-\newcommand{\app}[2]{{#1}\appSym{#2}}
+\newcommand{\app}[2]{{#1}\,{#2}}
 \newcommand{\apptwo}[3]{#1\,#2\,#3}
 \newcommand{\appthree}[4]{#1\,#2\,#3\,#4}
 \newcommand{\appfour}[5]{#1\,#2\,#3\,#4\,#5}
-\newcommand{\appldots}[3]{\prn{\prn{\app{#1}{#2}}\,\ldots\,⋅\,{#3}}}
 
 % universes
 \newcommand{\PROP}{\mtt{PROP}}
@@ -63,10 +63,12 @@
 % eunoia symbols
 \newcommand{\epar}[1]{\wrapp{eoPunct}{\texttt{(}}{\texttt{)}}{#1}}
 \newcommand{\eapp}[2]{\epar{#1\ #2}}
+\newcommand{\eho}[2]{\eapp{\mtt{\_}}{#1\ #2}}% (_ t1 t2)
 \newcommand{\earr}[1]{\epar{\ev{->}\ #1}}
 \newcommand{\eprf}[1]{\epar{\mtt{Proof}\ #1}}
 \newcommand{\ecase}[2]{\epar{#1\ #2}}
-\newcommand{\eo}[1]{{\color{eoBuiltin}{\texttt{eo}}}{\color{eoPunct}{∷}}{\ev{#1}}}% builtins
+\newcommand{\eo}[1]{{\color{eoBuiltin}{\texttt{eo}}}{\color{eoPunct}{∷}}{\ev{#1}}}% builtins (Eunoia)
+\newcommand{\lpo}[1]{{\color{eoBuiltin}{\texttt{eo}}}{\color{eoPunct}{.}}{\ev{#1}}}% builtins (LP)
 \newcommand{\eotype}{\mtt{Type}}
 \newcommand{\eoreqs}[3]{\eapp{\eo{requires}}{#1\ #2\ #3}}
 \newcommand{\eoquote}[1]{\eapp{\eo{quote}}{#1}}
@@ -110,7 +112,7 @@
 \newcommand{\eoBuiltinFig}{
 	\begin{array}[t]{r@{\ }l@{\ }l@{\quad}l}
 		β & {⦂}
-		  & \eo{ite}\ ∣\ \eo{eq}\ ∣\ \eo{requires}\ ∣\ \eo{typeof}\ ∣\ \eo{var}\ ∣\ \ldots
+		  & \eo{eq}\ ∣\ \eo{requires}\ ∣\ \eo{quote}\ ∣\ \eo{var}\ ∣\ \ldots
 		  & \mcomment{(core)}
 		\\
 		  & {∣}
@@ -146,16 +148,15 @@
 \newcommand{\eoTermSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l@{\qquad}r@{\ }l@{\quad}l}
 		%!----------------------------------------!%
-		t & {⦂}\ s \mid ℓ \mid \eapp{s}{\vec t} \mid \eapp{s}{\epar{\vec{ρ}}\ t} & \mcomment{(terms)}      &
-		ρ & {⦂}\ \epar{s\ t\ \maybe{ν}}                                          & \mcomment{(parameters)}   \\[1mm]
-		ℓ & {⦂}\ \msf{int}(n) ∣ \msf{str}(s)                                     & \mcomment{(literals)}   &
-		c & {⦂}\ \epar{t\ t'}                                                    & \mcomment{(cases)}        \\[1mm]
+		t & {⦂}\ s \mid ℓ \mid \eapp{s}{\vec t} \mid \eapp{s}{\epar{\vec{ρ}}\ t} & \mcomment{(terms)}           &
+		ρ & {⦂}\ \epar{s\ t\ \maybe{ν}}                                          & \mcomment{(parameters)}        \\[1mm]
+		ℓ & {⦂}\ \maybe{\ev{-}}n ∣ \maybe{\ev{-}}{n\ev{/}m}  ∣ \estr{s}          & \mcomment{(literals)}        &
+		ν & {⦂}\ \attr{implicit} \mid \attr{list}                                & \mcomment{(prm. attributes)}   \\[1mm]
 	\end{array}
 }
 
 \newcommand{\eoAttrSyntax}{
-	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}l}
-		ν & {⦂} & \attr{implicit} \mid \attr{list}               & \mcomment{(prm. attributes)}   \\
+	\begin{array}[t]{r@{\ }l@{\ }l@{\quad}l}
 		α & {⦂} & \attr{right-assoc} ∣ \attr{right-assoc-nil}\ t & \mcomment{(const. attributes)} \\
 		  & {∣} & \attr{left-assoc} ∣ \attr{left-assoc-nil}\ t                                    \\
 		  & {∣} & \attr{chainable}\ s ∣ \attr{pairwise}\ s                                        \\
@@ -188,7 +189,9 @@
 			    {\color{eoPunct}{\texttt{)}}}                                                  \\
 			    {∣} & \epar{\kw{include}\ μ}
 		    \end{array}
-		  & \mcomment{(std. commands)}
+		  & \mcomment{(std. commands)}                                                                      \\[2mm]
+		c & {⦂}\ \epar{t\ t'}
+		  & \mcomment{(cases)}
 	\end{array}
 }
 
@@ -213,7 +216,7 @@
 %
 %
 % --- macros for `lp.tex` ------------------------------
-\newcommand{\esc}[1]{\wrapp{MaterialGrey600}{⦃}{⦄}{#1}}
+\newcommand{\esc}[1]{\wrapp{eoPunct}{⦃}{⦄}{#1}}
 \newcommand{\var}[1]{\msf{v}_{#1}}
 \newcommand{\lbl}[2]{\rname{#1}\quad{#2}}
 \newcommand{\lpTermSyntax}{
@@ -329,7 +332,6 @@
 
 
 % --- concrete syntax for lambdapi
-\newcommand{\lambdapi}{\textsc{LambdaPi}}
 \newcommand{\llam}{\binddot{\msf{λ}}}
 \newcommand{\ppii}{\binddot{\msf{Π}}}
 
@@ -339,8 +341,7 @@
 \newcommand{\xsym}[1]{\mtt{@}{#1}}
 \newcommand{\meta}[1]{\ptn{?{#1}}}
 
-\newcommand{\ptrn}[1]{\ptn{\$#1}}
-\newcommand{\pv}{\mbf{pvars}}
+\newcommand{\ptrn}[1]{\ptn{\${#1}}}
 
 \newcommand{\imp}[1]{[#1]}
 \newcommand{\xpl}[1]{\left(#1\right)}
@@ -356,7 +357,7 @@
 \newcommand{\lpPatternSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r@{\qquad}r@{\ }c@{\ }l@{\quad}r}
 		m & {⦂}
-		  & \mtt{constant} ∣ \mtt{sequential}
+		  & \md{constant} ∣ \md{sequential}
 		  & \mcomment{(modifiers)}
 		  &
 		θ & {⦂}
@@ -364,7 +365,7 @@
 		  & \mcomment{(patterns)}
 		\\[1mm]
 		ρ & {⦂}
-		  & \xpl{s : t} ∣ \imp{s : t}
+		  & \xpl{s \pnc: t} ∣ \imp{s \pnc: t}
 		  & \mcomment{(parameters)}
 		  &
 		% ------------------------------------- %
@@ -378,14 +379,17 @@
 \newcommand{\lpConcreteSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r}
 		c & {⦂}
-		  & \maybe{m}\, \mtt{symbol}\ s \ \any{ρ} \,{: t} \ \maybe{≔ t'};
+		  & \maybe{m}\, \kw{symbol}\ s \ \any{ρ} \,{\pnc : t} \ \maybe{≔ t'}\pnc;
 		  & \mcomment{(commands)}
 		\\
 		  & {∣}
-		  & \mtt{rule}\ r\ \any{\mtt{with}\ r'};
+		  & \kw{rule}\ r\ \any{\kw{with}\ r'}\pnc;
 		\\
 		  & {∣}
-		  & \mtt{require}\,\mtt{open}\,\many{μ};
+		  & \kw{assert}\ ⊢\ t \pnc: t'\pnc;
+		\\
+		  & {∣}
+		  & \kw{require}\,\kw{open}\,\many{μ}\pnc;
 	\end{array}}
 
 % \newcommand{\symb}[1]{\mtt{symbol}\ {#1};}

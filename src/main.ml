@@ -23,6 +23,7 @@ type config = {
   proofs_dir     : string option;
   check          : bool;
   timeout        : int;
+  check_timeout  : int;
   log_level      : LP.log_level;
   no_color       : bool;
   include_expert : bool;
@@ -37,6 +38,7 @@ let default_config = {
   proofs_dir     = None;
   check          = false;
   timeout        = 0;
+  check_timeout  = 0;
   log_level      = LP.Silent;
   no_color       = false;
   include_expert = false;
@@ -63,7 +65,9 @@ let speclist = [
   ("--check", Arg.Unit (fun () -> config := { !config with check = true }),
    " Run lambdapi check on generated .lp files");
   ("--timeout", Arg.Int (fun n -> config := { !config with timeout = n }),
-   "<sec> Timeout per proof in seconds (default: 0 = no timeout)");
+   "<sec> Encoding timeout per proof in seconds (default: 0 = no timeout)");
+  ("--check-timeout", Arg.Int (fun n -> config := { !config with check_timeout = n }),
+   "<sec> Lambdapi check timeout per proof in seconds (default: 0 = no timeout)");
   ("--no-color", Arg.Unit (fun () -> config := { !config with no_color = true }),
    " Disable colored output");
   ("--expert", Arg.Unit (fun () -> config := { !config with include_expert = true }),
@@ -672,7 +676,9 @@ let run () =
         (* Check proofs (if --check) *)
         let proof_results =
           if !config.check then begin
-            let timeout = !config.timeout in
+            let timeout =
+              if !config.check_timeout > 0 then !config.check_timeout
+              else !config.timeout in
             let t6 = Unix.gettimeofday () in
             Printf.printf "checking %d proofs... " n_proofs;
             flush stdout;
