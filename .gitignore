@@ -14,9 +14,8 @@ notes/
 # CPC sources (fetched via scripts/setup-cpc.sh)
 cpc-source/
 cpc-upstream
-cpc-mini/
 proofs/*
-proofs-remaining/*
+proofs_remaining/*
 *.csv
 # Generated output directories
 output.lp/
