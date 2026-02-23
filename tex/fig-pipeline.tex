@@ -1,0 +1,71 @@
+\begin{tikzpicture}[scale=1.05, every node/.style={transform shape},
+		item/.style={draw, rounded corners=3pt, font=\scriptsize\ttfamily,
+				align=left, inner sep=4pt, minimum height=0.6cm,
+				minimum width=2.0cm, text=eoFgMath},
+		frag/.style={draw, rounded corners=2pt, font=\scriptsize\ttfamily,
+				inner sep=2pt, minimum height=0.55cm,
+				minimum width=1.05cm, text=eoFgMath},
+		arr/.style={->, thick, >=stealth, color=eoPunct},
+		lbl/.style={font=\scriptsize, text=eoFgMath},
+		box/.style={dashed, thick, rounded corners=6pt, inner sep=6pt}]
+	% === Anchor grid: 3 columns, uniform spacing ===
+	\def\colA{0}
+	\def\colB{3.5}
+	\def\colC{7}
+	\def\lblY{1.55}
+	% Label coordinates
+	\coordinate (lblA) at (\colA,\lblY);
+	\coordinate (lblB) at (\colB,\lblY);
+	\coordinate (lblC) at (\colC,\lblY);
+	% === Top-row alignment ===
+	\def\topRowY{1.05}
+	\def\botRowY{-0.85}
+	% === SMT-LIB box (blue) ===
+	% 3 rows evenly spaced using anchor=north, uniform gap
+	\def\fragGap{0.65}
+	\pgfmathsetmacro{\fragRowB}{\topRowY - \fragGap}
+	\pgfmathsetmacro{\fragRowC}{\topRowY - 2*\fragGap}
+	\node[frag, draw=eoAttr, anchor=north] (f1) at (\colA-0.58,\topRowY) {QF\_UF};
+	\node[frag, draw=eoAttr, anchor=north] (f2) at (\colA+0.58,\topRowY) {QF\_LIA};
+	\node[frag, draw=eoAttr, anchor=north] (f3) at (\colA-0.58,\fragRowB) {UFLIA};
+	\node[frag, draw=eoAttr, anchor=north] (f4) at (\colA+0.58,\fragRowB) {ALIA};
+	\node[frag, draw=eoAttr, anchor=north] (f5) at (\colA-0.58,\fragRowC) {QF\_NIA};
+	\node[frag, draw=eoAttr, anchor=north] (f6) at (\colA+0.58,\fragRowC) {UF};
+	% dots at center of where 4th row would be
+	\pgfmathsetmacro{\fragRowD}{\topRowY - 3*\fragGap}
+	\pgfmathsetmacro{\dotsY}{\fragRowD - 0.28}
+	\node[lbl, text=eoAttr] (dots) at (\colA,\dotsY) {$\ldots$};
+	\node[box, draw=eoAttr, fit=(f1)(f2)(f5)(f6)(dots)] (smtbox) {};
+	\node[lbl, text=eoAttr] at (lblA) {SMT-LIB};
+	% === EO box (teal) ===
+	\node[item, draw=eoBuiltin, anchor=north] (cpc) at (\colB,\topRowY)
+	{cpc/%
+		\\~~theories/\\~~rules/\\~~programs/};
+	\node[item, draw=eoBuiltin, anchor=north] (prf) at (\colB,\botRowY) {.prf.eo};
+	\node[box, draw=eoBuiltin, fit=(cpc)(prf)] (eobox) {};
+	\node[lbl, text=eoBuiltin] at (lblB) {Eunoia};
+	% === SMT -> EO: cvc5 ===
+	\draw[arr] (smtbox) -- node[above, font=\scriptsize\ttfamily, text=eoFgMath] {cvc5} (prf);
+	% === cpc -> prf.eo (dependency) ===
+	\draw[arr, dashed] (cpc) -- (prf);
+	% === EO -> check (ethos) ===
+	\node[lbl] (chk1) at (\colB,-2.3) {{\color{eoBuiltin}$\checkmark$}/{\color{eoKeyword}$\times$}};
+	\draw[arr] (eobox) -- node[right, font=\scriptsize\ttfamily, text=eoFgMath] {ethos} (chk1);
+	% === LP box (purple) ===
+	\node[item, draw=eoConst, anchor=north] (cpclp) at (\colC,\topRowY)
+	{cpc/%
+		\\~~Prelude.lp\\~~theories/\\~~rules/\\~~programs/};
+	\node[item, draw=eoConst, anchor=north] (prflp) at (\colC,\botRowY) {.prf.lp};
+	\node[box, draw=eoConst, fit=(cpclp)(prflp)] (lpbox) {};
+	\node[lbl, text=eoConst] at (lblC) {LambdaPi};
+	% === cpc-lp -> prf.lp (dependency) ===
+	\draw[arr, dashed] (cpclp) -- (prflp);
+	% === EO -> LP: eo2lp ===
+	\draw[arr] (cpc.east |- cpc.north east) ++(0,-0.35) coordinate (eo2lp-l)
+	-- node[above, font=\scriptsize\ttfamily, text=eoFgMath] {eo2lp}
+	(cpclp.west |- eo2lp-l);
+	\draw[arr] (prf.east) -- node[above, font=\scriptsize\ttfamily, text=eoFgMath] {eo2lp} (prflp.west);
+	% === LP -> check (lambdapi) ===
+	\node[lbl] (chk2) at (\colC,-2.3) {{\color{eoBuiltin}$\checkmark$}/{\color{eoKeyword}$\times$}};
+	\draw[arr] (lpbox) -- node[right, font=\scriptsize\ttfamily, text=eoFgMath] {lambdapi check} (chk2);
+\end{tikzpicture}

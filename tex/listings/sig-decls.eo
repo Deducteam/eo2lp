@@ -1,0 +1,17 @@
+(declare-const Int Type)
+(declare-const BitVec (-> Int Type))
+(declare-const Array (-> Type Type Type))
+...
+(declare-const or (-> Bool Bool Bool) :right-assoc-nil false)
+(declare-parameterized-const =
+  ((A Type :implicit))
+  (-> A A Bool) :chainable and)
+...
+(define $sgn ((T Type :implicit) (x T))
+  (eo::ite (eo::is_neg x) -1
+    (eo::ite (eo::is_neg (eo::neg x)) 1 0)))
+...
+(program $mk_symm ((T Type) (t1 T) (t2 T))
+  :signature (Bool) Bool
+  ((($mk_symm (= t1 t2))       (= t2 t1))
+   (($mk_symm (not (= t1 t2))) (not (= t2 t1)))))

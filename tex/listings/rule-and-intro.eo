@@ -1,0 +1,3 @@
+(declare-rule and_intro ((F Bool))
+  :premise-list F and
+  :conclusion F)

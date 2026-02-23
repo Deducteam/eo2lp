@@ -1,0 +1,3 @@
+(declare-rule cnf_implies_pos ((F1 Bool) (F2 Bool))
+  :args ((=> F1 F2))
+  :conclusion (or (not (=> F1 F2)) (not F1) F2))

@@ -1,0 +1,8 @@
+		constant symbol rd2 : (*@$\msf{τ}$@*) Bool;
+		constant symbol {|@p2|} : Proof rd2;
+		constant symbol {|@p7|}
+		: Proof (eo::app not rd2);
+		symbol {|@p9|} (*@$≔$@*)
+		contra ({|@p2|}) ({|@p7|});
+		assert (*@$⊢$@*) {|@p9|}
+		: Proof false;

@@ -1,0 +1,5 @@
+(declare-rule arrays_read_over_write
+  ((T Type) (U Type) (i T) (j T) (e U) (a (Array T U)))
+  :premises ((not (= i j)))
+  :args ((select (store a i e) j))
+  :conclusion (= (select (store a i e) j) (select a j)))

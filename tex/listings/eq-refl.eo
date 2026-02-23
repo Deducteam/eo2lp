@@ -1,0 +1,5 @@
+(declare-parameterized-const =
+  ((A Type :implicit))
+  (-> A A Bool) :chainable and)
+(declare-rule refl ((T Type) (t T))
+  :args (t) :conclusion (= t t))

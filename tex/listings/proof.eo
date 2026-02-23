@@ -1,0 +1,8 @@
+(declare-const U Type)
+(declare-const x0 U)
+(define @t1 () (= x0 x0))
+(define @t2 () (not @t1))
+(assume @p1 @t2)
+(step @p2 (= @t1 true) :rule eq-refl :args (x0))
+  ...
+(step @p6 false :rule eq_resolve :premises (@p1 @p5))

@@ -1,0 +1,4 @@
+(program $mk_symm ((T Type) (t1 T) (t2 T))
+  :signature (Bool) Bool
+  ((($mk_symm (= t1 t2))       (= t2 t1))
+   (($mk_symm (not (= t1 t2))) (not (= t2 t1)))))

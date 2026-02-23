@@ -1,0 +1,17 @@
+(declare-rule modus_ponens ((F1 Bool) (F2 Bool))
+  :premises (F1 (=> F1 F2))
+  :conclusion F2)
+...
+(declare-rule reordering ((C1 Bool) (C2 Bool))
+  :premises (C1)
+  :args (C2)
+  :requires (((eo::list_minclude or C1 C2) true))
+  :conclusion C2)
+...
+(declare-rule cnf_implies_pos ((F1 Bool) (F2 Bool))
+  :args ((=> F1 F2))
+  :conclusion (or (not (=> F1 F2)) (not F1) F2))
+...
+(declare-rule and_intro ((F Bool))
+  :premise-list F and
+  :conclusion F)

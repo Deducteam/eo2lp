@@ -1,0 +1,3 @@
+(declare-rule contra ((F Bool))
+  :premises (F (not F))
+  :conclusion false)

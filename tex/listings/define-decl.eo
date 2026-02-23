@@ -1,0 +1,3 @@
+(define $sgn ((T Type :implicit) (x T))
+  (eo::ite (eo::is_neg x) -1
+    (eo::ite (eo::is_neg (eo::neg x)) 1 0)))
