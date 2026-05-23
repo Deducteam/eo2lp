@@ -1,6 +1,7 @@
 # Editor/IDE
 .zed/
 .vscode/
+.claude/
 .merlin
 .ocamlinit
 CLAUDE.md

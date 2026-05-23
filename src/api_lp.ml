@@ -218,7 +218,7 @@ let init_sign ?(deps = []) path =
     current_sign := Some sign;
     sign
   | None ->
-    let sign = Sig_state.create_sign path in
+    let sign = Sign.create path in
     Timed.(Sign.loaded :=
              Path.Map.add path sign !(Sign.loaded));
     current_sign := Some sign;
@@ -595,6 +595,28 @@ let get_sym name =
   | Some s -> s
   | None ->
     failf "Symbol `%s` not found" name
+
+(* Look up a symbol registered as a lambdapi builtin (e.g. "int_zero" → Z0).
+   Uses the canonical symbol from sign_builtins so that lambdapi's printer
+   recognizes integer/pos terms by physical equality (==). *)
+let get_builtin name =
+  let find_in_sign sign =
+    Lplib.Extra.StrMap.find_opt name Timed.(!(sign.Sign.sign_builtins))
+  in
+  match find_in_sign (prelude_sig ()) with
+  | Some s -> s
+  | None ->
+    (* Fall back: search all loaded signatures *)
+    let found = ref None in
+    Path.Map.iter (fun _ sign ->
+      if !found = None then
+        match find_in_sign sign with
+        | Some s -> found := Some s
+        | None -> ()
+    ) Timed.(!(Sign.loaded));
+    match !found with
+    | Some s -> s
+    | None -> failf "Builtin `%s` not found" name
 
 (* Printing support *)
 let rec unwrap_lambdas n t =

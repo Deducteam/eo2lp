@@ -6,10 +6,8 @@
 
 \title{%
 	Automatically Translating Proof Systems
-	for SMT Solvers to the λΠ-calculus%
-	\thanks{Research reported in this document was supported
-	by an Amazon Research Award,~2022.}}
-\author{Ciarán Dunne\inst{1,3}, Guillaume Burel\inst{2,3}}
+	for SMT Solvers to the λΠ-calculus}
+\author{Ciarán Dunne\inst{1,3} \and Guillaume Burel\inst{2,3}}
 \institute{\scriptsize INRIA, ENS Paris-Saclay;
   \and ensIIE;
   \and SAMOVAR, Télécom SudParis, Institut Polytechnique de Paris, 91120 Palaiseau, France}
@@ -21,18 +19,18 @@
 \begin{abstract}
 	\noindent
 	Eunoia is an emerging logical framework for
-	specifying the proofs and proof systems of SMT solvers,
-	namely \cvc{5}.
+	specifying the proofs and proof systems of \cvc{5}.
 	%
-	We present a translation from Eunoia to the
-	\emph{$λΠ$-calculus modulo rewriting} as implemented
+	We present a translation from a core fragment of Eunoia
+	to the \emph{$λΠ$-calculus modulo rewriting} as implemented
 	by the LambdaPi proof assistant.
 	%
 	The translation is implemented by our tool \texttt{eo2lp},
 	which we use for generating LambdaPi encodings of
 	%
-	(a)~a large fragment of \cvc{5}'s
-	\textit{Cooperating Proof Calculus} (CPC), and
+	(a)~a large fragment of the
+	\textit{Cooperating Proof Calculus} (CPC),
+	the Eunoia signature defining \cvc{5}'s proof system, and
 	%
 	(b)~proofs produced by \cvc{5} on \texttt{unsat}
 	problems from various fragments of SMT-LIB.
@@ -50,34 +48,63 @@
 
 We have presented a translation from Eunoia to the
 $\lambda\Pi$-calculus modulo rewriting that encodes
-\cvc{5}'s proof system---including inference rules,
+\cvc{5}'s proof system---inference rules,
 side-condition programs, and elaboration semantics---automatically,
-unlike approaches that hand-write lemmas for each
-rule~\cite{coltellacciReconstructionSMTProofs2024a,mohamed25leansmt}.
+unlike approaches that hand-write soundness lemmas for
+each rule~\cite{coltellacciReconstructionSMTProofs2024a,mohamed25leansmt}.
 %
 The trade-off is that the translated rules are taken
-as axioms rather than independently proved sound.
+as axioms rather than proved sound; their
+well-typedness and subject reduction are nevertheless
+verified by LambdaPi.
 %
 Our tool \texttt{eo2lp} translates all 22~modules of
-CPC-MINI (359~rules, 96~programs, 57~constants) and
-independently verifies 97\% of 1{,}036~proof scripts
-across 14~SMT-LIB fragments.
+CPC-MINI and independently verifies 97\% of
+1{,}036~proof scripts across 14~SMT-LIB fragments.
 
 The most direct future work is extending CPC-MINI
-to the full CPC (bitvectors, strings, datatypes, reals).
+to the full CPC (bitvectors, strings, datatypes, reals)
+and undertaking a thorough comparison with
+Ethos---coverage, performance, error detection, and
+the kinds of upstream bugs each catches.
 %
-Because the encoding lives in LambdaPi, it can serve
-as a basis for proving the soundness of individual
-rules directly, or---via the Dedukti ecosystem---for
-exporting the CPC representation to proof assistants
-such as Rocq or Isabelle/HOL, analogously to
-IsaRare~\cite{lachnitt24isarare}.
+Because the encoding lives in LambdaPi, it also serves
+as a basis for proving individual rules sound
+directly, or---via the Dedukti ecosystem---for
+exporting the CPC representation to other proof
+assistants such as Rocq or Isabelle/HOL, analogously
+to IsaRare~\cite{lachnitt24isarare}.
 %
-With the full CPC translated, LambdaPi could serve
-as a robust independent proof checker for \cvc{5},
-and a thorough comparison with Ethos---in terms of
-coverage, performance, and error detection---would
-help evaluate the practical benefits of this redundancy.
+More speculatively, the typed interpretation
+developed in \autoref{sec:lambdapi} is a step toward
+a formal semantics for Eunoia in the absence of an
+official one, and a foundation on which to study
+the higher-order extensions proposed for
+SMT-LIB~3~\cite{barrettSMTLIB3Bringing,smt3-proposal}.
+
+\subsubsection*{Acknowledgements.}
+%
+Research reported in this document was supported by an
+Amazon Research Award,~2022, and by the CARMA associate
+team, whose funding for collaboration visits helped the
+progress of this work.
+%
+The authors thank Haniel Barbosa,
+Hans-Jörg Schurr, Andrew Reynolds, and Yoni Zohar
+for discussions on the design of Eunoia and CPC, and
+on earlier iterations of this work.
+%
+We also thank Frédéric Blanqui and Théo Winterhalter for
+their comments on the paper, and the rest of Deducteam
+for their support.
+%
+This paper is dedicated to the memory of Gilles Dowek,
+who initiated this research project in particular and
+more generally the ecosystem of Dedukti.
+
+\subsubsection*{Disclosure of Interests.}
+The authors have no competing interests to declare
+that are relevant to the content of this article.
 
 \printbibliography
 

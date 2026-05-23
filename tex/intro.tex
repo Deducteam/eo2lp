@@ -32,19 +32,21 @@ reported as such by the solver.
 
 % Towards the aim of standardizing and benchmarking solvers,
 % the \emph{SMT library initiative} oversees the development of
-The \emph{SMT-LIB standard} \cite{Barrett2015-standard},
-which specifies the syntax and semantics of a
+The \emph{SMT-LIB standard}~\cite{Barrett2015-standard}
+specifies the syntax and semantics of a
 common language used for interacting with solvers.
 %%
 Proof generation is however not covered by the standard,
-leading to the the development of various proof formats,
+leading to the development of various proof formats,
 namely LFSC~\cite{DBLP:journals/fmsd/StumpORHT13},
 Alethe~\cite{schurrAletheGenericSMT2021},
 and recently Eunoia~\cite{EthosUser_manualmdMain}.
 %
-Eunoia is a proof output language and a logical framework:
-it allows specifying the constants, side-condition programs
-and inference rules of an SMT solver (e.g., \cvc{5});
+Eunoia is both a proof output language and a logical framework:
+it allows specifying the constants, side-condition programs,
+and inference rules of an SMT solver (e.g., \cvc{5}).
+The \emph{Cooperating Proof Calculus} (CPC) is the
+Eunoia signature encoding \cvc{5}'s proof system,
 and Eunoia proof scripts may be checked by the C++ tool
 Ethos~\cite{EthosUser_manualmdMain}.
 %
@@ -75,47 +77,76 @@ linear integer arithmetic, arrays, and sets.
 				to LambdaPi, which independently verifies them.}}
 	%
 	\centering
-	\input{fig-pipeline.tex}
+	\alttext{Pipeline diagram with three vertical groups.
+		Left: SMT-LIB fragments (QF\_UF, QF\_LIA, UFLIA, ALIA, QF\_NIA, UF, \ldots).
+		Middle: Eunoia artefacts---a CPC signature (theories, rules, programs)
+		and a Eunoia proof script (.prf.eo).
+		Right: LambdaPi artefacts---a translated CPC signature plus Prelude,
+		and a LambdaPi proof file (.prf.lp).
+		Horizontal arrows: cvc5 maps SMT-LIB fragments to Eunoia proof scripts;
+		eo2lp maps both the Eunoia signature and proof script to LambdaPi.
+		Downward arrows: ethos checks the Eunoia bundle, lambdapi check verifies
+		the LambdaPi bundle, each producing a tick-or-cross result.}{%
+		\input{fig-pipeline.tex}}
 \end{boxfigure}
 % ---------------------------------------------------------
 
 \subsubsection{Contribution.}
+Our work has a dual role.
+Practically, \texttt{eo2lp} (\autoref{sec:results})
+provides an independent type-theoretic proof checker
+for \cvc{5}, translating all 22~modules of CPC-MINI
+(359~rules, 96~programs, 57~constants) and verifying
+97\% of 1{,}036~proof scripts across 14~SMT-LIB fragments.
+%
+Conceptually, the translation gives a
+\emph{typed interpretation} of Eunoia in the
+$λΠ$-calculus, where Eunoia sorts become elements of a
+Tarski universe~$\Set$ with carrier~$\msf{τ}$,
+inference rules become axioms, and side-condition
+programs become rewrite rules whose type preservation
+is checked by LambdaPi.
+%
+This parallels SMT-LIB's model-theoretic semantics
+where sorts are interpreted as sets, and is a step
+towards a formal semantics for the still-evolving
+Eunoia language.
+
+The paper is organised as follows.
 \Autoref{sec:eunoia} formalizes the fragment of
-Eunoia used by \cvc{5}, covering its term syntax,
-command structure, and elaboration semantics.
+Eunoia used by \cvc{5}---its term syntax, command
+structure, and elaboration semantics.
 %
-\Autoref{sec:lambdapi} defines a translation
-from Eunoia to the $λΠ$-calculus modulo rewriting
-that targets Eunoia as a \emph{framework}:
-inference rules, side-condition programs, and
-elaboration are all translated automatically.
+\Autoref{sec:lambdapi} defines the translation
+of Eunoia into the $λΠ$-calculus modulo rewriting,
+covering inference rules, side-condition programs,
+and elaboration uniformly so that \cvc{5}'s entire
+proof system is encoded automatically rather than
+rule-by-rule.
 %
-\Autoref{sec:results} describes our OCaml tool
-\texttt{eo2lp}, which translates
-all 22~modules of CPC-MINI
-(359~rules, 96~programs, 57~constants)
-and independently verifies 97\% of
-1{,}036~proof scripts across
-14~SMT-LIB fragments.
+\Autoref{sec:results} describes \texttt{eo2lp}
+and reports the benchmark results.
 
 \subsubsection{Related Work.}
 Coltellacci et
 al.~\cite{coltellacciReconstructionSMTProofs2024a,coltellacci25frocos}
-translate Alethe~\cite{schurrAletheGenericSMT2021}
+reconstruct Alethe~\cite{schurrAletheGenericSMT2021}
 proofs from
 \cvc{5}~\cite{Barbosa2022}
-to LambdaPi by hand-writing lemmas for each
+in LambdaPi via hand-written soundness lemmas for each
 Alethe rule, covering UF and linear integer arithmetic.
 %
 Similarly, \textsc{lean-smt}~\cite{mohamed25leansmt}
-encodes ${\sim}200$ of the 662~CPC rules
-(${\sim}30\%$) as hand-written Lean~4 theorems.
+covers ${\sim}200$ of the 662~CPC rules
+(${\sim}30\%$) by interactively proving each rule
+sound in Lean~4, then automating the translation
+of cvc5 proofs that use them.
 %
-Our translation instead targets Eunoia as a framework,
-so all 359~CPC-MINI rules are translated automatically;
-the trade-off is that the rules are not independently
-proved sound in LambdaPi but taken as axioms whose
-well-typedness and subject reduction are verified.
+Our work instead targets Eunoia as a framework:
+all 359~CPC-MINI rules are translated automatically as
+\emph{axioms} in LambdaPi, without per-rule soundness
+proofs, but whose well-typedness and subject reduction
+are verified.
 
 The idea of reducing SMT proof checking to type
 checking originates with
@@ -158,11 +189,20 @@ the Eunoia framework.
 % Placed here so it floats to the top of page 2
 \begin{boxfigure}[t!]{fig:eo-syntax}
 	{Syntax for Eunoia: terms, attributes, and built-in operators.}
-	\vspace{4pt}\centerline{$\eoTermSyntax$}
-	\boxfigurehline
-	\centerline{$\eoAttrSyntax$}
-	\boxfigurehline
-	\centerline{$\eoBuiltinFig$}\vspace{4pt}
+	\alttext{Three stacked grammar tables for Eunoia.
+		Top: term syntax---terms are symbols, literals, applications, or
+		binder applications; parameters carry an optional attribute (:implicit, :list).
+		Middle: constant attributes---right/left-associative (with optional nil terminator),
+		chainable, pairwise, binder, arg-list.
+		Bottom: built-in symbols grouped by family---core (eo::eq, eo::requires, eo::quote,
+		eo::var), boolean (eo::and, eo::or, eo::not, eo::xor),
+		arithmetic (eo::add, eo::mul, eo::neg, eo::zdiv), and
+		list (eo::nil, eo::cons, eo::list\_concat, eo::list\_len).}{%
+		\vspace{4pt}\centerline{$\eoTermSyntax$}
+		\boxfigurehline
+		\centerline{$\eoAttrSyntax$}
+		\boxfigurehline
+		\centerline{$\eoBuiltinFig$}\vspace{4pt}}
 \end{boxfigure}
 % ---------------------------------------------------------
 

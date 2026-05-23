@@ -76,7 +76,7 @@ let set_signature_overlay = Elab.set_signature_overlay
 let enc_string_literal s =
   let quoted = "\"" ^ s ^ "\"" in
   let sym =
-    try Core.Sign.Ghost.find quoted
+    try Core.Sign.find Core.Sign.Ghost.sign quoted
     with Not_found ->
       let string_ty = mk_Symb (find "String") in
       Core.Sign.add_symbol Core.Sign.Ghost.sign

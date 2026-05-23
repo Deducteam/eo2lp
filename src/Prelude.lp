@@ -15,15 +15,17 @@ symbol Bool : τ {|eo::Type|}; rule τ Bool ↪ 𝔹;
 injective symbol Proof : τ Bool → TYPE;
 
 // dependent arrow {|eo::Type|} for quoting
-symbol ⤳d (T : τ {|eo::Type|}) : τ (T ⤳ {|eo::Type|}) → τ {|eo::Type|};
+injective symbol ⤳d (T : τ {|eo::Type|}) : τ (T ⤳ {|eo::Type|}) → τ {|eo::Type|};
 notation ⤳d infix right 5;
 rule τ ($T ⤳d $F) ↪ (Π x : τ $T, τ ($F x));
+// Non-dependent ⤳ is a special case of ⤳d
+rule $A ⤳d (λ _, $B) ↪ $A ⤳ $B;
 
 // higher-order application (eo::_).
 injective symbol APP [a b] : τ (a ⤳ b) → τ a → τ b;
 
 // infix alias for APP.
-symbol ⋅ [a b] (f : τ (a ⤳ b)) (x : τ a) ≔ APP f x;
+symbol ⋅ [a b] (f : τ (a ⤳ b)) (x : τ a) : τ b ≔ APP f x;
 notation ⋅ infix left 20;
 
 

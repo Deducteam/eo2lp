@@ -16,7 +16,7 @@ export LC_NUMERIC=C
 # ---------------------------------------------------------------------------
 
 PROOFS_DIR=""
-RESULTS_FILE="bench_results.csv"
+RESULTS_FILE="benchmarks/bench_results.csv"
 TIMEOUT=5
 CHECK_TIMEOUT=0
 JOBS=0  # 0 = nproc

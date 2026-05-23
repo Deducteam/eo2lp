@@ -9,9 +9,20 @@
 \section{Encoding Eunoia in the λΠ-calculus}\label{sec:lambdapi}
 \begin{boxfigure}[t!]{fig:lpTermSyntax}
 	{Syntax and typing rules for the $λΠ$-calculus modulo rewriting.}
-	\vspace{4pt}\centerline{$\lpTermSyntax$}
-	\boxfigurehline
-	\centerline{$\lpTypingRules$}\vspace{4pt}
+	\alttext{Top: term grammar for the lambda-Pi calculus modulo rewriting.
+		Universes mu range over TYPE and KIND.
+		Terms t range over variables, constants, universes, applications,
+		lambda abstractions, and dependent products.
+		Bottom: natural-deduction typing rules---empty context is well-formed
+		(wf0); extending with (x:t) requires Gamma deriving t at some universe
+		(wf+); variable rule reads (x:t) from the context (var);
+		constant rule reads (kappa:t) from the signature with the constant's
+		type sortable in Gamma (con); TYPE has type KIND (univ);
+		dependent product, abstraction, application, and conversion modulo
+		beta and rewriting (prod, fun, app, conv).}{%
+		\vspace{4pt}\centerline{$\lpTermSyntax$}
+		\boxfigurehline
+		\centerline{$\lpTypingRules$}\vspace{4pt}}
 \end{boxfigure}
 %
 \Autoref{fig:lpTermSyntax} provides syntax and typing rules
@@ -31,8 +42,8 @@ appropriate definitions for \emph{substitution} $\prn{t[x ↦ t']}$
 and \emph{$β$-reduction} $\prn{t ⇝_{β} t'}$.
 %
 Hereinafter, we may write $\prn{t_1 → t_2}$ for the term
-$\prn{\ppii{(x : t_1)}{t_2}}$, where $x$ is some `fresh'
-variable that does not occur free in $t_2$.
+$\prn{\ppii{(x : t_1)}{t_2}}$, where $x$ does not occur
+free in $t_2$.
 
 % --------------------------------------------------------%
 A \emph{typing} is an expression of the form $\prn{t : t'}$,
@@ -75,21 +86,28 @@ where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
 \begin{remark}
 	The typing rules of the $λΠ$-calculus disallow
 	abstractions on types
-	(i.e., any $\prn{\TYPE → t}$ is ill-typed in any context).
-	Instead, the types of Eunoia are identified with
-	$λΠ$-terms of type $\Set$,
+	(i.e., there are no expressions of type $\TYPE → t$
+	in any context).
 	%
-	which in turn encode $λΠ$-types with an injective symbol
-	$\msf{τ} : \Set → \TYPE$ and an (infix) function space
-	symbol $\prn{⤳} : \Set → \Set → \Set$
-	with the rewrite rule
+	Eunoia's types are therefore encoded as
+	$λΠ$-terms of type $\Set$, using the
+	Tarski-style universe of LambdaPi's standard library:
+	%
+	an injective symbol
+	$\msf{τ} : \Set → \TYPE$ lifts a $\Set$-term to
+	a $λΠ$-type, and the (infix) function-space symbol
+	$\prn{⤳} : \Set → \Set → \Set$
+	satisfies
 	$\msf{τ}\,\prn{A ⤳ B} ↪ \msf{τ}\,A → \msf{τ}\,B$.
 	%
-	For dependent types arising from $\lpo{quote}$
-	arguments, we use a dependent function space
+	The dependent types arising from
+	$\lpo{quote}$ arguments are not expressible with
+	$\prn{⤳}$ alone, so we add a dependent function space
 	$\prn{⤳^{\msf d}} : \pii{T : \Set}{\prn{{\msf{τ}\,T → \Set}} → \Set}$
 	with the rule
-	$\msf{τ}\,\prn{T ⤳^{\msf d} F} ↪ \pii{x : \msf{τ}\,T}{\msf{τ}\,\prn{\app F x}}$.
+	$\msf{τ}\,\prn{T ⤳^{\msf d} F} ↪ \pii{x : \msf{τ}\,T}{\msf{τ}\,\prn{\app F x}}$;
+	the non-dependent case is recovered by taking
+	$F ≔ \lam{\_}{B}$.
 \end{remark}
 
 % -------------------------------------------------------- %
@@ -97,13 +115,28 @@ where $\prn{Γ ⊢_{Σ} e : t}$ may be read as
 %
 \begin{boxfigure}[t!]{fig:lpSyntax}
 	{Syntax for the LambdaPi proof assistant.}
-	\vspace{4pt}\centerline{$\lpPatternSyntax$}
-	\boxfigurehline
-	\centerline{$\lpConcreteSyntax$}\vspace{4pt}
+	\alttext{Two grammar tables for LambdaPi concrete syntax.
+		Top: modifiers (constant, sequential); parameters (explicit (s:t) and
+		implicit [s:t]); patterns theta (pattern variables \$x or pattern
+		applications); rewrite rules (s applied to patterns rewriting to theta).
+		Bottom: commands---symbol declaration with optional modifier, parameters,
+		type, and optional definition; rule declaration listing rewrite rules with
+		'with' separators; assertion 'assert |- t : t';
+		and 'require open' for module imports.}{%
+		\vspace{4pt}\centerline{$\lpPatternSyntax$}
+		\boxfigurehline
+		\centerline{$\lpConcreteSyntax$}\vspace{4pt}}
 \end{boxfigure}
 %
 \Autoref{fig:lpSyntax} defines syntax for a small fragment
 of the LambdaPi proof assistant.
+%
+The LambdaPi terms in this figure are syntactic sugar
+over the abstract calculus of \autoref{fig:lpTermSyntax}:
+implicit binders $\imp{x : t}$ and placeholders are
+elaborated to ordinary $Π$-binders and metavariables
+during type inference, and each declaration extends
+the signature $Σ$ in the obvious way.
 %
 Each \emph{file} is a list of \emph{commands}
 that (a)~specify the typings and rewrite rules
@@ -124,14 +157,18 @@ each of which are either \emph{explicit} or \emph{implicit}
 %
 Given $\vec ρ$ with $n$ leading
 implicits followed by $m$ explicits,
-LambdaPi registers the following typing
-and internally records $ζ(s) ≔ n$.
+LambdaPi registers the typing below and
+internally records $ζ(s) ≔ n$, the number
+of implicit binders preceding $s$'s explicit arguments.
 $$\prn{\xsym s : \prn{\pii{x_1 : t_1}
 			{\ldots\,\pii{x_{n+m} : t_{n+m}}{t}}}}$$
 %
-Hereinafter, the symbol $s$ is an alias
-for $\prn{\xsym{s}\ \_\ \ldots\ \_}$,
-where $\_$ is a \emph{placeholder}.
+We write $\xsym s$ (prefixed with @) for the
+\emph{fully-explicit} form of $s$;
+hereinafter, $s$ alone is shorthand for
+$\prn{\xsym{s}\ \_\ \ldots\ \_}$
+with $ζ(s)$ \emph{placeholders} $\_$
+to be filled by type inference.
 %
 Terms containing placeholders can be \emph{resolved}
 with respect to a context $Γ$ and a signature $Σ$,
@@ -190,7 +227,8 @@ list $\plur r n$ of rewrite rules.
 %
 The left and right sides of each rewrite rule are
 \emph{patterns}, where each pattern is either a
-\emph{pattern variable} $\prn{\ptrn{x}}$
+\emph{pattern variable} $\prn{\ptrn{x}}$ (written
+with a leading \$ in concrete syntax)
 or a \emph{pattern application} $\prn{{s}\,{\any{θ}}}$,
 where $s$ is called the \emph{head} of the pattern.
 %
@@ -198,9 +236,15 @@ A rewrite rule $\prn{θ ↪ θ'}$ is valid when $θ$ is a
 pattern application and every pattern variable in $θ'$
 also occurs in~$θ$.
 %
-The rewrite rule(s) given by the declaration are added to
-the signature, effectively augmenting the typechecking
-procedure of LambdaPi to behave `modulo' those rule(s).
+The rule(s) given by the declaration are added to the
+signature, augmenting the typechecker to behave
+`modulo' those rule(s).
+%
+LambdaPi additionally verifies \emph{subject reduction}
+for each new rule---i.e., it checks that, for every
+typed substitution of the pattern variables, both sides
+have the same type---so a rewrite rule that breaks
+type preservation is rejected on declaration.
 
 % ---------------------------------------
 \subsubsection{Assertion.}
@@ -221,6 +265,78 @@ to produce corresponding LambdaPi syntax.
 Crucially, the translation assumes that all terms have already
 been processed by the $\mbf{elab}$ operator of
 \autoref{sec:eo-elab}.
+%
+\Autoref{tab:encoding} summarises the high-level mapping
+of Eunoia features to their LambdaPi counterparts; the
+remainder of this section formalises the underlying
+translation operators.
+
+\begin{table}[t!]
+	\centering
+	\caption{High-level summary of the Eunoia-to-LambdaPi encoding.
+		Symbols prefixed with $\msf{eo.}$ live in our hand-written
+		prelude (\autoref{sec:results}); $⤳$ and $⤳^{\msf d}$
+		are the function-space symbols of \autoref{fig:lpTermSyntax}.}
+	\label{tab:encoding}
+	\small
+	\begin{tabular}{@{}p{0.42\linewidth}@{\quad}p{0.50\linewidth}@{}}
+		\hline
+		\textbf{Eunoia feature} & \textbf{LambdaPi encoding} \\
+		\hline
+		Type universe $\eotype$
+		& Tarski universe $\Set$ with carrier $\msf{τ}$;
+		every Eunoia sort becomes a term of type $\Set$
+		\\
+		Function type $\earr{A\ B}$
+		& $A ⤳ B$, with rewrite
+		$\msf{τ}\,(A ⤳ B) ↪ \msf{τ}\,A → \msf{τ}\,B$
+		\\
+		Dependent type from $\eoquote{x}$
+		& $A ⤳^{\msf d} \lam{x}{B}$ (see Remark~1)
+		\\
+		Higher-order application $\eho{t_1}{t_2}$
+		& $\lpo{app}\ t_1\ t_2$
+		\\
+		$n$-ary $\eapp{f}{\vec t}$ with $\rcn{t_\nil}$ etc.
+		& nested binary application via $\mbf{elab}$
+		(\autoref{sec:eo-elab})
+		\\
+		$\eoreqs{l}{r}{ψ}$
+		& guard inside the conclusion; $l$ and $r$ must
+		be syntactically identical for $ψ$ to apply
+		\\
+		Parameter attribute $\attr{implicit}$
+		& implicit LambdaPi binder $\imp{x : \msf{τ}\,T}$
+		\\
+		Constant declaration
+		& \kw{symbol}\ $s\ \vec ρ : \msf{τ}\,T$;
+		(plus a rewrite rule for the nil terminator
+		when an associative attribute is given)
+		\\
+		Macro definition (\kw{define})
+		& \kw{symbol}\ $s\ \vec ρ ≔ t$;
+		\\
+		Program (\kw{program})
+		& \md{sequential}\ \kw{symbol}\ $s$ + one rewrite
+		rule per case
+		\\
+		Inference rule (\kw{declare-rule})
+		& \md{constant}\ \kw{symbol}\ $r$
+		(plus an auxiliary symbol and rewrite rule when
+		$\attr{args}$ is present, to match quoted patterns)
+		\\
+		Proof command \kw{assume}
+		& \md{constant}\ \kw{symbol} of type
+		$\lpo{Proof}\ φ$
+		\\
+		Proof command \kw{step}
+		& symbol definition applying the rule to its
+		premises and args, followed by an $\kw{assert}$
+		to check the conclusion
+		\\
+		\hline
+	\end{tabular}
+\end{table}
 
 
 % ----------------------------------------------------------
@@ -264,6 +380,11 @@ forbidden characters, and $\bar s ≔ s$ otherwise.
 				      \bar ℓ & \text{if $ℓ ∈ \msf{String}$.}
 			      \end{scases}
 		      $$
+		      The symbols $\ev{of\_Z}$ and $\ev{of\_Q}$ are
+		      defined in our prelude (\autoref{sec:results}) and embed
+		      the integer and rational literals of LambdaPi's
+		      standard library into the carrier type of Eunoia's
+		      arithmetic sorts.
 		\item For arrow types, the following hold,
 		      where $\epar{x\ T} ∈ \vec ρ$:
 		      $$
@@ -295,7 +416,8 @@ forbidden characters, and $\bar s ≔ s$ otherwise.
 			      \end{array}
 		      $$
 		\item The only normal-form binder application is $\eo{define}$,
-		      so:
+		      which is translated using LambdaPi's standard
+		      $\msf{let}$ binder:
 		      $$\tm{\eapp{\eo{define}}{
 					      \epar{\vec v}
 					      \ t'
@@ -360,13 +482,16 @@ each marked as implicit.
 		      If $δ ⊢ s ∷ α$ and $α$ is
 		      $\rcn{t_\nil}$ or $\lcn{t_\nil}$,
 		      then the following rewrite rule
-		      is also produced:
+		      is also produced, where $\lpo{nil}$
+		      is the prelude operator returning the
+		      nil-terminator of an associative symbol
+		      and $\lpo{as}$ performs type ascription:
 		      $$
 			      \kw{rule}\ \prn{\lpo{nil}\ \bar s\ \ptrn T}
 			      ↪ \prn{\lpo{as}\ \tm{t_\nil}\ \ptrn T}
 		      $$
 
-		\item If $δ$ is a macro declaration,
+		\item If $δ$ is a macro definition,
 		      then $δ ⊢ s(\vec ρ) ≔ t$.
 		      %
 		      If the type $t'$ is supplied then $\cmd{δ}$ is
@@ -440,13 +565,20 @@ each marked as implicit.
 \end{definition}
 
 \begin{figure}[t!]
-	\begin{lpbox}
-		\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-constants.lp}%
-		\listsep
-		\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-modus-ponens.lp}%
-		\listsep
-		\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-rule-aux.lp}%
-	\end{lpbox}
+	\alttext{Three LambdaPi listings translating the rules of Figure 4:
+		first, the constant declarations for polymorphic equality and disjunction
+		(including a rewrite rule for the nil terminator of or);
+		second, the modus\_ponens rule as a constant symbol with three parameters
+		of type Proof; third, the auxiliary symbol and rewrite rule generated
+		for cnf\_implies\_pos, with the rule itself declared as a constant
+		symbol applying the auxiliary.}{%
+		\begin{lpbox}
+			\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-constants.lp}%
+			\listsep
+			\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-modus-ponens.lp}%
+			\listsep
+			\lstinputlisting[style=lp, aboveskip=0pt, belowskip=0pt]{listings/cmd-rule-aux.lp}%
+		\end{lpbox}}
 	\caption{LambdaPi output for the declarations
 		in \autoref{fig:cpc-rules}.
 		See \autoref{ex:cmd}.}
@@ -525,9 +657,19 @@ each marked as implicit.
 \end{definition}
 
 \begin{figure}[t!]
-	\eofile{listings/proof.eo}%
-	\vspace{-\medskipamount}%
-	\lpfile{listings/proof.lp}%
+	\alttext{Side-by-side example. Top: a Eunoia proof script
+		from QF\_UF that declares a sort U and a constant x0,
+		defines two helper terms via 'define', assumes the negation
+		of (= x0 x0), then derives a contradiction via the rules
+		eq\_refl and eq\_resolve. Bottom: the corresponding LambdaPi
+		output, where each preamble declaration becomes a symbol,
+		the assumption becomes a constant symbol of type
+		'eo.Proof <formula>', and each proof step becomes a
+		symbol-definition followed by an assertion that uses
+		LambdaPi's type inference to verify the conclusion.}{%
+		\eofile{listings/proof.eo}%
+		\vspace{-\medskipamount}%
+		\lpfile{listings/proof.lp}}%
 	\caption{Eunoia proof script (top)
 		and LambdaPi output (bottom).
 		See \autoref{ex:proof}.}

@@ -9,7 +9,13 @@
 % ---------------------------------------------------------
 \Autoref{fig:eo-syntax} defines syntax for the
 fragment of Eunoia considered in this document, where the
-metavariable $s$ ranges over a set of \emph{symbols}.
+metavariable $s$ ranges over a set of
+\emph{symbols}.\footnote{%
+In the absence of a published formal semantics for Eunoia,
+our presentation was developed through careful study of
+the Ethos user manual~\cite{EthosUser_manualmdMain} and
+source, together with discussions with the cvc5/Eunoia
+developers (see Acknowledgements).}
 %
 First, we define grammars for the core term syntax.
 %
@@ -23,7 +29,7 @@ $t$ (the type of the parameter), and possibly a
 \emph{parameter attribute} $ν$.
 
 
-A distinctive feature of Eunoia is its support for
+Unlike standard LF-style frameworks, Eunoia supports
 $n$-ary applications of binary symbols.
 %
 A \emph{constant attribute} $α$ may be assigned to a
@@ -112,9 +118,17 @@ via rewrite rules.
 % ---------------------------------------------------------
 \begin{boxfigure}[t!]{fig:eo-commands}
 	{Eunoia commands and proof commands.}
-	\vspace{4pt}\centerline{$\eoCommandSyntax$}
-	\boxfigurehline
-	\centerline{$\eoPrfCommandSyntax$}\vspace{4pt}
+	\alttext{Two stacked grammar tables for Eunoia commands.
+		Top: standard commands---declare-const, declare-parameterized-const,
+		declare-consts (for literal categories), define (macro definition),
+		program (with signature and cases), declare-rule (with optional
+		premises/premise-list, args, requires, and conclusion attributes),
+		and include.
+		Bottom: proof commands---assume, assume-push, step (with rule, optional
+		premises, optional args), and step-pop.}{%
+		\vspace{4pt}\centerline{$\eoCommandSyntax$}
+		\boxfigurehline
+		\centerline{$\eoPrfCommandSyntax$}\vspace{4pt}}
 \end{boxfigure}
 % ---------------------------------------------------------
 
@@ -196,6 +210,10 @@ or a \emph{step}
 $\epar{\kw{step}\ s\ φ\ \ldots}$ or
 $\epar{\kw{step-pop}\ s\ φ\ \ldots}$).
 %
+Here and below, $φ$ is a Eunoia term used as a
+\emph{formula} (i.e., a proposition whose validity
+is to be established).
+%
 In any case, we call
 $s$ the \emph{name} of $π$ and $φ$ the \emph{conclusion},
 written:
@@ -258,15 +276,22 @@ can be derived as follows:
 % --- end saved rule typing ---
 
 \begin{figure}[t!]
-	\begin{eobox}
-		\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-modus-ponens.eo}%
-		\listsep
-		\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-reordering.eo}%
-		\listsep
-		\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-cnf-implies-pos.eo}%
-		\listsep
-		\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-and-intro.eo}%
-	\end{eobox}
+	\alttext{Four Eunoia declare-rule listings from cpc/rules/Booleans.eo:
+		modus\_ponens (with two premises F1 and (=> F1 F2), and conclusion F2);
+		reordering (with an :args quoted argument, a :premises clause,
+		a :requires guard using eo::list\_minclude, and a conclusion);
+		cnf\_implies\_pos (with a compound :args pattern (=> F1 F2)
+		and a disjunctive conclusion); and and\_intro (using :premise-list
+		over the binary symbol and).}{%
+		\begin{eobox}
+			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-modus-ponens.eo}%
+			\listsep
+			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-reordering.eo}%
+			\listsep
+			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-cnf-implies-pos.eo}%
+			\listsep
+			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-and-intro.eo}%
+		\end{eobox}}
 	\caption{Rule declarations from
 		\texttt{cpc/rules/Booleans.eo},
 		see \autoref{ex:eo-rules}.}

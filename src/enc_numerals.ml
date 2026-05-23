@@ -28,11 +28,13 @@ let empty_result = { syms = []; rules = [] }
      Z0      = 0
      Zpos(p) = +p
      Zneg(p) = -p  *)
+(* Use canonical builtin symbols so that lambdapi's printer recognizes
+   the resulting terms as integer literals (it checks physical equality). *)
 let enc_pos n =
   assert (n >= 1);
-  let sym_H = mk_Symb (get_sym "H") in
-  let sym_O = get_sym "O" in
-  let sym_I = get_sym "I" in
+  let sym_H = mk_Symb (get_builtin "pos_one") in
+  let sym_O = get_builtin "pos_double" in
+  let sym_I = get_builtin "pos_succ_double" in
   let rec go n =
     if n = 1 then sym_H
     else if n mod 2 = 0 then mk_Appl (mk_Symb sym_O, go (n / 2))
@@ -41,9 +43,9 @@ let enc_pos n =
   go n
 
 let enc_int n =
-  if n = 0 then mk_Symb (get_sym "Z0")
-  else if n > 0 then mk_Appl (mk_Symb (get_sym "Zpos"), enc_pos n)
-  else mk_Appl (mk_Symb (get_sym "Zneg"), enc_pos (-n))
+  if n = 0 then mk_Symb (get_builtin "int_zero")
+  else if n > 0 then mk_Appl (mk_Symb (get_builtin "int_positive"), enc_pos n)
+  else mk_Appl (mk_Symb (get_builtin "int_negative"), enc_pos (-n))
 
 (* Rational encoding: Frac numerator denominator *)
 let enc_rational n d =

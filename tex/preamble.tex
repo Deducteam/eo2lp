@@ -280,3 +280,18 @@ belowskip=0.5\medskipamount,
 
 \usepackage[backend=biber]{biblatex}
 \addbibresource{inria.bib}
+
+% Springer EU-mandated alt-text for figures (TikZ / complex graphics).
+% First argument is a textual description used by Springer's production process.
+\providecommand{\alttext}[2]{#2}
+
+% LNCS conventions for autoref names (capitalized).
+\AtBeginDocument{%
+	\def\figureautorefname{Fig.}%
+	\def\tableautorefname{Table}%
+	\def\sectionautorefname{Section}%
+	\def\subsectionautorefname{Section}%
+	\def\subsubsectionautorefname{Section}%
+	\def\definitionautorefname{Definition}%
+	\def\exampleautorefname{Example}%
+}

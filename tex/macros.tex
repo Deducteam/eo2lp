@@ -33,10 +33,12 @@
 % plurality, binding
 \newcommand{\plur}[2]{{#1}_{1}\ldots{#1}_{#2}}
 \newcommand{\plurcomma}[2]{{#1}_{1}, \ldots, {#1}_{#2}}
-\newcommand{\maybe}[1]{\wrapp{eoPunct}{\langle}{\rangle_?}{#1}}
-\newcommand{\many}[1]{\wrapp{eoPunct}{\langle}{\rangle_+}{#1}}
-\newcommand{\any}[1]{\wrapp{eoPunct}{\langle}{\rangle_∗}{#1}}
-\newcommand{\some}[1]{\wrapp{eoPunct}{\langle}{\rangle}{#1}}
+% Grammar repetition markers — kept in the default foreground colour
+% so the subscripts remain legible on print (cf. Reviewer B's comment).
+\newcommand{\maybe}[1]{\langle #1 \rangle_{?}}
+\newcommand{\many}[1]{\langle #1 \rangle_{+}}
+\newcommand{\any}[1]{\langle #1 \rangle_{*}}
+\newcommand{\some}[1]{\langle #1 \rangle}
 \newcommand{\binddot}[3]{{#1\,#2.\,#3}}
 
 % binders
@@ -150,7 +152,7 @@
 		%!----------------------------------------!%
 		t & {⦂}\ s \mid ℓ \mid \eapp{s}{\vec t} \mid \eapp{s}{\epar{\vec{ρ}}\ t} & \mcomment{(terms)}           &
 		ρ & {⦂}\ \epar{s\ t\ \maybe{ν}}                                          & \mcomment{(parameters)}        \\[1mm]
-		ℓ & {⦂}\ \maybe{\ev{-}}n ∣ \maybe{\ev{-}}{n\ev{/}m}  ∣ \estr{s}          & \mcomment{(literals)}        &
+		ℓ & {⦂}\ \maybe{\ev{-}}n ∣ \maybe{\ev{-}}{n\ev{/}m}  ∣ \estr{\cdots}     & \mcomment{(literals)}        &
 		ν & {⦂}\ \attr{implicit} \mid \attr{list}                                & \mcomment{(prm. attributes)}   \\[1mm]
 	\end{array}
 }
@@ -263,7 +265,7 @@
 \newcommand{\constRule}{
 	\begin{prooftree}
 		\hypo{\wf Γ}
-		\hypo{\judge {} t μ}
+		\hypo{\judge Γ t μ}
 		\infer2[$\prn{κ : t}∈ Σ$]{ \judge Γ κ t }
 	\end{prooftree}
 }

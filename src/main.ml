@@ -452,6 +452,9 @@ let run () =
   LP.no_color := !config.no_color;
   LP.set_log_level !config.log_level;
   LP.verbose := LP.log_level_geq LP.Debug;
+  (* Enable lambdapi SR debug logging *)
+  if LP.log_level_geq LP.Debug then
+    Common.Logger.set_debug true "s";
 
   let input_dir  = !config.input_dir in
   let output_dir = !config.output_dir in
