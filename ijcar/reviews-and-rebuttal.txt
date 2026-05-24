@@ -357,3 +357,194 @@ whereas we merely take the each CPC rule as an 'axiom'.
 
 All minor issues (grammar, capitalization, contribution/overview paragraph
 improved, Fig. 2 clash, page numbers, length) will be fixed.
+
+
+
+Appendix: Pre-submission Colleague Reviews
+===========================================================================
+Feedback from colleagues on the IJCAR pre-print, gathered before
+submission. Included here for reference alongside the official PC reviews
+above.
+
+
+Frédéric Blanqui (INRIA Deducteam) — 2026-02-17
+---------------------------------------------------------------------------
+
+[Email reply to pre-print share; Cc: Catherine Dubois, Guillaume Burel,
+Théo Winterhalter. Thread: "IJCAR pre-print; Aix-en-Provence".]
+
+Hi. Thanks. Here are some first remarks:
+
+The sentence "The SMT-LIB standard [9], which specifies the syntax and
+semantics of a common language used for interacting with solvers." has no
+verb.
+
+the the
+
+"the trade-off is that the rules are not independently proved sound in
+LambdaPi but taken as axioms whose well-typedness and subject reduction
+are verified." (idem in the conclusion): not clear, what does that mean?
+
+subject reduction should be defined too.
+
+Def 2. Case 1. What are eo.Type, Type, int, rat, String? Case 3. What
+are eo.app and eo.Proof?
+
+Def 4. What are eo.nil and eo.as?
+
+Example 3. What is Bool?
+
+I do not see dots very well, for instance in eo.nil.or. Why not using a
+black dot?
+
+Fig 6. Syntax for a subset
+
+Fig 7. If you later want to prove modus_ponens, you should not declare
+it as constant.
+
+Fig 7. What is phi?
+
+Overall, it's difficult to understand... You should probably try to give
+more intuition on Eunoia first, and then on the translation.
+
+You say nothing about how the "semantics" of Eunoia proofs is reflected
+in the "semantics" of Lambdapi. What is the semantics of semantics of
+Eunoia? What does that mean for an Eunoia proof to be correct? What does
+that mean for its translation to be correct in Lambdapi?
+
+Can/could we get a proof in natural deduction in the end?
+
+What is the Lambdapi prelude that you use exactly?
+
+
+Follow-up (2026-02-17, 17:16) — inline additions to author responses:
+
+- (re: bugs found in CPC's specs because Ethos only typechecks programs
+  at runtime) This is something you should underline more in the paper,
+  and give an example.
+
+- (re: "in some sense, one of the contributions of our work is that we
+  are figuring out what the semantics of 'higher-order' SMT needs to look
+  like") You should say that in the paper.
+
+
+
+Théo Winterhalter (INRIA Deducteam) — 2026-02-23
+---------------------------------------------------------------------------
+
+[Email reply on the same thread, with attachment feedback_eo2lp.md.
+Body: "Here is some feedback on the preprint, which I hope can be useful."]
+
+# Automatically Translating Proof Systems for SMT Solvers to the λΠ-calculus
+
+- Maybe use a `review` option for the document class so we have line numbers
+  to ease reporting errors.
+
+- I like how you typeset code and stuff, it looks pretty.
+
+> The SMT-LIB standard [9], which specifies the syntax and semantics of a
+> common language used for interacting with solvers.
+
+Missing main clause.
+
+> it allows specifying
+
+If I understand correctly, "allow" should take an object specifying who is
+allowed.
+
+- I think the first page of introduction is a bit too "declarative", saying
+  what are Eunoia, Dedukti and the translation between them, but it does not
+  say why. It should start first by saying why we would ever want to relate
+  the two.
+
+- The "Contribution" looks more like an outline to me. If it really is about
+  contribution I would change the focus to emphasise them instead, and have
+  sections in parentheses maybe.
+
+- There are two kinds or related work, those that provide context and that
+  should be placed at the beginning of the paper (to provide said context),
+  and those do not, which are better placed at the end so that comparison is
+  meaningful. To me, the first paragraph of "Related Work" clearly falls in
+  the latter category. The other two do not seem to be related work at all
+  to me. They deserve to be mentioned, but not in a paragraph called
+  "Related Work" in my opinion.
+
+- What is CPC? Maybe clarify this. It would be good to explain better
+  Figure 1.
+
+- The introduction doesn't really sell the work, it doesn't say why it's
+  relevant, why it's important, or what the key ideas are. It's a bit too
+  bare-bones at the moment.
+
+- Section 2 starts off with a big grammar, and the text is very verbose too.
+  Please, give *concrete* examples so it becomes a bit more palatable. You
+  could consider pushing this Section 2 to later, but first having a "Eunoia
+  by example" (sub)section first.
+
+> Ethos natively evaluates arithmetic and string built-ins using machine
+> operations, whereas our translation delegates to the integers and
+> rationals of the LambdaPi standard library for encoding Eunoia literals
+> and their built-in operations via rewrite rules.
+
+Seems off-topic in this context.
+
+> proof script is a list Υ = ( ⃗𝛿 ⨾ ⃗𝜋) where ⃗𝛿 is a list of standard
+> commands called the preamble and ⃗𝜋 is a list of proof commands called the
+> body of the script.
+
+Can a list really be composed of two lists? Seems like the first occurrence
+of "list" can go.
+
+- You use "wrt" and "wrt.", better be consistent.
+
+- I'm a bit lost in all the definitions and the example at the end of §2.1.
+
+- Reading Figure 5, I finally understand the weird colon symbol is the same
+  as the `::=` I'm used to seeing in grammars.
+
+> where 𝑥 is some 'fresh' variable that does not occur free in 𝑡2.
+
+I would drop the mention "fresh".
+
+> 𝑅Σ is congruent under application, abstraction, and substitution
+
+Usually congruence under substitution is a consequence, not part of the
+definition. Is there any reason for changing that? I mean, more precisely,
+you typically only include substitution for rewrite rules in the
+definition.
+
+- By the way, you do not need to give a full specification of LambdaPi
+  since it's just a target of the translation. For instance, it only makes
+  to explain the inference of implicit arguments if the *way* it is done is
+  relevant to your work. And then, I would only describe it where it is
+  relevant. Otherwise, you risk the reader wondering why information is fed
+  to them. Why should they care? You are not writing a reference manual. :)
+
+> Translating Terms. Because some Eunoia symbols are not valid LambdaPi
+> identifiers, the translation on symbols uses LambdaPi syntax for escaping
+> identifiers. That is, ̄𝑠 ≔ ⦃𝑠⦄ iff 𝑠 contains forbidden characters, and
+> ̄𝑠 ≔ 𝑠 otherwise.
+
+I think you're focusing on the wrong thing. This is completely irrelevant
+to the essence of what you're doing and is merely a technical detail. You
+can mention it of course, but I would do it only after I've explained the
+key ideas of the translation. My own take would be to describe first what
+happens "in maths", and later have a section about implementation that
+points out areas of friction that pertain to the real world.
+
+- Perhaps explain why CPC-mini is what it is, what you modified and why.
+  Ok, I see you do it soon after. Still, item (i) is a bit short: what kind
+  of theory is unsupported? Is there a good reason for that? Is it
+  fundamental, or can it be overcome with time? I don't understand what it
+  means for a type parameter to be tightened.
+
+> All 22 modules pass lambdapi check with full subject-reduction
+> verification; the signature is translated in ∼100 ms and checked in
+> ∼160 ms.
+
+Explain whether it's good or not. The reader will not know what this means.
+
+- The conclusion explains, better late than never, why this work is
+  relevant. Or actually it hints at this by saying you will explore this
+  idea. I think you can already argue that this redundancy is worthwhile,
+  otherwise, why are you doing the work?

@@ -18,15 +18,22 @@ A hand-written \texttt{Prelude.lp} module
 (${\sim}335$~lines) bootstraps the type embedding:
 it declares $\Set$, $\msf{τ}$, the function space~$⤳$,
 the higher-order application symbol $\lpo{app}$,
-Boolean logic, a heterogeneously-typed list type
-used to encode the variable-binders introduced by
-$\mbf{elab}$ on quantifier applications
-(\autoref{sec:eo-elab}), and arithmetic builtins as
-rewrite rules over LambdaPi's integers/rationals.
-%
+Boolean logic, and arithmetic builtins as rewrite
+rules over LambdaPi's integers/rationals
+(e.g.\ $\eo{add}\,(\ev{of\_Z}\,i)\,(\ev{of\_Z}\,j) ↪
+	\ev{of\_Z}\,(i + j)$).
+The prelude also defines a \emph{heterogeneously-typed}
+list type
+$\eo{hlist} : \Set$ whose entries carry their own
+sort, used to encode the
+$\eapp{\eo{var}}{\estr{x_i}\ T_i}$ variables produced
+by $\mbf{elab}$ on binder applications
+(\autoref{sec:eo-elab}, item~2).
 Closed expressions reduce concretely, so CPC's
-$\$\msf{run\_evaluate}$ program normalises
-ground terms like $\eapp{\ev{+}}{2\ 3}$ to $5$.
+\texttt{\$run\_evaluate} program---which recursively
+delegates to the $\eo{add}, \eo{mul}, \eo{and},
+	\eo{not},\ldots$ builtins---normalises ground terms
+like $\eapp{\ev{+}}{2\ 3}$ to $5$.
 
 \subsection{CPC-MINI}
 The Cooperating Proof Calculus (CPC) is the
@@ -67,8 +74,13 @@ unconstrained so that the same rule applies at both
 to \texttt{Int} where required, which suffices for
 our integer-arithmetic benchmarks.
 \emph{(iii)~Bug fixes:} several upstream typos and
-mismatched type parameters in array rewrites are
-patched; these we intend to contribute upstream.
+mismatched type parameters are patched; we intend to
+contribute these upstream. For instance, the
+upstream \texttt{\$mk\_cong\_rhs} program in
+\texttt{Uf.eo} typed its arguments with the codomain
+rather than the domain of its function
+parameter---a mismatch Ethos missed because it only
+typechecks program clauses at application time.
 %
 All 22~modules pass
 \texttt{lambdapi check} with full subject-reduction
@@ -97,34 +109,40 @@ with an average checking time of 0.47\,s.
 
 \input{results-table.tex}
 
-The seven equality and array fragments
-achieve a near-perfect pass rate
-(582 of 583), with the single failure being
-a timeout.
-%
-The seven linear arithmetic fragments
-pass 420 of 453~proofs (93\%):
-QF\_UFIDL, UFLIA, and LIA reach 98--100\%;
-the remaining failures are timeouts in
-QF\_LIA and QF\_IDL where large proofs exceed
-the 5-second limit, and 15~type-checking errors
-in QF\_UFLIA caused by integer-arithmetic rules
-(e.g.\ \texttt{arith-int-geq-tighten}) depending on
-the upstream \texttt{Reals} module that CPC-MINI
-does not yet include.
-%
-To probe scaling, we ran the translator on a
-larger sample of 439 \texttt{QF\_UF} proofs (up to
+The seven equality and array fragments achieve a
+near-perfect pass rate (582 of 583), with the single
+failure being a timeout. The seven linear-arithmetic
+fragments pass 420 of 453 proofs (93\%):
+QF\_UFIDL, UFLIA, and LIA reach 98--100\%; the
+remaining failures are 18 timeouts in QF\_LIA and
+QF\_IDL where large proofs exceed the 5-second
+limit, and 15 type-checking errors in QF\_UFLIA
+caused by CPC rules whose type signatures mix
+\texttt{Real} and \texttt{Int}---most prominently
+\texttt{arith-int-geq-tighten}, which declares a
+\texttt{Real} parameter but is applied here in an
+integer-only context.
+Such mixed-arithmetic rules are excluded by
+CPC-MINI's type-parameter tightening (change~(ii)
+above); the failure is therefore a \emph{type
+	coverage} gap at the \texttt{Real}/\texttt{Int}
+boundary, not a translation bug. Crucially,
+\emph{zero} failures are caused by a semantic
+disagreement with Ethos: every proof that Ethos
+accepts and we translate is accepted by LambdaPi up
+to coverage and time.
+
+To probe scaling, we ran the translator on a larger
+sample of 439 \texttt{QF\_UF} proofs (up to
 ${\sim}5{,}000$ lines each) under a 30-second
-timeout: all 439 check successfully.
-%
-The encoding scales linearly for typical proofs,
-with outliers triggered by expensive rewrite
-chains in program evaluation or list operations.
-%
-In particular, no failure in the main benchmark
-points to a translation bug: each is either a
-timeout absorbed by additional budget, or a missing
-CPC module that CPC-MINI does not currently include.
+timeout: all 439 check successfully. The encoding's
+overhead over pure type-checking is one $\msf{τ}$
+indirection per type plus rewriting for program
+evaluation; pure type-checking is linear, but the
+rewrite-based program evaluation needed for
+side-conditions and arithmetic can blow up on
+unusually long chains. Outliers in the main
+benchmark are dominated by such chains, not by
+translation bugs.
 
 \end{document}

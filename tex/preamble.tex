@@ -67,7 +67,7 @@
 	\definecolor{eoConst}{HTML}{7058be}%         types      (purple)
 	\definecolor{eoComment}{HTML}{3b5998}%       comments   (dark blue)
 	\definecolor{eoString}{HTML}{cc7a0a}%        strings    (amber)
-	\definecolor{eoPunct}{HTML}{918c8e}%         punctuation (grey)
+	\definecolor{eoPunct}{HTML}{5a5558}%         punctuation (dark grey)
 	\definecolor{eoFgMath}{HTML}{3a3338}%        foreground (softer)
 \fi
 
@@ -140,7 +140,6 @@ literate={(}{{\textcolor{eoPunct}{(}}}1
 		colframe=eoBoxFr,
 		arc=0pt,
 		boxrule=0.4pt,
-		borderline west={1pt}{0pt}{eoBuiltin},
 		left=14pt, right=2pt, top=2pt, bottom=2pt,
 		before skip=\medskipamount,
 		after skip=\medskipamount,
@@ -154,7 +153,6 @@ literate={(}{{\textcolor{eoPunct}{(}}}1
 		colframe=eoBoxFr,
 		arc=0pt,
 		boxrule=0.4pt,
-		borderline west={1pt}{0pt}{eoBuiltin},
 		left=14pt, right=2pt, top=2pt, bottom=2pt,
 		before skip=\medskipamount,
 		after skip=\medskipamount,
@@ -218,7 +216,6 @@ belowskip=0.5\medskipamount,
 	colframe=lpBoxFr,
 	arc=0pt,
 	boxrule=0.4pt,
-	borderline west={1pt}{0pt}{eoConst},
 	left=14pt, right=2pt, top=2pt, bottom=2pt,
 	before skip=\medskipamount,
 	after skip=\medskipamount,
@@ -232,7 +229,6 @@ belowskip=0.5\medskipamount,
 	colframe=lpBoxFr,
 	arc=0pt,
 	boxrule=0.4pt,
-	borderline west={1pt}{0pt}{eoConst},
 	left=14pt, right=2pt, top=2pt, bottom=2pt,
 	before skip=\medskipamount,
 	after skip=\medskipamount,
@@ -252,8 +248,7 @@ belowskip=0.5\medskipamount,
 			enhanced, listing only,
 			colback=eoBoxBg, colframe=eoBoxFr,
 			arc=0pt, boxrule=0.4pt,
-			borderline west={1pt}{0pt}{eoBuiltin},
-			left=14pt, right=2pt, top=2pt, bottom=2pt,
+				left=14pt, right=2pt, top=2pt, bottom=2pt,
 			before skip=\medskipamount, after skip=\medskipamount,
 		]\listboxsetup
 		}{\end{tcolorbox}}
@@ -262,8 +257,7 @@ belowskip=0.5\medskipamount,
 			enhanced, listing only,
 			colback=lpBoxBg, colframe=lpBoxFr,
 			arc=0pt, boxrule=0.4pt,
-			borderline west={1pt}{0pt}{eoConst},
-			left=14pt, right=2pt, top=2pt, bottom=2pt,
+					left=14pt, right=2pt, top=2pt, bottom=2pt,
 			before skip=\medskipamount, after skip=\medskipamount,
 		]\listboxsetup
 		}{\end{tcolorbox}}

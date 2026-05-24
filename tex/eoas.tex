@@ -4,243 +4,143 @@
 \input{macros.tex}
 
 \begin{document}
-\section{An Abstract Syntax for Eunoia}\label{sec:eunoia}
+\section{Eunoia}\label{sec:eunoia}
 % fig:eo-syntax is in intro.tex so it floats to the top of page 2
 % ---------------------------------------------------------
-\Autoref{fig:eo-syntax} defines syntax for the
-fragment of Eunoia considered in this document, where the
-metavariable $s$ ranges over a set of
-\emph{symbols}.\footnote{%
-In the absence of a published formal semantics for Eunoia,
-our presentation was developed through careful study of
-the Ethos user manual~\cite{EthosUser_manualmdMain} and
-source, together with discussions with the cvc5/Eunoia
-developers (see Acknowledgements).}
+This section presents the fragment of Eunoia targeted by our
+translation, together with the elaboration step that resolves
+$n$-ary applications to normal form.
 %
-First, we define grammars for the core term syntax.
+Eunoia currently has no published formal semantics:
+its meaning is defined operationally by Ethos.
 %
-Each term is either a symbol $s$, an (integer/rational/string)
-\emph{literal} $ℓ$, an \emph{application} $\eapp{s}{\vec t}$,
-or a \emph{binder application} $\eapp{s}{\epar{\vec ρ}\ t}$.
+The presentation here was informed by the
+Ethos user manual~\cite{EthosUser_manualmdMain},
+the Ethos source, and through discussions with the
+\cvc{5}/Eunoia developers.
 %
-Each \emph{parameter} $ρ$ consists of a symbol $s$, a term
-% forward ref to where we discuss typing ??
-$t$ (the type of the parameter), and possibly a
-\emph{parameter attribute} $ν$.
+% We accordingly do not give a typing relation or
+% algorithm for Eunoia, nor a model-theoretic semantics
+% analogous to the one in SMT-LIB~2.6~\cite{Barrett2015-standard}.
 
 
-Unlike standard LF-style frameworks, Eunoia supports
-$n$-ary applications of binary symbols.
-%
-A \emph{constant attribute} $α$ may be assigned to a
-declared symbol to specify how $n$-ary applications
-are \emph{elaborated} to binary form
-(see \autoref{sec:eo-elab}).
-%
-After elaboration, every application of a declared
-constant $s$ uses the built-in higher-order application
-operator $\mtt{\_}$, so that $\eapp{s}{t_1\ t_2}$ becomes
-$\eho{\eho{s}{t_1}}{t_2}$;
-only built-in and program symbols are applied directly.
-%
-For example, given $f$ with attribute
-$\rcn{t_\nil}$, the \emph{$f$-list} with elements
-$\plur t n$ is the nested application
-$\eho
-	{\eho{f}{t_1}}
-	{\eho
-		{\eho{f}{\ldots}}
-		{\eho{\eho{f}{t_n}}{t_\nil}}}
-$.
-%
-Similarly, $\bd{t_\cons}$ specifies that
-a binder application $\eapp{s}{\epar{\vec ρ}\ t}$
-is elaborated so that each parameter
-$\epar{x_i\ t_i}$ in $\vec ρ$ becomes a term
-$\epar{\eo{var}\ \estr{x_i}\ t_i}$
-within a $t_\cons$-list.
-
-Eunoia provides a fixed set of
-\emph{built-in symbols} (\autoref{fig:eo-syntax})
-for manipulating terms.
-%
-The list operators
-$\eo{nil}$, $\eo{cons}$, and $\eo{list\_concat}$
-construct and combine $f$-lists;
-$\eoreqs{t_1}{t_2}{t_3}$ acts as a guard,
-evaluating to $t_3$ only when $t_1$ and $t_2$
-are syntactically identical;
-and $\eoquote{t}$ marks $t$ as a
-\emph{quoted argument} whose value may appear
-in the return type of a rule or program.
-%
-Ethos natively evaluates arithmetic and string
-built-ins using machine operations, whereas our
-translation delegates to the integers and rationals
-of the LambdaPi standard library for encoding
-Eunoia literals and their built-in operations
-via rewrite rules.
-
-% \begin{example}\label{ex:eo-decls}
-% 	In CPC, $\ev{or}$
-% 	has attribute $\rcn{\false}$, so
-% 	$\eapp{\ev{or}}{\ev x\ \ev y\ \ev z}$
-% 	elaborates to its $\ev{or}$-list form:
-% 	$$\eho{\eho{\ev{or}}{\ev x}}{
-% 			\eho{\eho{\ev{or}}{\ev y}}{
-% 				\eho{\eho{\ev{or}}{\ev z}}{\false}}}$$
-% 	Here $\eapp{\eo{nil}}{\ev{or}\ \bool} = \false$
-% 	is the nil terminator.
-% 	%
-% 	Let $t_1 ≔ \eapp{\ev{or}}{\ev x\ \ev y}$ and
-% 	$t_2 ≔ \eapp{\ev{or}}{\ev w\ \ev z}$;
-% 	then $\eo{list\_concat}$ concatenates
-% 	the two $\ev{or}$-lists as follows:
-% 	\begin{align*}
-% 		 & \eapp{\eo{list\_concat}}{\ev{or}\ t_1\ t_2}
-% 		\\={}&
-% 		\eapp{\eo{list\_concat}}{\ev{or}}
-% 		\\&\qquad
-% 		\eho{\eho{\ev{or}}{\ev x}}{\eho{\eho{\ev{or}}{\ev y}}{\false}}
-% 		\\&\qquad
-% 		{\eho{\eho{\ev{or}}{\ev w}}{\eho{\eho{\ev{or}}{\ev z}}{\false}}}\rlap{)}
-% 		\\={}&
-% 		\eho{\eho{\ev{or}}{\ev x}}{
-% 			\eho{\eho{\ev{or}}{\ev y}}{
-% 				\eho{\eho{\ev{or}}{\ev w}}{
-% 					\eho{\eho{\ev{or}}{\ev z}}{\false}}}}
-% 		\\={}&
-% 		\eapp{\ev{or}}{\ev x\ \ev y\ \ev w\ \ev z}
-% 	\end{align*}
-% \end{example}
-
-\subsection{Signatures and Proof Scripts.}\label{sec:eo-sig}
 % ---------------------------------------------------------
-\begin{boxfigure}[t!]{fig:eo-commands}
-	{Eunoia commands and proof commands.}
-	\alttext{Two stacked grammar tables for Eunoia commands.
-		Top: standard commands---declare-const, declare-parameterized-const,
-		declare-consts (for literal categories), define (macro definition),
-		program (with signature and cases), declare-rule (with optional
-		premises/premise-list, args, requires, and conclusion attributes),
-		and include.
-		Bottom: proof commands---assume, assume-push, step (with rule, optional
-		premises, optional args), and step-pop.}{%
-		\vspace{4pt}\centerline{$\eoCommandSyntax$}
-		\boxfigurehline
-		\centerline{$\eoPrfCommandSyntax$}\vspace{4pt}}
+\subsection{Syntax, Commands, and Signatures}\label{sec:eo-sig}
+% ---------------------------------------------------------
+%
+\Autoref{fig:eo-syntax} defines the concrete syntax for Eunoia,
+where the metavariable $s$ ranges over a set of \emph{symbols}.
+%
+A term is either a symbol $s$, a literal $ℓ$
+(integer, rational, or string), an \emph{application}
+$\eapp{s}{\vec t}$, or a \emph{binder application}
+$\eapp{s}{\epar{\vec ρ}\ t}$.
+%
+A \emph{parameter} $\epar{s\ t\ \maybe{ν}}$ declares a symbol
+$s$ of type $t$ with an optional \emph{parameter attribute} $ν$
+% ($\attr{implicit}$ marks $ρ$ as
+% inferable from later arguments, and $\attr{list}$
+% marks it as an $f$-list pattern (see below).
+Similarly, a symbol may have a \emph{constant attribute} $α$
+that specifies how its $n$-ary applications are elaborated
+to binary form (see \autoref{sec:eo-elab}).
+%
+Commands are divided into \emph{standard commands}
+and \emph{proof commands}.
+
+A \emph{signature} $Σ$ is a set of \emph{declarations},
+where each declaration is either a \emph{typing} $s\prn{\vec ρ} : t$,
+an \emph{attribution} $s\prn{\vec ρ} ∷ α$,
+or a \emph{rewrite rule} $ℓ ↪ r$ with parameters $\vec \rho$.
+%
+\autoref{tab:cmd-decls} maps each command to
+the set of declarations it contributes.
+%
+Any sequence of standard commands $\vec δ$ thus
+determines a signature: the union of the
+declarations contributed by each command.
+%
+A \emph{proof script} $Υ = \prn{\vec δ ⨾ \vec π}$
+pairs a sequence of standard commands $\vec δ$
+(the \emph{preamble}) with a sequence of proof
+commands $\vec π$ (the \emph{body}); $Υ$ likewise
+determines a signature, which we call a \emph{proof}.
+%
+
+% ---------------------------------------------------------
+\begin{boxfigure}[t!]{fig:eo-builtins}
+	{Eunoia built-in symbols, grouped by family.}
+	\alttext{Built-in symbols grouped by family---core (eo::eq, eo::requires,
+		eo::quote, eo::var), boolean (eo::and, eo::or, eo::not, eo::xor),
+		arithmetic (eo::add, eo::mul, eo::neg, eo::zdiv), and
+		list (eo::nil, eo::cons, eo::list\_concat, eo::list\_len).}{%
+		\vspace{4pt}\centerline{$\eoBuiltinFig$}\vspace{4pt}}
 \end{boxfigure}
 % ---------------------------------------------------------
+%
+Eunoia also provides a set of \emph{built-in symbols}~(\autoref{fig:eo-builtins})
+that operate on the syntactic structure of terms.
+%
+The symbols $\eo{nil}$, $\eo{cons}$, $\eo{list\_concat}$
+construct and combine \emph{$f$-lists}
+(i.e., nested applications of a binary $f$,
+defined formally in \autoref{sec:eo-elab});
+$\eoreqs{t_1}{t_2}{t_3}$ acts as a guard, evaluating
+to $t_3$ only when $t_1$ and $t_2$ are syntactically
+identical; $\eoquote{t}$ marks $t$ as a \emph{quoted
+	argument} whose value may appear in the return type
+of a rule or program (Eunoia's mechanism for
+object-level dependent types); and $\eo{var}$
+constructs variable-like terms used by quantifiers
+(\autoref{sec:eo-elab}, item~2).
 
-The commands of Eunoia are divided into
-\emph{standard commands} and \emph{proof commands}.
-%
-Hereinafter, a Eunoia \emph{signature} is a list $Δ$
-of standard commands, and a \emph{proof script} is a
-list $Υ = \prn{\vec δ ⨾ \vec π}$
-where $\vec δ$ is a list of standard commands called
-the \emph{preamble} and $\vec π$ is a list of
-proof commands called the \emph{body} of the script.
-%
-In practice, a Eunoia-friendly SMT solver provides a
-signature $Δ$ encoding the inference rules that may
-be used by its proof scripts.
-%
-Then, the correctness of a proof script $Υ$ may then be
-checked wrt. $Δ$ via Ethos.
 
-In the following discussion, we define some terminology
-and notation for commands, signatures, and proof scripts.
-The resulting interface is useful for
-characterizing the elaboration and translation operators
-in \autoref{sec:eo-elab} and \autoref{sec:results}.
-%
-We omit datatype declarations, which are not used
-by CPC-MINI.
+\begin{table}[t!]
+	\centering
+	\caption{Declarations produced by each Eunoia command.
+		Parts in $\maybe{\cdot}$ are present only when the
+		corresponding attribute is supplied. Each program case
+		$c_i = \ecase{l_i}{r_i}$ contributes one rewrite rule.}
+	\label{tab:cmd-decls}
+	\small
+	\begin{tabular}{@{}lp{0.46\linewidth}@{}}
+		\hline
+		\textbf{Command} & \textbf{Declarations}                            \\
+		\hline
+		$\epar{\kw{declare-const}\ s\ t\ \maybe{α}}$
+		                 & $s : t,\,\maybe{s ∷ α}$                          \\
+		$\epar{\kw{declare-parameterized-const}\ s\ \epar{\vec ρ}\ t\ \maybe{α}}$
+		                 & $s\prn{\vec ρ} : t,\,\maybe{s ∷ α}$              \\
+		$\epar{\kw{declare-consts}\ ℓ\ t}$
+		                 & binds the literal class $ℓ$ to type $t$          \\
+		$\epar{\kw{define}\ s\ \epar{\vec ρ}\ t\ \maybe{\attr{type}\ t'}}$
+		                 & $s\prn{\vec ρ} ↪ t,\,\maybe{s\prn{\vec ρ} : t'}$ \\
+		$\epar{\kw{program}\ s\ \epar{\vec ρ}\ \attr{signature}\ \epar{\vec t}\ t'\ \epar{c_1 \ldots c_m}}$
+		                 & $s\prn{\vec ρ} : \earr{\vec t\ t'}$\,;\
+		$l_i ↪ r_i$ for each $c_i = \ecase{l_i}{r_i}$                       \\
+		$\epar{\kw{declare-rule}\ s\ \epar{\vec ρ}\ \ldots}$
+		                 & $s\prn{\vec ρ} : τ^★$
+		(\autoref{sec:eo-rules})                                            \\
+		$\epar{\kw{include}\ μ}$
+		                 & declarations of module~$μ$                       \\
+		$\epar{\kw{assume}\ s\ φ}$
+		\,/\,$\epar{\kw{assume-push}\ s\ φ}$
+		                 & $s : \eprf{φ}$                                   \\
+		$\epar{\kw{step}\ s\ φ\ \attr{rule}\ r\ \maybe{\attr{args}\ \epar{\vec t}}\
+				\maybe{\attr{premises}\ \epar{\vec p}}}$
+		                 & $s : \eprf{φ}$,\,
+		$s ↪ \eapp{r}{\vec t\ \vec p}$                                      \\
+		\hline
+	\end{tabular}
+\end{table}
 
-\subsubsection{Constant Declaration.}
+\subsection{Rule Declarations and Proofs.}\label{sec:eo-rules}
 %
-Let $δ$ be a \emph{(parameterized) constant declaration}
-with symbol $s$, parameters $\vec ρ$, and term $t$.
+Given an inference rule declaration
+$\epar{\kw{declare-rule}\ s\ \epar{\vec ρ}\ \ldots\ \conclusion φ}$,
+the derivation of its contributed type declaration
+$s\prn{\vec\rho} : \tau^\star$ is given thus:
 %
-We may write $\prn{δ ⊢ s(\vec ρ) : t}$ to express
-that the command $δ$ declares $t$ as the \emph{type} of $s$
-with respect to parameters $\vec ρ$.
-%
-Furthermore, if a constant attribute $α$ is given by $δ$,
-we may write $\prn{δ ⊢ s(\vec ρ) ∷ α}$.
-%
-\subsubsection{Macro Definition.}
-%
-Let $δ$ be a \emph{macro definition} with
-symbol $s$, parameters $\vec ρ$, and term $t$.
-%
-Then $δ$ declares $t$ as the \emph{definiens} of $s$
-wrt. $\vec ρ$; written $\prn{δ ⊢ s(\vec ρ) ≔ t}$.
-%
-If the attribute $\attr{type}\ t'$ is given by $δ$,
-then $\prn{δ ⊢ s(\vec ρ) : t'}$ also holds.
-%
-\subsubsection{Program Declaration.}
-%
-Let $δ$ be a \emph{program declaration} with
-symbol $s$, parameters $\vec ρ$,
-$\attr{signature}\,\prn{\plur t n}\,t'$,
-and cases $\plur c m$.
-%
-Then, the type and definiens of $s$ is given thus:
-% Let $\vec t = \plur t n$ and $\vec r = \plur r m$,
-% and $δ ∈ Δ$.
-% $(\plurcomma t n)$, \emph{range} $t'$ and
-% \emph{cases} $\vec r$ with respect to $\vec ρ$.
-%
-% More formally, we may write:
-$$
-	δ ⊢ s(\vec ρ) : \earr{\plur t n\, t'}
-	\quad\text{and}\quad
-	δ ⊢ s(\vec ρ) ≔ \mbf{cases}[c_1, \ldots, c_m]
-$$
-%
-\subsubsection{Proof Commands.}
-Each $π$ is either an \emph{assumption}
-(i.e., $\epar{\kw{assume}\ s\ φ}$ or
-$\epar{\kw{assume-push}\ s\ φ}$)
-or a \emph{step}
-(i.e.,
-$\epar{\kw{step}\ s\ φ\ \ldots}$ or
-$\epar{\kw{step-pop}\ s\ φ\ \ldots}$).
-%
-Here and below, $φ$ is a Eunoia term used as a
-\emph{formula} (i.e., a proposition whose validity
-is to be established).
-%
-In any case, we call
-$s$ the \emph{name} of $π$ and $φ$ the \emph{conclusion},
-written:
-$$π ⊢ s : \eapp{\mtt{Proof}}{φ}$$
-%
-When $π$ is a step with
-$\attr{rule}\ r$,
-the definiens of $s$ is the result of
-applying any terms given by
-$\attr{args}\ \epar{\plur t m}$,
-and
-$\attr{premises}\ \epar{\plur p n}$, e.g.;
-%
-$$
-	π ⊢ s ≔ \eapp{r}{\plur t m\ \plur p n}
-$$
-%
-\subsubsection{Rule Declaration.}
-%
-
-% --- Detailed rule typing (saved for sec:results) ---
-Let $δ$ be a \emph{rule declaration} with symbol $s$,
-parameters $\vec ρ$, and $\conclusion φ$.
-%
-By considering the attributes that may
-be supplied by $δ$, an appropriate type for $s$
-can be derived as follows:
 \begin{enumerate}
 	\item Given
 	      $\requires{\ecase{l_1}{r_1}\ldots\ecase{l_k}{r_k}}$,
@@ -251,7 +151,8 @@ can be derived as follows:
 		      }
 	      $$
 
-	\item If $δ$ provides no premises, let $τ^★ ≔ \eprf{φ^★}$.
+	\item If the declaration provides no premises,
+	      let $τ^★ ≔ \eprf{φ^★}$.
 	      Otherwise, define $τ^★$ thus:
 	      \begin{enumerate}
 		      \item Given
@@ -265,47 +166,27 @@ can be derived as follows:
 		            and let $τ^★ ≔ \earr{\eprf{ψ}\ \eprf{φ^★}}$.
 	      \end{enumerate}
 
-	\item If $δ$ provides $\attr{args}\ \epar{\plur t n}$,
-	      then the type of $s$ is given thus:
-	      $$δ ⊢
-		      s(\vec ρ)
+	\item If the declaration provides
+	      $\attr{args}\ \epar{\plur t n}$,
+	      then the type contributed for $s$ is:
+	      $$s\prn{\vec ρ}
 		      : \earr{\eoquote{t_1}\,\ldots\,\eoquote{t_n}\ τ^★}
 	      $$
-	      Otherwise, $δ ⊢ s(\vec ρ): τ^★$.
+	      Otherwise, $s\prn{\vec ρ}: τ^★$.
 \end{enumerate}
-% --- end saved rule typing ---
-
-\begin{figure}[t!]
-	\alttext{Four Eunoia declare-rule listings from cpc/rules/Booleans.eo:
-		modus\_ponens (with two premises F1 and (=> F1 F2), and conclusion F2);
-		reordering (with an :args quoted argument, a :premises clause,
-		a :requires guard using eo::list\_minclude, and a conclusion);
-		cnf\_implies\_pos (with a compound :args pattern (=> F1 F2)
-		and a disjunctive conclusion); and and\_intro (using :premise-list
-		over the binary symbol and).}{%
-		\begin{eobox}
-			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-modus-ponens.eo}%
-			\listsep
-			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-reordering.eo}%
-			\listsep
-			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-cnf-implies-pos.eo}%
-			\listsep
-			\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-and-intro.eo}%
-		\end{eobox}}
-	\caption{Rule declarations from
-		\texttt{cpc/rules/Booleans.eo},
-		see \autoref{ex:eo-rules}.}
-	\label{fig:cpc-rules}
-\end{figure}
 
 \begin{example}\label{ex:eo-rules}
-	Consider the inference rule declarations in
-	\autoref{fig:cpc-rules}.
+	Consider two rule declarations from
+	\texttt{cpc/rules/Booleans.eo}.
+	%
+	\begin{eobox}
+		\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-modus-ponens.eo}%
+		\lstinputlisting[style=eo, aboveskip=0pt, belowskip=0pt]{listings/rule-cnf-implies-pos.eo}%
+	\end{eobox}
 	%
 	\noindent
-	The $\ev{modus\_ponens}$ rule has only
-	$\attr{premises}$ and $\attr{conclusion}$.
-	By item 2a:
+	The $\ev{modus\_ponens}$ rule has only $\attr{premises}$ and
+	$\attr{conclusion}$, so item~2a gives:
 	$$
 		\ev{modus\_ponens}(\vec ρ)  :
 		{\color{eoPunct}{\texttt{(}}}\ev{->}\
@@ -315,33 +196,12 @@ can be derived as follows:
 		{\color{eoPunct}{\texttt{)}}}
 	$$
 	%
-	\noindent
-	The declaration of $\ev{reordering}$ additionally uses
-	$\attr{args}$ and $\attr{requires}$.
-	%
-	By item~3, $\ev{C2}$ becomes an $\lpo{quote}$-type,
-	and item~1 guards the conclusion
-	thus $\ev{C2}^★ ≔ \eoreqs
-		{\eapp{\eo{list\_minclude}}{\ev{or}\ \ev{C1}\ \ev{C2}}}
-		{\ev{true}}{\ev{C2}}$.
-	Then:
-	$$
-		\ev{reordering}(\vec ρ)  :
-		{\color{eoPunct}{\texttt{(}}}\ev{->}\
-		\eoquote{\ev{C2}}\
-		\eprf{\ev{C1}}\
-		\eprf{\ev{C2}^★}
-		{\color{eoPunct}{\texttt{)}}}
-	$$
-	%
-	\noindent
-	The declaration of $\ev{cnf\_implies\_pos}$
-	has $\attr{args}\ \epar{\eapp{\ev{=>}}{\ev{F1}\ \ev{F2}}}$,
-	where the argument is a compound term.
-	By item~3, the $\lpo{quote}$-typed parameter
-	demands pattern matching on this term
-	at the point of use,
-	where $φ$ is the $\attr{conclusion}$:
+	The $\ev{cnf\_implies\_pos}$ rule has
+	$\attr{args}\ \epar{\eapp{\ev{=>}}{\ev{F1}\ \ev{F2}}}$;
+	item~3 makes this an
+	$\eo{quote}$-typed parameter that pattern-matches at
+	the point of use, where $φ$ is the term given by
+	its $\attr{conclusion}$ attribute:
 	$$
 		\ev{cnf\_implies\_pos}(\vec ρ)  :
 		{\color{eoPunct}{\texttt{(}}}\ev{->}\
@@ -349,179 +209,90 @@ can be derived as follows:
 		\eprf{φ}
 		{\color{eoPunct}{\texttt{)}}}
 	$$
-	%
-	%
-	\noindent
-	Finally, $\ev{and\_intro}$ uses
-	$\premiselist{\ev F}{\ev{and}}$.
-	%
-	By item~2b, the conclusion is guarded thus,
-	$\ev{F}^★ ≔ \eoreqs
-		{\eapp{\eo{is\_list}}{\ev{and}\ \ev{F}}}
-		{\ev{true}}{\ev{F}}$. Hence:
-	$$
-		\ev{and\_intro}(\vec ρ)  :
-		{\color{eoPunct}{\texttt{(}}}\ev{->}\
-		\eprf{\ev{F}}\
-		\eprf{\ev{F}^★}
-		{\color{eoPunct}{\texttt{)}}}
-	$$
+	% TODO. re-add `reordering` and and_intro` to listing and prose.
+	Other rules combine these attributes:
+	$\ev{reordering}\ \attr{args}\,\attr{requires}$
+	uses item~3 plus a guard via item~1, and
+	$\ev{and\_intro}\ \premiselist{\ev F}{\ev{and}}$
+	guards $φ$ with $\eapp{\eo{is\_list}}{\ev{and}\ \ev{F}}$
+	via item~2b.
 \end{example}
 
-% where each $t_i$ has type $τ_i$ with respect to the
-% current context $\prn{Δ, \vec ρ}$.
-% %
-% We introduce an auxilliary symbol
-% $s^★$ with the following properties:
-% $$
-%  \begin{array}[t]{l@{\ ⊢\ }l}
-%   δ & s^★(\vec ρ) : \earr{\plur τ n\ \etype}
-%   \\[1mm]
-%   δ & s^★(\vec ρ) ≔ \mbf{cases}
-%   [
-%    \epar{{\eapp{s^★}{\plur t n}}\ τ^★}
-%   ]
-%  \end{array}
-% $$
-% where $\vec v ≔
-% %  \vec ρ ⨾ \epar{α_1\ τ_1}\,\ldots\,\epar{α_n\ τ_n}$.
-% 	      The use of the auxilliary symbol ensures that the
-% 	      `logical part' (i.e., the premises and conclusion)
-% 	      of the rule may be obtained iff the given
-% 	      arguments match the `patterns' specified by each $t_i$.
 
-\subsection{Elaboration of Terms}\label{sec:eo-elab}
+% ---------------------------------------------------------
+\subsection{Elaboration}\label{sec:eo-elab}
+% ---------------------------------------------------------
 %
-Terms are \emph{elaborated} to eliminate all $n$-ary
-applications and distinguish between constant-level and
-program-level function applications.
+Unlike standard LF-style frameworks, Eunoia supports
+$n$-ary applications of binary symbols, with the
+unrolling determined by a \emph{constant attribute}
+$α$ (\autoref{fig:eo-syntax}) assigned to the symbol
+at its declaration.
 %
-The elaborated form of $\eapp{f}{\vec t}$
-is determined by the attribute assigned to $f$ by $Δ$.
+After elaboration, every application of a declared
+constant $s$ uses the built-in higher-order
+application operator $\mtt{\_}$, so that
+$\eapp{s}{t_1\ t_2}$ becomes $\eho{\eho{s}{t_1}}{t_2}$;
+only built-in and program symbols are applied
+directly.
 %
-% %
-% For example, consider a constant declaration $δ$ with:
-% $$
-% 	δ ⊢ \eor : \earr{\bool\ \bool\ \bool}
-% 	\quad\text{and}\quad
-% 	δ ⊢ \eor ∷ {\rcn \false}
-% $$
-% % and $δ ⊢ $.
-% % $$\dca{\eor}{\earr{\bool\ \bool\ \bool}}$$
-% %
-% From the type of $\eor$, we may expect its only valid
-% uses to be of the form $\eapp{\eor}{t_1\ t_2}$.
-% %
-% However, the assignment of the constant attribute means
-% that the $\mtt{or}$ symbol is treated as
-% \emph{right-associative} with \emph{nil-terminator} $\false$.
-% %
-% Thus, $n$-ary applications of $\eor$ are
-% \emph{elaborated} to a normal form, e.g.;
-% %
-% $$\eapp{\eor}{\ev x\ \ev y\ \ev z}\ ⇢\
-% 	\eapp{\eor}{\ev x\ \eapp{\eor}{\ev y\ \eapp{\eor}{\ev z\ \false}}}$$
-% %
-% Furthermore, the elaboration of such applications may
-% also depend on the attributes of `locally bound' symbols.
-% For example, consider $\vec ρ$ containing
-% parameters $\epar{\ev x\ \bool}$,
-% $\epar{\ev y\ \bool\ \mtt{:list}}$,
-% and $\epar{\ev z\ \bool}$.
-% %
-% Then, observe:
-% $$
-% 	\eapp{\eor}{\ev x\ \ev y\ \ev z}
-% 	\ {⇢}
-% 	\ \econs\eor{\ev x}{
-% 		\econcat{\eor}{\ev y}{\eapp{\eor}{\ev z\ \false}}
-% 	}
-% $$
-% %
-% Here, $\eo{list\_concat}$ is a built-in ternary operator:
-% $\eapp{\eo{list\_concat}}{f\ \ell\ \ell'}$ concatenates
-% two $f$-lists $\ell$ and $\ell'$.
-% %
-% The $\mtt{:list}$ attribute alters the elaboration strategy
-% under the assumption that $\ev y$ will (eventually) be
-% substituted for some $\eor$-list.
-% %
-% It may be helpful for the reader
-% to consider the result of substituting
-% $\ev y ↦ \econs\eor{\ev w}{\false}$
-% thus:
-% $$
-% 	\begin{array}[t]{c}
-% 		\econs\eor{\ev x}{
-% 			\econcat{\eor}{\econs\eor{\ev w}{\false}}
-% 			{\eapp{\eor}{\ev z\ \false}}}
-% 		\\[1mm] {⇣} \\[1mm]
-% 		\econs\eor{\ev x}{
-% 			\econs\eor{\ev w}{
-% 				\econs\eor{\ev z}{\false}}
-% 		}
-% 	\end{array}
-% $$
-% %
-We define the $\mbf{elab}$ operator below with the aim
-of supporting the elaboration strategies
-corresponding to the constant attributes of
-\autoref{fig:eo-syntax}.
+For example, given $f$ with attribute $\rcn{t_\nil}$,
+the \emph{$f$-list} with elements $\plur t n$ is the
+nested application
+$\eho{\eho{f}{t_1}}{\eho{\eho{f}{\ldots}}{\eho{\eho{f}{t_n}}{t_\nil}}}$.
 %
+Similarly, $\bd{t_\cons}$ specifies that a binder
+application $\eapp{s}{\epar{\vec ρ}\ t}$ is elaborated
+so that each parameter $\epar{x_i\ t_i}$ in $\vec ρ$
+becomes a term $\epar{\eo{var}\ \estr{x_i}\ t_i}$
+within a $t_\cons$-list.
+
+The $\mbf{elab}$ operator below captures these
+elaboration strategies uniformly.
+
 \newcommand{\body}{\text{body}}
 \newcommand{\vars}{\text{vars}}
-\begin{definition}
+\begin{definition}\label{def:elab}
 	For any $Δ$ and $\vec ρ$, let $\elab{Δ,\vec ρ}$
 	be the least operator such that:
 	\begin{enumerate}
 		\item For any symbol $s$, $\elab{Δ,\vec ρ}[s] = s$.
 		      %
-		\item For any binder application
-		      $\eapp{s}{\epar{\vec v}\ t}$
-		      where
-		      $Δ ⊢ s ∷ \bd t_\cons$,
+		\item For a binder application
+		      $\eapp{s}{\epar{\vec v}\ t}$ with
+		      $Δ ⊢ s ∷ \bd t_\cons$, each parameter
+		      $\epar{x_i\ t_i} ∈ \vec v$ is reified as
+		      $X_i ≔ \epar{\eo{var}\ \estr{x_i}\ t_i}$,
+		      and:
 		      $$ \elab{Δ,\vec ρ}[\eapp{s}{\epar{\vec v}\ t}]
 			      =
 			      \eapp{s}{t_\vars\ t_\body}
-		      $$
-		      where $t_\vars$ encodes
-		      $\vec v = \epar{x_1\ t_1}\ldots\epar{x_n\ t_n}$
-		      as a $t_\cons$-list of $\eo{var}$ terms,
-		      and $t_\body$ is the result of substituting each
-		      $x_i$ in $t$ for its $\eo{var}$ counterpart:
-		      %
-		      $$
+			      \quad\text{where}\quad
 			      \begin{array}{l@{\ {≔}\ }l}
 				      t_\vars &
 				      \elab{Δ, \vec ρ}[\eapp{t_\cons}{\plur X n}]
 				      \\
 				      t_\body &
 				      \elab{Δ, \vec ρ}
-				      [\,
-				      \mbf{subst}_{\prn{\vec x, \vec X}}[t]
-				      \,]
+				      [\mbf{subst}_{\prn{\vec x, \vec X}}[t]]
 			      \end{array}
-			      \qquad
-			      {\small\text{where}\
-				      X_i ≔ \epar{\eo{var}\ \estr{x_i}\ t_i}}
 		      $$
 
 		      %
-		\item For any application $\eapp s {\vec t}$,
+		\item For an application $\eapp s {\vec t}$,
 		      let $t_i' ≔ \elab{Δ, \vec ρ}[t_i]$ in:
 		      \begin{enumerate}
-			      \item If $s$ is a built-in or $s ∈ Δ.\msf{prog}$, then
+			      \item If $s$ is a built-in or
+			            $s ∈ Δ.\msf{prog}$, then
 			            $\elab{Δ, \vec ρ}[\eapp{s}{\vec t}] =
 				            \eapp{s}{\vec t'}$.
 			      \item If $s ∈ \vec ρ$, then
 			            $\elab{Δ, \vec ρ}[\eapp{s}{\vec t}] =
-				            \eho{\ldots\eho{\eho{s}{{t_1'}}}{\ldots}}{{t_n'}}
-			            $.
+				            \eho{\ldots\eho{\eho{s}{{t_1'}}}{\ldots}}{{t_n'}}$.
 
-			      \item If $Δ ⊢ s ∷ α$ for some associative
-			            attribute $α$, then:
+			      \item If $Δ ⊢ s ∷ α$ for an associative
+			            $α$, the result is one of:
 			            $$
-				            \elab{Δ,\vec ρ}[\eapp{s}{\vec t}]\ {=}\
 				            \begin{scases}
 					            \foldr(G, t_\nil, \vec t')
 					            & \tsm{$\prn{α = \rcn{t_\nil}}$}
@@ -534,141 +305,62 @@ corresponding to the constant attributes of
 					            \\
 					            \foldl(G, t'_1, t'_2\ldots t'_{n})
 					            & \tsm{$\prn{α = \lc}$}
-					            % \\
-					            % \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{chain}(s, \vec t')}]
-					            %  &
-					            % \tsm{if $Δ ⊢ s ∷ \ch {t_\cons}$,}
-					            % \\
-					            % \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\mbf{pairs}(s, \vec t')}]
-					            %  &
-					            % \tsm{if $Δ ⊢ s ∷ \pw {t_\cons}$,}
-					            % \\
-					            % \elab{Δ,\vec ρ}[\eapp{{t_\cons}}{\vec t'}]
-					            %  &
-					            % \tsm{if $Δ ⊢ s ∷ \al {t_\cons}$,}
-					            % \\[1mm]
-					            %
-					            %  &
-					            % \tsm{otherwise.}
 				            \end{scases}
 			            $$
-			            where\footnote{%
-				            $\foldl(G, a, l)$ and $\foldr(G, a, l)$ are the
-				            standard left and right folds using combining
-				            function $G$ and accumulator $a$ on list $l$.
-			            }%
-			            $G(x,y) ≔ \glue{\vec ρ, s}[x,y]$ is defined as
-			            follows:
-			            $$
-				            \begin{array}[t]{r@{\ ≔\ }l}
-					            \glue{\vec ρ, s}[x,y]
-					             &
-					            \begin{scases}
-						            \econcat{s}{x}{y} & \tsm{$\prn{\vec ρ ⊢ x ∷ \attr{list}}$}
-						            \\
-						            \eho{\eho{s}{x}}{y}
-						            & \tsm{otherwise.}
-					            \end{scases}
-				            \end{array}
-			            $$
+			            where the combining function
+			            $G(x,y)$ is $\econcat{s}{x}{y}$ if
+			            $\vec ρ ⊢ x ∷ \attr{list}$ and
+			            $\eho{\eho{s}{x}}{y}$ otherwise.
 
-			      \item If $Δ ⊢ s ∷ α$ for some non-associative
-			            attribute $α$, then:
+			      \item If $Δ ⊢ s ∷ α$ for a non-associative
+			            $α$, then
+			            $\elab{Δ,\vec ρ}[\eapp{s}{\vec t}] =
+				            \elab{Δ,\vec ρ}[\eapp{t_\cons}{\vec u}]$
+			            where:
 			            $$
-				            \elab{Δ,\vec ρ}[\eapp{s}{\vec t}]\ {=}\
-				            \elab{Δ,\vec ρ}[T]
-			            $$
-			            where $T$ is defined using
-			            $\mbf{chain}$ and $\mbf{pairs}$
-			            thus:
-			            $$
-				            T ≔
+				            \vec u ≔
 				            \begin{scases}
-					            \eapp{t_\cons}{\mbf{chain}(s, \vec t)}
+					            \eapp{s}{t_1 t_2}\,\eapp{s}{t_2 t_3}
+					            \ldots\,\eapp{s}{t_{n-1} t_n}
 					            &
 					            \tsm{$\prn{α = \ch {t_\cons}}$}
 					            \\
-					            \eapp{t_\cons}{\mbf{pairs}(s, \vec t)}
+					            \eapp{s}{t_i t_j} \text{ for all } i < j
 					            &
 					            \tsm{$\prn{α = \pw {t_\cons}}$}
 					            \\
-					            \eapp{t_\cons}{\vec t}
+					            \vec t
 					            &
 					            \tsm{$\prn{α = \al {t_\cons}}$}
 				            \end{scases}
 			            $$
-			            $$
-				            \begin{array}[t]{r@{\ {≔}\ }l}
-					            \mbf{chain}(s,\, t_1\ldots t_n)
-					             & \eapp{s}{t_1\ t_2}\,
-					            \eapp{s}{t_2\ t_3}
-					            \,\ldots\,
-					            \eapp{s}{t_{n-1}\ t_n}
-					            \\[1mm]
-					            \mbf{pairs}(s,\, t_1\ldots t_n)
-					             & \eapp{s}{t_1\ t_2}
-					            \,\ldots\,
-					            \eapp{s}{t_1\ t_n}\,
-					            \eapp{s}{t_2\ t_3}
-					            \,\ldots\,
-					            \eapp{s}{t_{n-1}\ t_n}
-				            \end{array}
-			            $$
 
 		      \end{enumerate}
-
-		      %
-
 	\end{enumerate}
-
-	%
-
-
 \end{definition}
 
 \begin{example}\label{ex:elab}
-	Since $Δ ⊢ \ev{or} ∷ \rcn\false$,
-	item~3c applies with
-	$G(x,y) = \eho{\eho{\ev{or}}{x}}{y}$
-	and the right fold gives:
-	\begin{align*}
-		 & \elab{Δ, \vec ρ}[\eapp{\ev{or}}{\ev x\ \ev y\ \ev z}]
-		= \foldr(G,\, \false,\, \ev x\, \ev y\, \ev z)
-		\\={}&
+	Since $Δ ⊢ \ev{or} ∷ \rcn\false$, item~3c applies
+	with $G(x,y) = \eho{\eho{\ev{or}}{x}}{y}$ and the
+	right fold gives:
+	$$ \elab{Δ, \vec ρ}[\eapp{\ev{or}}{\ev x\ \ev y\ \ev z}]
+		=
 		\eho{\eho{\ev{or}}{\ev x}}{
 			\eho{\eho{\ev{or}}{\ev y}}{
 				\eho{\eho{\ev{or}}{\ev z}}{\false}}}
-	\end{align*}
+	$$
 	%
-	Similarly, since $Δ ⊢ \ev{=} ∷ \ch{\ev{and}}$,
-	item~3d applies with
-	$\mbf{chain}(\ev =,\, \ev a\, \ev b\, \ev c\, \ev d)
-		= \eapp{\ev =}{\ev a\ \ev b}\,
-		\eapp{\ev =}{\ev b\ \ev c}\,
-		\eapp{\ev =}{\ev c\ \ev d}$,
-	so:
-	\begin{align*}
-		 & \elab{Δ, \vec ρ}[\eapp{\ev{=}}{\ev a\ \ev b\ \ev c\ \ev d}]
-		\\={}&
+	For $Δ ⊢ \ev{=} ∷ \ch{\ev{and}}$, item~3d
+	first chains the equalities and then recurses
+	through $\ev{and}$'s $\rcn\false$ attribute:
+	$$
+		\elab{Δ, \vec ρ}[\eapp{\ev{=}}{\ev a\ \ev b\ \ev c\ \ev d}]
+		=
 		\elab{Δ, \vec ρ}[\eapp{\ev{and}}{
 				\eapp{\ev{=}}{\ev a\ \ev b}\
 				\eapp{\ev{=}}{\ev b\ \ev c}\
-				\eapp{\ev{=}}{\ev c\ \ev d}
-			}]
-	\end{align*}
-	which is then elaborated recursively
-	via the $\rcn\false$ attribute of $\ev{and}$.
+				\eapp{\ev{=}}{\ev c\ \ev d}}]
+	$$
 \end{example}
 
 \end{document}
-
-
-% \subsection{Terms, Types and Attributes}
-% %
-% The \emph{built-in constants} of Eunoia are given by a fixed
-% subset of symbols and denoted by the following expressions:
-% $\mtt{Type}$ (the kind of all types),
-% $\mtt{->}$ (arrow-type constructor),
-% $\mtt{\_}$ (binary function application),
-% $\mtt{Bool}$ (the type of Boolean values),
-% $\texttt{true}$ and $\texttt{false}$ (terms of type \mtt{Bool}).

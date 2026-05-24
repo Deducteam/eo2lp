@@ -113,7 +113,7 @@
 % --- builtin operators (sec:eo-builtin) ---
 \newcommand{\eoBuiltinFig}{
 	\begin{array}[t]{r@{\ }l@{\ }l@{\quad}l}
-		β & {⦂}
+		β & {⩴}
 		  & \eo{eq}\ ∣\ \eo{requires}\ ∣\ \eo{quote}\ ∣\ \eo{var}\ ∣\ \ldots
 		  & \mcomment{(core)}
 		\\
@@ -144,22 +144,23 @@
 \newcommand{\dca}[3]{\epar{\kw{declare-const}\ {#1}\ {#2}\ {#3}}}
 
 % --- figures for `eoas.tex` ------------------------------
-% s & {⦂}\ \sym 0 ∣ \sym 1 ∣ \ldots
+% s & {⩴}\ \sym 0 ∣ \sym 1 ∣ \ldots
 % 		& \mcomment{(symbols)}         &
 %
 \newcommand{\eoTermSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l@{\qquad}r@{\ }l@{\quad}l}
 		%!----------------------------------------!%
-		t & {⦂}\ s \mid ℓ \mid \eapp{s}{\vec t} \mid \eapp{s}{\epar{\vec{ρ}}\ t} & \mcomment{(terms)}           &
-		ρ & {⦂}\ \epar{s\ t\ \maybe{ν}}                                          & \mcomment{(parameters)}        \\[1mm]
-		ℓ & {⦂}\ \maybe{\ev{-}}n ∣ \maybe{\ev{-}}{n\ev{/}m}  ∣ \estr{\cdots}     & \mcomment{(literals)}        &
-		ν & {⦂}\ \attr{implicit} \mid \attr{list}                                & \mcomment{(prm. attributes)}   \\[1mm]
+		t & {⩴}\ s \mid ℓ \mid \eapp{s}{\vec t} \mid \eapp{s}{\epar{\vec{ρ}}\ t} & \mcomment{(terms)}           &
+		ρ & {⩴}\ \epar{s\ t\ \maybe{ν}}                                          & \mcomment{(parameters)}        \\[1mm]
+		ℓ & {⩴}\ \msf{int}(n) ∣ \msf{rat}(n, m) ∣ \msf{str}(s)                  & \mcomment{(literals)}        &
+		c & {⩴}\ \epar{t\ t'}                                                    & \mcomment{(cases)}             \\[1mm]
 	\end{array}
 }
 
 \newcommand{\eoAttrSyntax}{
 	\begin{array}[t]{r@{\ }l@{\ }l@{\quad}l}
-		α & {⦂} & \attr{right-assoc} ∣ \attr{right-assoc-nil}\ t & \mcomment{(const. attributes)} \\
+		ν & {⩴} & \attr{implicit} ∣ \attr{list}                  & \mcomment{(prm. attributes)}   \\[1mm]
+		α & {⩴} & \attr{right-assoc} ∣ \attr{right-assoc-nil}\ t & \mcomment{(const. attributes)} \\
 		  & {∣} & \attr{left-assoc} ∣ \attr{left-assoc-nil}\ t                                    \\
 		  & {∣} & \attr{chainable}\ s ∣ \attr{pairwise}\ s                                        \\
 		  & {∣} & \attr{binder}\ s ∣ \attr{arg-list}\ s
@@ -169,7 +170,7 @@
 \newcommand{\eoCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
 		δ & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \epar{\kw{declare-const}\ s\ t\ \maybe{α}}                               \\
+			    {⩴} & \epar{\kw{declare-const}\ s\ t\ \maybe{α}}                               \\
 			    {∣} & \epar{\kw{declare-parameterized-const}\ s\ \epar{\vec{ρ}}\ t\ \maybe{α}} \\
 			    {∣} & \epar{\kw{declare-consts}\ ℓ\ t}                                         \\
 			    {∣} & \epar{\kw{define}\ {s} \ \epar{\vec ρ} \ t\ \ \maybe{\attr{type}\,t'}}   \\
@@ -191,16 +192,14 @@
 			    {\color{eoPunct}{\texttt{)}}}                                                  \\
 			    {∣} & \epar{\kw{include}\ μ}
 		    \end{array}
-		  & \mcomment{(std. commands)}                                                                      \\[2mm]
-		c & {⦂}\ \epar{t\ t'}
-		  & \mcomment{(cases)}
+		  & \mcomment{(std. commands)}
 	\end{array}
 }
 
 \newcommand{\eoPrfCommandSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}l}
 		π & \begin{array}[t]{c@{\ }l}
-			    {⦂} & \epar{\kw{assume}\ s\ φ}      \\
+			    {⩴} & \epar{\kw{assume}\ s\ φ}      \\
 			    {∣} & \epar{\kw{assume-push}\ s\ φ} \\
 			    {∣} & \epar{\kw{step}\ s\ φ\
 			    \attr{rule}\ s'\
@@ -224,10 +223,10 @@
 \newcommand{\lpTermSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}r}
 		% ------------------------------------- %
-		μ & {⦂}\ \TYPE ∣ \KIND
+		μ & {⩴}\ \TYPE ∣ \KIND
 		  & \mcomment{(universes)}                                                             \\[1mm]
 		% ------------------------------------- %
-		t & {⦂}\ x ∣ κ ∣ μ ∣ \prn{\app{t}{t'}} ∣ \prn{\lam{x : t}{t'}} ∣ \prn{\pii{x : t}{t'}}
+		t & {⩴}\ x ∣ κ ∣ μ ∣ \prn{\app{t}{t'}} ∣ \prn{\lam{x : t}{t'}} ∣ \prn{\pii{x : t}{t'}}
 		  & \mcomment{(terms)}
 		% ------------------------------------- %
 	\end{array}
@@ -236,10 +235,10 @@
 \newcommand{\lpCtxSyntax}{
 	\begin{array}[t]{r@{\ }l@{\quad}r}
 		% ------------------------------------- %
-		γ & {⦂}\ \prn{x : t} \mid \prn{t ↪ t'} \
+		γ & {⩴}\ \prn{x : t} \mid \prn{t ↪ t'} \
 		  & \mcomment{(context elements)}        \\
 		% ------------------------------------- %
-		Γ & {⦂}\ \any{γ}
+		Γ & {⩴}\ \any{γ}
 		  & \mcomment{(contexts)}
 		% ------------------------------------- %
 	\end{array}
@@ -350,7 +349,7 @@
 
 \newcommand{\lpTermsConcrete}{
 	\begin{array}[t]{r@{\ }l@{\quad}r}
-		t & {⦂}\ s ∣ \imp{t} ∣ \prn{\app{t}{t'}}
+		t & {⩴}\ s ∣ \imp{t} ∣ \prn{\app{t}{t'}}
 		∣ \prn{\llam{ρ}{t}} ∣ \prn{\ppii{ρ}{t}}
 		  & \mcomment{(terms)}
 	\end{array}
@@ -358,20 +357,20 @@
 
 \newcommand{\lpPatternSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r@{\qquad}r@{\ }c@{\ }l@{\quad}r}
-		m & {⦂}
+		m & {⩴}
 		  & \md{constant} ∣ \md{sequential}
 		  & \mcomment{(modifiers)}
 		  &
-		θ & {⦂}
+		θ & {⩴}
 		  & \ptrn{x} ∣ s\,\any{θ}
 		  & \mcomment{(patterns)}
 		\\[1mm]
-		ρ & {⦂}
+		ρ & {⩴}
 		  & \xpl{s \pnc: t} ∣ \imp{s \pnc: t}
 		  & \mcomment{(parameters)}
 		  &
 		% ------------------------------------- %
-		r & {⦂}
+		r & {⩴}
 		  & \prn{{s\,\any{θ}} ↪ {θ'}}
 		  & \mcomment{(rewrite rules)}
 		% ------------------------------------- %
@@ -380,7 +379,7 @@
 
 \newcommand{\lpConcreteSyntax}{
 	\begin{array}[t]{r@{\ }c@{\ }l@{\quad}r}
-		c & {⦂}
+		c & {⩴}
 		  & \maybe{m}\, \kw{symbol}\ s \ \any{ρ} \,{\pnc : t} \ \maybe{≔ t'}\pnc;
 		  & \mcomment{(commands)}
 		\\

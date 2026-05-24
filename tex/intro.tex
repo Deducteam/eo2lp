@@ -42,8 +42,8 @@ namely LFSC~\cite{DBLP:journals/fmsd/StumpORHT13},
 Alethe~\cite{schurrAletheGenericSMT2021},
 and recently Eunoia~\cite{EthosUser_manualmdMain}.
 %
-Eunoia is both a proof output language and a logical framework:
-it allows specifying the constants, side-condition programs,
+Eunoia is both a proof output language and a logical framework
+for specifying the constants, side-condition programs,
 and inference rules of an SMT solver (e.g., \cvc{5}).
 The \emph{Cooperating Proof Calculus} (CPC) is the
 Eunoia signature encoding \cvc{5}'s proof system,
@@ -91,88 +91,40 @@ linear integer arithmetic, arrays, and sets.
 \end{boxfigure}
 % ---------------------------------------------------------
 
-\subsubsection{Contribution.}
-Our work has a dual role.
-Practically, \texttt{eo2lp} (\autoref{sec:results})
-provides an independent type-theoretic proof checker
-for \cvc{5}, translating all 22~modules of CPC-MINI
-(359~rules, 96~programs, 57~constants) and verifying
-97\% of 1{,}036~proof scripts across 14~SMT-LIB fragments.
-%
-Conceptually, the translation gives a
-\emph{typed interpretation} of Eunoia in the
-$λΠ$-calculus, where Eunoia sorts become elements of a
-Tarski universe~$\Set$ with carrier~$\msf{τ}$,
-inference rules become axioms, and side-condition
-programs become rewrite rules whose type preservation
-is checked by LambdaPi.
-%
-This parallels SMT-LIB's model-theoretic semantics
-where sorts are interpreted as sets, and is a step
-towards a formal semantics for the still-evolving
-Eunoia language.
-
-The paper is organised as follows.
-\Autoref{sec:eunoia} formalizes the fragment of
-Eunoia used by \cvc{5}---its term syntax, command
-structure, and elaboration semantics.
-%
-\Autoref{sec:lambdapi} defines the translation
-of Eunoia into the $λΠ$-calculus modulo rewriting,
-covering inference rules, side-condition programs,
-and elaboration uniformly so that \cvc{5}'s entire
-proof system is encoded automatically rather than
-rule-by-rule.
-%
-\Autoref{sec:results} describes \texttt{eo2lp}
-and reports the benchmark results.
+% \subsubsection{Contribution.}
+% Practically,
+% \texttt{eo2lp} (\autoref{sec:results}) allows
+% using LambdaPi as an independent proof checker for
+% \cvc{5}: it translates all 22 modules of CPC-MINI
+% (359 rules, 96 programs, 57 constants) and verifies
+% 97\% of 1{,}036 proof scripts across 14 SMT-LIB
+% fragments.
+% %
+% Conceptually, the translation gives an interpretation
+% of Eunoia in the $λΠ$-calculus in the absence of a
+% model-theoretic semantics like those given in the
+% SMT-LIB standard.
+% %
+% Eunoia's (dependent) types are interpreted as terms of a
+% type universe~$\Set$, inference rules as axioms,
+% and side-conditions as rewrite rules.
 
 \subsubsection{Related Work.}
-Coltellacci et
-al.~\cite{coltellacciReconstructionSMTProofs2024a,coltellacci25frocos}
-reconstruct Alethe~\cite{schurrAletheGenericSMT2021}
-proofs from
-\cvc{5}~\cite{Barbosa2022}
-in LambdaPi via hand-written soundness lemmas for each
-Alethe rule, covering UF and linear integer arithmetic.
-%
-Similarly, \textsc{lean-smt}~\cite{mohamed25leansmt}
-covers ${\sim}200$ of the 662~CPC rules
-(${\sim}30\%$) by interactively proving each rule
-sound in Lean~4, then automating the translation
-of cvc5 proofs that use them.
-%
-Our work instead targets Eunoia as a framework:
-all 359~CPC-MINI rules are translated automatically as
-\emph{axioms} in LambdaPi, without per-rule soundness
-proofs, but whose well-typedness and subject reduction
-are verified.
-
-The idea of reducing SMT proof checking to type
+The reduction of SMT proof checking to type
 checking originates with
 LFSC~\cite{DBLP:journals/fmsd/StumpORHT13};
 Eunoia inherits this approach and extends it with
-the higher-order features similar to those of
-the speculative SMT-LIB~3
+higher-order features similar to those of the
+speculative SMT-LIB~3
 proposal~\cite{barrettSMTLIB3Bringing,smt3-proposal,barbosa17hosmt}.
 %
-Brown~\cite{Brown2021} argues that this expressive
-type system calls for proof representations in
-type-theoretic frameworks; our encoding realizes
-this idea using the $λΠ$-calculus.
-%
-SMT proof reconstruction is also used within
-proof assistants:
-Isabelle/HOL replays Alethe
-proofs~\cite{DBLP:conf/cade/SchurrFD21,lachnitt25isabelle},
-SMTCoq~\cite{ekici17smtcoq} integrates solvers
-into Rocq, and
-IsaRare~\cite{lachnitt24isarare} verifies
-CPC rewrite rules in Isabelle/HOL.
+Brown~\cite{Brown2021} compares the prospects of interpreting
+the proposed type system within type-theoretic and set-theoretic
+frameworks; our encoding realizes the former via the $λΠ$-calculus
+modulo rewriting.
 
-The Dedukti ecosystem serves as an
-interoperability hub for proof assistants
-(Rocq~\cite{boespflug12coqine},
+The Dedukti/LambdaPi ecosystem is an interoperability hub for
+proof assistants (Rocq~\cite{boespflug12coqine},
 Isabelle~\cite{isabelle_dedukti},
 HOL~Light~\cite{assaf15translating},
 Matita~\cite{krajono},
@@ -181,28 +133,63 @@ and automated provers
 (iProverModulo~\cite{burel20first},
 ArchSAT~\cite{bury:tel-02612985},
 Vampire~\cite{komel2025case},
-TPTP~\cite{DBLP:conf/flairs/SutcliffeBB25});
-our work extends this ecosystem to SMT via
-the Eunoia framework.
+TPTP~\cite{DBLP:conf/flairs/SutcliffeBB25}).
+%
+Coltellacci et al.~\cite{coltellacciReconstructionSMTProofs2024a,coltellacci25frocos}
+reconstruct cvc5 proofs in LambdaPi via hand-written soundness lemmas for
+each rule of the Alethe~\cite{schurrAletheGenericSMT2021} proof format.
+%
+Similarly, \textsc{lean-smt}~\cite{mohamed25leansmt}
+reconstructs Eunoia proofs in Lean 4 using lemmas
+that encode a subset of CPC's rules.
+%
+Our work instead targets Eunoia at the framework
+level to allow encoding arbitrary
+Eunoia signatures and proof scripts
+in a type-theoretic framework.
+
+
+\subsubsection*{Outline}
+%
+\autoref{sec:lambdapi} defines the translation into
+the $λΠ$-calculus modulo rewriting uniformly across
+rules, programs, and elaboration;
+\autoref{sec:results} describes \texttt{eo2lp} and
+reports the benchmark results.
+
+%
+% SMT proof reconstruction is also used within
+% proof assistants:
+% Isabelle/HOL replays Alethe
+% proofs~\cite{DBLP:conf/cade/SchurrFD21,lachnitt25isabelle},
+% SMTCoq~\cite{ekici17smtcoq} integrates solvers
+% into Rocq, and IsaRare~\cite{lachnitt24isarare}
+% verifies CPC rewrite rules in Isabelle/HOL.
+
 
 % ---------------------------------------------------------
 % Placed here so it floats to the top of page 2
 \begin{boxfigure}[t!]{fig:eo-syntax}
-	{Syntax for Eunoia: terms, attributes, and built-in operators.}
-	\alttext{Three stacked grammar tables for Eunoia.
-		Top: term syntax---terms are symbols, literals, applications, or
-		binder applications; parameters carry an optional attribute (:implicit, :list).
-		Middle: constant attributes---right/left-associative (with optional nil terminator),
-		chainable, pairwise, binder, arg-list.
-		Bottom: built-in symbols grouped by family---core (eo::eq, eo::requires, eo::quote,
-		eo::var), boolean (eo::and, eo::or, eo::not, eo::xor),
-		arithmetic (eo::add, eo::mul, eo::neg, eo::zdiv), and
-		list (eo::nil, eo::cons, eo::list\_concat, eo::list\_len).}{%
+	{Eunoia syntax: terms, attributes, commands, proof commands.}
+	\alttext{Four stacked grammar tables.
+		First: terms---symbols, literals, applications, or binder applications;
+		literals as int(n), rat(n,m), or str(s); parameters and program cases.
+		Second: parameter attributes (:implicit, :list) and constant attributes
+		(right/left-associative with optional nil terminator, chainable, pairwise,
+		binder, arg-list).
+		Third: standard commands---declare-const, declare-parameterized-const,
+		declare-consts, define (macro definition), program (with signature and
+		cases), declare-rule (with optional premises/premise-list, args,
+		requires, and conclusion attributes), include.
+		Fourth: proof commands---assume, assume-push, step (with rule, optional
+		premises, optional args), and step-pop.}{%
 		\vspace{4pt}\centerline{$\eoTermSyntax$}
 		\boxfigurehline
 		\centerline{$\eoAttrSyntax$}
 		\boxfigurehline
-		\centerline{$\eoBuiltinFig$}\vspace{4pt}}
+		\centerline{$\eoCommandSyntax$}
+		\boxfigurehline
+		\centerline{$\eoPrfCommandSyntax$}\vspace{4pt}}
 \end{boxfigure}
 % ---------------------------------------------------------
 
